@@ -76,6 +76,44 @@ describe("invariantes da partida completa (checksums)", () => {
     }
   });
 
+  it("mão 5 encerra assim que o K♥ é capturado (não joga as 13 vazas)", () => {
+    let terminouAntes = false;
+    for (let seed = 1; seed <= 40; seed++) {
+      const m = createMatch(PLAYERS, seed);
+      for (let hn = 1; hn <= 5; hn++) {
+        startNextHand(m);
+        simulateHand(m, createRng(hn * 13 + seed));
+      }
+      const h = m.hand!;
+      expect(h.handScores).not.toBeNull(); // mão 5 encerrada
+      const last = h.completedTricks[h.completedTricks.length - 1];
+      // a última vaza da mão 5 sempre contém o K♥ (foi o que encerrou)
+      expect(last.cards.some((p) => p.card.rank === "K" && p.card.suit === "hearts")).toBe(true);
+      // não há vaza após a captura do King
+      expect(h.completedTricks.every((t, i) => i === h.completedTricks.length - 1 || !t.cards.some((p) => p.card.rank === "K" && p.card.suit === "hearts"))).toBe(true);
+      if (h.completedTricks.length < 13) terminouAntes = true;
+    }
+    expect(terminouAntes).toBe(true); // ao menos uma partida terminou antes da 13ª vaza
+  });
+
+  it("mãos 3 e 4 também encerram cedo quando todas as penalizadas caem (sem perder pontos)", () => {
+    let e3 = false, e4 = false;
+    for (let seed = 1; seed <= 200 && !(e3 && e4); seed++) {
+      const m = createMatch(PLAYERS, seed);
+      for (let hn = 1; hn <= 4; hn++) {
+        startNextHand(m);
+        simulateHand(m, createRng(hn * 29 + seed));
+        const h = m.hand!;
+        // o total distribuído sempre bate — nada é perdido no encerramento antecipado
+        expect(sum(h.handScores!)).toBe(HAND_CONTRACTS[hn].handTotal);
+        if (hn === 3 && h.completedTricks.length < 13) e3 = true;
+        if (hn === 4 && h.completedTricks.length < 13) e4 = true;
+      }
+    }
+    expect(e3).toBe(true);
+    expect(e4).toBe(true);
+  });
+
   it("cada positiva soma +325", () => {
     const m = playedMatch(9);
     for (const hn of [7, 8, 9, 10]) {

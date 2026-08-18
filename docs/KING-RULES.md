@@ -51,6 +51,11 @@
   1. Se **Copas é puxada** e o jogador tem o K♥, é **forçado a jogar o K♥** (mesmo com outras copas).
   2. Se o jogador está **sem o naipe puxado** (vai descartar) e tem o K♥, é **forçado a descartá-lo**.
   - Nenhuma animação pode revelar antecipadamente quem tem o K♥.
+- **Encerramento antecipado (regra geral das negativas):** uma mão negativa **termina assim que
+  TODAS as suas cartas penalizadas já foram capturadas** — pois não há mais pontos em disputa.
+  Aplica-se a: **Mão 2** (as 13 Copas), **Mão 3** (as 4 Damas), **Mão 4** (os 8 Homens) e **Mão 5**
+  (o K♥). As mãos **1** (não fazer vazas) e **6** (duas últimas) e as **positivas** sempre jogam as
+  **13 vazas**. Ao encerrar, segue-se direto para a próxima mão.
 
 ## 7. Mãos positivas (7–10)
 - Cada vaza vale **+25** ao vencedor → **+325 por mão**, **+1300** nas quatro.

@@ -127,7 +127,9 @@ motivo funcional comprovado. (Artifact eaf64375-0108-462b-bfa8-60c1b4875730.)
 - **Layout landscape**: HUD do contrato (topo-esq, consolidado: fase·mão / contrato / penalidade·vaza),
   ícone de placar (topo-dir, sem lista textual permanente), 4 jogadores nas posições fixas
   (você inferior · esq · topo · dir), **vaza central** (4 slots ligados a cada jogador, Z-order =
-  ordem de jogada), **leque de 13 cartas** inferior (protagonista).
+  ordem de jogada), **leque de 13 cartas** inferior (protagonista). **Organização padrão da mão:**
+  agrupada por naipe (cores alternadas ♠ ♥ ♣ ♦) e do **maior ao menor** (esq→dir); permanece
+  ordenada ao jogar. (Ordenação por valor pode ser opção futura.)
 - **Estados da carta**: `normal` · `jogável` (marca turquesa discreta) · `selecionada` (elevação
   −38px + escala 1.14 + endireita + anel dourado + sombra física) · `ilegal` (legível, dessaturada).
 - **K♥**: identidade especial (borda dourada + 👑) para o dono; quando ilegal, a indisponibilidade

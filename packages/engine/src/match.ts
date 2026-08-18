@@ -1,7 +1,7 @@
 // Máquina de estado da partida KING — 100% simulável por código, sem renderizar tela.
 // Autoridade única sobre distribuição, vazas, turnos, trunfo e pontuação (multiplayer-first).
 import type { Card } from "./cards.js";
-import { createRng, deal, makeDeck, sameCard, shuffle } from "./cards.js";
+import { createRng, deal, isKingOfHearts, makeDeck, sameCard, shuffle } from "./cards.js";
 import {
   HAND_CONTRACTS,
   trumpChooserFor,
@@ -65,6 +65,27 @@ export interface RankRow {
 }
 
 const nextSeat = (s: Seat): Seat => (((s + 1) % 4) as Seat);
+
+/**
+ * Mão negativa pode terminar quando TODAS as suas cartas penalizadas já foram capturadas:
+ * copas (13), damas (4), homens/K+J (8), King/K♥ (1). As mãos "não fazer vazas" e "duas
+ * últimas" (e as positivas) sempre jogam as 13 vazas.
+ */
+function allPenaltyResolved(kind: ContractKind, tricks: CompletedTrick[]): boolean {
+  const cards = tricks.flatMap((t) => t.cards.map((p) => p.card));
+  switch (kind) {
+    case "no-hearts":
+      return cards.filter((c) => c.suit === "hearts").length === 13;
+    case "no-queens":
+      return cards.filter((c) => c.rank === "Q").length === 4;
+    case "no-men":
+      return cards.filter((c) => c.rank === "K" || c.rank === "J").length === 8;
+    case "no-king":
+      return cards.some(isKingOfHearts);
+    default:
+      return false;
+  }
+}
 
 /**
  * Cria a partida. Os 4 jogadores são sentados na ORDEM do array recebido:
@@ -175,7 +196,9 @@ export function playCard(m: MatchState, seat: Seat, card: Card): void {
   });
   h.currentTrick = [];
 
-  if (h.trickNumber === 13) {
+  // Encerramento antecipado: uma mão negativa termina assim que TODAS as suas cartas
+  // penalizadas já foram capturadas — não faz sentido jogar as vazas restantes.
+  if (h.trickNumber === 13 || allPenaltyResolved(h.contract.kind, h.completedTricks)) {
     endHand(m);
   } else {
     h.trickNumber += 1;
