@@ -321,6 +321,25 @@ Onde há espaço, escreve-se por extenso. **"Homens" foi abolido.**
 | Placar (penalidade) | natural — `penaltyTextLong` | "−50 por Dama" · "−30 por Rei ou Valete" |
 | Placar (unidades capturadas) | natural — `handBreakdown` | "2 Damas" · "3 Reis/Valetes" · "5 Copas" · "4 vazas" · "1 K de Copas" |
 
+## HUD do contrato — destaque por fase ✅
+O HUD carrega o **objetivo da mão**, a informação que mais precisa ser lida — e estava com o
+mesmo peso visual dos cards de jogador. Ganhou um **halo na cor semântica da fase**:
+
+| Fase | Cor | Onde aparece |
+|---|---|---|
+| Negativa (mãos 1–6) | **magenta** `224,51,138` | borda, halo externo, anel interno e a sobrancelha |
+| Positiva (mãos 7–10) | **turquesa** `45,212,191` | idem |
+
+- Em repouso o halo é discreto (26px, alpha .3): chama atenção sem virar letreiro.
+- **Ao virar a mão** o card toca um realce curto (2,6s): sobe a 46px/alpha .8 em 16% do tempo e
+  desce para o repouso. O objetivo mudou — é o momento em que a atenção importa. A **key** do
+  React remonta o card a cada mão para o realce tocar de novo.
+- A **sobrancelha** ("FASE NEGATIVA · MÃO 2") passou a seguir a cor da fase. Antes era magenta
+  também nas positivas, contrariando a semântica do Design System (turquesa = positivo).
+- **Só cor e sombra mudam** — a caixa continua idêntica (161×72 no iPhone deitado), então as
+  folgas medidas e os testes de layout do Playwright seguem válidos.
+- Respeita `prefers-reduced-motion`: quem pede movimento reduzido recebe só o halo estático.
+
 ## Slot de trunfo — ✅ implementado
 Nas mãos **7–10** aparece um slot dedicado logo abaixo do HUD, com o **naipe em tamanho grande**
 (≈34px no iPhone deitado, até 3.3rem no desktop) — antes o trunfo era texto miúdo dentro do HUD

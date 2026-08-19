@@ -166,8 +166,11 @@ export function Mesa({
     <div className={`mesa${shaking ? " shaking" : ""}`}>
       <div className="inlay" />
 
-      {/* HUD do contrato */}
-      <div className="hud">
+      {/* HUD do contrato — é o objetivo da mão, a informação mais importante da tela.
+          A classe da fase pinta o halo (magenta na negativa, turquesa na positiva) e a `key`
+          remonta o card quando a mão vira, para o realce de atenção tocar de novo exatamente
+          no momento em que o objetivo muda. */}
+      <div className={`hud ${contract?.isPositive ? "pos" : "neg"}`} key={contract?.hand ?? 0}>
         <div className="ph">{contract?.isPositive ? "Fase positiva" : "Fase negativa"} · Mão {contract?.hand}</div>
         <div className="c">{contractTitle(contract?.kind)}</div>
         <div className="r">
