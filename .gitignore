@@ -6,6 +6,11 @@ build/
 .env
 .env.local
 coverage/
+# Playwright (relatórios e artefatos de diagnóstico)
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
 # mobile (Capacitor) — geradas depois
 android/
 ios/

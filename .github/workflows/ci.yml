@@ -1,0 +1,55 @@
+name: CI
+
+# Proteção contra regressões: motor, adaptador/UI, build e layout (Playwright).
+# Roda em toda PR e nos pushes das branches relevantes. NÃO publica, NÃO faz deploy.
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+
+# Cancela execuções antigas da mesma ref quando chega um push novo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: testes + build + layout
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node (versão do projeto)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalação limpa
+        run: npm ci
+
+      - name: Testes unit/integration (motor + web)
+        run: npm test
+
+      - name: Build completo (engine + web)
+        run: npm run build
+
+      - name: Navegador do Playwright (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Testes de layout (Playwright, todos os viewports)
+        run: npm run test:e2e
+
+      # Só quando algo falha: sobe relatório + screenshots como artefato de diagnóstico.
+      - name: Artefatos de diagnóstico (só em falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
