@@ -254,7 +254,9 @@ motivo funcional comprovado. (Artifact eaf64375-0108-462b-bfa8-60c1b4875730.)
 Nas mãos **7–10** aparece um slot dedicado logo abaixo do HUD, com o **naipe em tamanho grande**
 (≈34px no iPhone deitado, até 3.3rem no desktop) — antes o trunfo era texto miúdo dentro do HUD
 e é a informação mais consultada da mão positiva. Vermelho para ♥/♦, branco para ♣/♠, turquesa
-para "Sem Trunfo". Nas mãos 1–6 o slot **não existe** (regra do Design System).
+para "Sem Trunfo". Abaixo do naipe vem o **nome de quem escolheu o trunfo** — a informação
+vive junto do símbolo em vez de ficar perdida no HUD. Nas mãos 1–6 o slot **não existe**
+(regra do Design System).
 
 ## Placar entre-mãos — ✅ CONGELADO (componente oficial)
 Tela que aparece **ao fim de cada mão** e, na 10ª, vira o **placar final**. Não redesenha nada:

@@ -121,6 +121,10 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   letter-spacing:.14em;text-transform:uppercase;color:var(--gold);line-height:1;}
 .trumpslot .sym{font-family:var(--disp);font-weight:800;line-height:1;margin-top:3px;
   font-size:calc(var(--ui)*2.9);text-shadow:0 2px 10px rgba(0,0,0,.6);}
+/* quem escolheu o trunfo: a informação vive junto do naipe, não perdida no HUD */
+.trumpslot .who{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.78);
+  color:var(--muted);margin-top:calc(var(--ui)*.18);max-width:100%;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;}
 .trumpslot.red .sym{color:#ff5d86;}
 .trumpslot.black .sym{color:#fff;}
 .trumpslot.nt .sym{font-size:calc(var(--ui)*.8);color:var(--turq);letter-spacing:.02em;

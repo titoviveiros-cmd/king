@@ -166,6 +166,9 @@ export function Mesa({
         <div className={`trumpslot ${trump === "no-trump" ? "nt" : isRedSuit(trump) ? "red" : "black"}`}>
           <span className="lb">Trunfo</span>
           <span className="sym">{trumpLabel(trump)}</span>
+          {game.trumpChooser() !== null && (
+            <span className="who">{players[game.trumpChooser() as Seat]}</span>
+          )}
         </div>
       )}
       <div className="topbtn">

@@ -4,7 +4,7 @@
 // vaza, a pontuação e as transições de mão. Toda a lógica de KING vive em @king/engine.
 import {
   createMatch, startNextHand, selectTrump, legalCardsFor, playCard, publicView,
-  rankings, matchWinners, chooseBotCard, chooseBotTrump, handSummary, handBreakdown, matchStats,
+  rankings, matchWinners, chooseBotCard, chooseBotTrump, handSummary, handBreakdown, matchStats, trumpChooserFor,
   type Card, type Trump, type Seat, type MatchState, type RankRow, type HandSummary, type HandBreakdown, type MatchStats,
 } from "@king/engine";
 
@@ -60,6 +60,11 @@ export class KingGame {
   handCounts(): number[] { return this.m.hand ? this.m.hand.handCounts.slice() : [13, 13, 13, 13]; }
   awaitingTrumpFrom(): Seat | null { return this.m.hand?.awaitingTrumpFrom ?? null; }
   trump(): Trump | null { return this.m.hand?.trump ?? null; }
+  /** Assento que escolhe o trunfo da mão positiva em curso (rotação M7→P0 … M10→P3). */
+  trumpChooser(): Seat | null {
+    const h = this.m.hand;
+    return h && h.contract.isPositive ? trumpChooserFor(h.handNumber) : null;
+  }
   contract() {
     const h = this.m.hand;
     return h ? { hand: h.handNumber, kind: h.contract.kind, label: h.contract.label, isPositive: h.contract.isPositive } : null;

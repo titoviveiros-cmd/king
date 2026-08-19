@@ -134,3 +134,26 @@ describe("summary() — dados do Placar entre-mãos", () => {
     expect(sum(last.rankAfter.map((r) => r.score))).toBe(0); // checksum final
   });
 });
+
+describe("trumpChooser() — quem escolheu o trunfo aparece no slot", () => {
+  it("segue a rotação M7→P0, M8→P1, M9→P2, M10→P3 e é null nas negativas", () => {
+    const g = new KingGame(PLAYERS, 42);
+    const vistos: (number | null)[] = [];
+    let guard = 0;
+    while (!g.finished()) {
+      if (++guard > 20000) throw new Error("loop de segurança");
+      const ph = g.phase();
+      if (ph === "handEnd") { vistos.push(g.trumpChooser()); g.advanceHand(); continue; }
+      if (ph === "trump") {
+        if (g.humanChoosesTrump()) g.chooseTrumpHuman(chooseTrumpByMajority(g.view().yourHand));
+        else g.stepBotTrump();
+        continue;
+      }
+      if (g.isHumanTurn()) g.playHuman(g.legalCards()[0]);
+      else g.stepBotPlay();
+    }
+    vistos.push(g.trumpChooser()); // 10ª mão, já em matchEnd
+    // mãos 1..6 negativas => null; 7..10 => 0,1,2,3
+    expect(vistos).toEqual([null, null, null, null, null, null, 0, 1, 2, 3]);
+  });
+});
