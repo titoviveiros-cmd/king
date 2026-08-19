@@ -29,7 +29,9 @@ export const SEL = {
   trickCard: ".trick .card",
   handCard: ".hand .card",
   handCardLegal: '.hand .card[role="button"]',
+  handCardSelected: ".hand .card.sel",
   cardIdx: ".idx",
+  keyhint: ".keyhint",
   startBtn: ".home .btn.gold",
 } as const;
 

@@ -81,6 +81,17 @@ export function Mesa({
     return () => clearTimeout(id);
   }, [humanTurn]);
 
+  // Dica de teclado (SÓ em ambiente com teclado — ver `coarse` e o gate CSS por `pointer:fine`).
+  // Aparece depois do chip "Sua vez", fica ACIMA do leque (nunca sobre as cartas) e some após
+  // alguns segundos OU na primeira tecla de jogada. No toque não existe.
+  const [keyhintOn, setKeyhintOn] = useState(false);
+  useEffect(() => {
+    if (!humanTurn || coarse) { setKeyhintOn(false); return; }
+    setKeyhintOn(true);
+    const id = setTimeout(() => setKeyhintOn(false), 5500);
+    return () => clearTimeout(id);
+  }, [humanTurn, coarse]);
+
   // screen-shake nos momentos heróicos (King capturado) — Design System
   const [shaking, setShaking] = useState(false);
   useEffect(() => {
@@ -120,6 +131,7 @@ export function Mesa({
 
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
+        setKeyhintOn(false); // primeira interação por teclado: a dica já cumpriu o papel
         const step = e.key === "ArrowRight" ? 1 : -1;
         const next = at < 0
           ? (step > 0 ? 0 : legalCards.length - 1)
@@ -130,6 +142,7 @@ export function Mesa({
       }
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
+        setKeyhintOn(false);
         if (at >= 0) { s.setSelected(null); s.onPlay(legalCards[at]); }
         else { s.setSelected(cardKey(legalCards[0])); sfxCardSelect(); }
       }
@@ -210,7 +223,9 @@ export function Mesa({
         <>
           {showTurnChip && !selected && <div className="suavez">Sua vez</div>}
           {coarse && selected && <div className="confirmchip">Toque de novo ▸</div>}
-          <div className="keyhint"><b>← →</b> escolher · <b>Enter</b> jogar</div>
+          {!coarse && keyhintOn && !selected && (
+            <div className="keyhint"><b>← →</b> escolher · <b>Enter</b> jogar</div>
+          )}
         </>
       )}
 

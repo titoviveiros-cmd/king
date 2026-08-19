@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -7,6 +8,7 @@ import { fileURLToPath } from "node:url";
  * (`npm run test:e2e`), nunca pelo Vitest — por isso o include abaixo é restrito a `src`.
  */
 export default defineConfig({
+  plugins: [react()], // habilita JSX/TSX nos testes de componente (mesaScore.test.tsx)
   resolve: {
     alias: {
       "@king/engine": fileURLToPath(
