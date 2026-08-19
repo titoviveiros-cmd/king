@@ -106,6 +106,30 @@ do arco, vaza central, HUD, avatares e Placar saem daí ou de `clamp()` em `vh/v
   e estreita de PC o layout se adapta sozinho; pedir rotação de monitor seria absurdo.
 - **Altura real:** `--vh` = `1dvh` onde existe, `1vh` como reserva. No Android o `vh` ignora a
   barra do Chrome e as cartas ficariam maiores que o espaço visível.
+  > Houve uma versão que escrevia `--vh` por JS a partir de `visualViewport`. **Removida**:
+  > dependia de eventos de resize que nem sempre chegam e, quando não chegavam, o valor
+  > **congelava** — a mesa continuava dimensionada para uma tela anterior. `dvh` acompanha
+  > sozinho, sem evento.
+
+### Corredores e distâncias mínimas
+A mesa reserva faixas onde o leque nunca entra e mantém a vaza entre o card do topo e o leque.
+Medições com 13 cartas e vaza cheia (todas as folgas em px, todas positivas):
+
+| Tela | Carta | Seu card → leque | Topo → vaza | Vaza → leque | Leque → base |
+|---|---|---|---|---|---|
+| 667×375 | 47 | 23 | 28 | 46 | 9 |
+| 800×360 | 56 | 53 | 8 | 12 | 10 |
+| 852×393 | 60 | 63 | 19 | 18 | 10 |
+| 874×402 | 61 | 65 | 21 | 18 | 10 |
+| 956×440 | 67 | 71 | 27 | 20 | 10 |
+| 1024×768 | 72 | 59 | 148 | 167 | 15 |
+| 1600×900 | 96 | 222 | 164 | 162 | 17 |
+
+Duas armadilhas que já causaram sobreposição real e viraram regra:
+1. **A carta da ponta é girada 13,8°** — o canto dela avança além da caixa de layout. O
+   `--corredor` precisa contar com essa sobra, não só com a largura nominal do leque.
+2. **A vaza fica entre dois vizinhos apertados** (card do topo e leque). Qualquer mudança em
+   `--trickcw` ou no `top` da `.trick` precisa ser remedida nas telas baixas (360–402px).
 
 ### Escala tipográfica — `--ui`
 Toda a interface da mesa (HUD, cards dos jogadores, slot de trunfo, avisos) e os dois Placares

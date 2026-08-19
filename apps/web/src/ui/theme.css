@@ -75,12 +75,12 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   /* 12.2 (e não 13) da altura visível: sobra folga real na base — nas fotos do iPhone o leque
      estava encostando no limite inferior da tela. */
   --handcw:clamp(38px,min(7vw,calc(15.5 * var(--vh))),96px);
-  --trickcw:calc(var(--handcw)*.92);
+  --trickcw:calc(var(--handcw)*.84);
   /* corredor reservado nas laterais: é onde moram o seu card e o aviso de confirmação */
-  --corredor:clamp(120px,17vw,210px);
+  --corredor:clamp(140px,18.5vw,220px);
   --fanmax:min(calc(100vw - 2 * var(--corredor)),780px);
   --n:13;
-  --step:min(calc(var(--handcw)*.62),calc((var(--fanmax) - var(--handcw)) / max(calc(var(--n) - 1),1)));
+  --step:min(calc(var(--handcw)*.56),calc((var(--fanmax) - var(--handcw)) / max(calc(var(--n) - 1),1)));
   background:radial-gradient(120% 60% at 50% -8%,rgba(244,197,66,.09),transparent 55%),
     radial-gradient(70% 60% at 50% 44%,rgba(130,80,215,.26),transparent 72%),
     linear-gradient(165deg,#1d1238,#0e0520);
@@ -135,7 +135,7 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   padding:calc(var(--ui)*.5) calc(var(--ui)*.78);backdrop-filter:blur(6px);transition:box-shadow .3s;
   box-shadow:0 6px 18px -8px #000;}
 .opp.left{left:calc(var(--pad) + var(--sl));top:52%;transform:translateY(-50%);}
-.opp.top{top:calc(var(--pad) + var(--st) + clamp(42px,8.5vh,66px));left:50%;transform:translateX(-50%);}
+.opp.top{top:calc(var(--pad) + var(--st) + clamp(36px,7.5vh,62px));left:50%;transform:translateX(-50%);}
 .opp.right{right:calc(var(--pad) + var(--sr));top:52%;transform:translateY(-50%);}
 .opp .av{width:calc(var(--ui)*2.5);height:calc(var(--ui)*2.5);border-radius:50%;display:grid;place-items:center;
   font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.15);color:#0e0722;border:2px solid var(--night2);flex:none;}
@@ -149,7 +149,7 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .opp.active{box-shadow:0 0 0 2px var(--gold),0 0 22px rgba(244,197,66,.55);animation:pulse 1.8s ease-in-out infinite;}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 2px var(--gold),0 0 14px rgba(244,197,66,.45);}50%{box-shadow:0 0 0 2px var(--gold),0 0 26px rgba(244,197,66,.75);}}
 
-.trick{position:absolute;left:50%;top:43%;transform:translate(-50%,-50%);z-index:6;
+.trick{position:absolute;left:50%;top:49.5%;transform:translate(-50%,-50%);z-index:6;
   width:calc(var(--trickcw)*3.9);height:calc(var(--trickcw)*3.2);}
 .trick .slot{position:absolute;width:var(--trickcw);height:calc(var(--trickcw)*1.44);}
 .trick .slot .card{--cw:var(--trickcw);}
