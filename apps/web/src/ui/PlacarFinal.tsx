@@ -5,6 +5,7 @@ import { Crown } from "./Crown.js";
 import { contractTitle, trumpLabel, fmtSigned, ordinal } from "./contractText.js";
 import { audio } from "../audio/engine.js";
 import { TEMPOS } from "../game/timings.js";
+import { interpolar, saldosAntes, scoresPorAssento } from "./placarFinalDados.js";
 import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVictory } from "../audio/sounds.js";
 
 /**
@@ -42,7 +43,7 @@ export function PlacarFinal({
   const venci = campeoes.some((r) => r.seat === eu);
 
   const [etapa, setEtapa] = useState<Etapa>("entrada");
-  const [pontos, setPontos] = useState<number[]>(() => antes(finais, resumo?.scores));
+  const [pontos, setPontos] = useState<number[]>(() => saldosAntes(finais, resumo?.scores));
   const reduzido = usePrefersReducedMotion();
 
   // ---- encenação ----
@@ -56,8 +57,9 @@ export function PlacarFinal({
   // convergência dos pontos: sai do saldo ANTES da 10ª mão e chega no final
   useEffect(() => {
     if (etapa === "entrada") return;
-    const de = antes(finais, resumo?.scores);
-    const ate = finais.map((r) => r.score);
+    // AMBOS indexados por ASSENTO: `finais` vem ordenado por posição e não serve de índice
+    const de = saldosAntes(finais, resumo?.scores);
+    const ate = scoresPorAssento(finais);
     if (etapa !== "contagem") { setPontos(ate); return; }
     const t0 = performance.now();
     let ticks = 0;
@@ -65,7 +67,7 @@ export function PlacarFinal({
     const passo = () => {
       const k = Math.min(1, (performance.now() - t0) / DUR_CONTAGEM);
       const e = 1 - Math.pow(1 - k, 3);
-      setPontos(de.map((d, i) => Math.round(d + (ate[i] - d) * e)));
+      setPontos(interpolar(de, ate, e));
       const devidos = Math.floor(k * 14);
       while (ticks < devidos) sfxCountTick(ticks++);
       if (k < 1) raf = requestAnimationFrame(passo);
@@ -305,12 +307,6 @@ function Confetes() {
 
 // ---- apoio ----
 
-/** Saldos ANTES da última mão — ponto de partida da contagem. */
-function antes(finais: RankRow[], deltas?: number[]): number[] {
-  const base = [0, 0, 0, 0];
-  for (const r of finais) base[r.seat] = r.score - (deltas ? deltas[r.seat] : 0);
-  return base;
-}
 
 function ordenarPor(finais: RankRow[], ordem: Seat[]): RankRow[] {
   return ordem.map((s) => finais.find((r) => r.seat === s)!).filter(Boolean);

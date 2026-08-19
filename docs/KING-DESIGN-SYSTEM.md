@@ -322,6 +322,9 @@ Gabarito nos números com `tabular-nums` e o botão candy dourado como ação pr
 - **Rodapé:** **próximo contrato** (mão, nome, penalidade e quem escolhe o trunfo) + CTA candy
   **"PRÓXIMA MÃO ▸"**. No fim da partida: campeão (ou empate) no título, "Home" + "Nova partida".
 - **Motion:** `riseIn` no card e stagger nas 4 linhas; respeita `prefers-reduced-motion`.
+- **Regra de indexação:** `rankings()` vem ordenado **por posição**, não por assento. Qualquer
+  vetor derivado dele precisa ser reindexado por assento antes de virar coluna na tela — foi
+  assim que a pontuação de dois jogadores acabou trocada no Placar Final.
 - **Regra:** todos os números vêm de `handSummary` (motor). A tela **não recalcula** pontuação
   nem inventa desempate — empate aparece como mesma posição.
 

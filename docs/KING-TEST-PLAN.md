@@ -48,6 +48,13 @@ checksum errado, estados inválidos, mãos incompletas, pontuação impossível.
   ilesas, dono do K♥, maior mão da partida e margem da liderança → `stats.test.ts`.
 - Invariante checada: as vazas positivas dos 4 assentos somam **52** (4 mãos × 13).
 
+## Placar Final — indexação por assento
+`rankings()` devolve as linhas **ordenadas por posição**. Usar esse array como índice de
+jogador troca a pontuação entre jogadores — foi um bug que chegou à tela do Tito: o 2º colocado
+exibia o número do 3º. Todo vetor do Placar Final passa por `placarFinalDados.ts`, que só
+produz vetores **indexados por assento**, com regressão em `placarFinalDados.test.ts`
+(inclui um ranking com assentos fora de ordem, exatamente o caso do bug).
+
 ## Placar entre-mãos (apresentação sobre o motor)
 - `handBreakdown` explica CADA contrato (unidades capturadas × pontos) e é comparado célula a
   célula com `scoreHand` → `contracts.test.ts`.
