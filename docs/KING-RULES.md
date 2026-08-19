@@ -37,12 +37,12 @@
 
 | # | Contrato | Penalidade | Total da mão |
 |---|----------|-----------|--------------|
-| 1 | Não fazer vazas | −20 por vaza | **−260** |
-| 2 | Não fazer Copas | −20 por carta de Copas | **−260** |
-| 3 | Não fazer Damas | −50 por Dama (4) | **−200** |
-| 4 | Não fazer Homens (Reis e Valetes) | −30 por carta (8) | **−240** |
-| 5 | Não fazer o King (Rei de Copas) | −160 a quem levar a vaza do K♥ | **−160** |
-| 6 | Não fazer as duas últimas | −90 na 12ª e −90 na 13ª | **−180** |
+| 1 | Não pegar Vazas | −20 por vaza | **−260** |
+| 2 | Não pegar Copas | −20 por carta de Copas | **−260** |
+| 3 | Não pegar Damas | −50 por Dama (4) | **−200** |
+| 4 | Não pegar Reis e Valetes | −30 por carta (8) | **−240** |
+| 5 | Não pegar o Rei de Copas | −160 a quem levar a vaza do K♥ | **−160** |
+| 6 | Não pegar as duas últimas | −90 na 12ª e −90 na 13ª | **−180** |
 
 ### Restrições especiais
 - **Não abrir Copas** (apenas mãos **2 e 5**): não pode **abrir** uma vaza com Copas

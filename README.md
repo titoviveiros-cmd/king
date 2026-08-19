@@ -4,20 +4,14 @@ Segundo título da **família criativa do Verbete**. Jogo de vazas para 4 jogado
 (6 negativas + 4 positivas). Monorepo. Stack: React + TypeScript (web) + Capacitor (app);
 servidor Colyseus (multiplayer, fase futura). Orientação de gameplay: **Landscape**.
 
-## ⚠️ Pré-requisito: instalar o Node.js
-Este ambiente **não tem Node.js/npm** (verificado). Baixe a versão **LTS** em
-<https://nodejs.org> (marque adicionar ao PATH), reabra o terminal e confirme:
-```
-node -v
-npm -v
-```
-Sem Node é possível **ler** o código, mas **não** instalar dependências nem **rodar os testes**.
+## Pré-requisito
+**Node.js LTS** (>= 18). Confira com `node -v` / `npm -v`.
 
 ## Rodar
 ```
 npm install     # instala os workspaces
-npm test        # roda os testes do motor (Vitest) — inclui os checksums do KING
-npm run dev      # abre uma base web (React) em http://localhost:5173
+npm test        # testes do motor + do adaptador web (Vitest) — inclui os checksums do KING
+npm run dev     # base web jogável (React) em http://localhost:5173
 ```
 
 ## Estrutura
@@ -37,8 +31,10 @@ demo/             Protótipo visual antigo (genérico) — será substituído pe
 
 ## Estado (fases do Prompt Mestre)
 - ✅ Fase 1 — Documentação formal.
-- ✅ Fase 2 — Rule Engine (testes **escritos**; execução pendente do Node.js).
-- ⏳ Fase 3 simulação em massa → Fase 9 release.
+- ✅ Fase 2 — Rule Engine (testes **executados e verdes**).
+- ✅ Fase 3 — simulação em massa (`stress.test.ts`).
+- 🔵 Fase 4–5 — apresentação: base jogável (1 humano + 3 bots) + **Placar entre-mãos**.
+- ⏳ Fase 6 multiplayer → Fase 9 release.
 
 ## Invariantes garantidas pelos testes
 Deck 52 únicos · deal 4×13 · servir/baldar · regra do K♥ · checksums **−1300 / +1300 / 0** ·

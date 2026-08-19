@@ -1,8 +1,7 @@
 # KING — Plano de Testes
 
-> Status: testes **escritos** em `packages/engine/src/*.test.ts`. **Ainda não executados**
-> porque **Node.js/npm não estão instalados neste ambiente** (ver README). Assim que houver
-> Node: `npm install && npm test`.
+> Status: **executados e verdes** — `npm test` roda os dois workspaces
+> (`packages/engine/src/*.test.ts` + `apps/web/src/**/*.test.ts`).
 
 ## Invariantes obrigatórias (seção 60)
 | Invariante | Onde |
@@ -16,6 +15,8 @@
 | Checksum positivo = +1300 | `match.test.ts` |
 | Checksum final = 0 | `match.test.ts` (60 sementes) |
 | Cada jogador escolhe 1 trunfo | `match.test.ts` |
+| Explicação da mão bate com a pontuação | `contracts.test.ts` (`handBreakdown` × `scoreHand`) |
+| Ranking anterior + delta = ranking atual | `match.test.ts` (`handSummary`) |
 
 ## Testes por contrato (seção 61)
 - **no-tricks / no-hearts / no-queens / no-men / no-king / no-last-two / positive** →
@@ -41,6 +42,19 @@
 ## Fase 3 — Simulação em massa (a fazer com Node)
 Rodar milhares de partidas via `simulateMatch` procurando: deadlocks, jogadas impossíveis,
 checksum errado, estados inválidos, mãos incompletas, pontuação impossível.
+
+## Estatísticas da partida
+- `matchStats` agrega o histórico sem recalcular regra: melhor/pior mão por assento, negativas
+  ilesas, dono do K♥, maior mão da partida e margem da liderança → `stats.test.ts`.
+- Invariante checada: as vazas positivas dos 4 assentos somam **52** (4 mãos × 13).
+
+## Placar entre-mãos (apresentação sobre o motor)
+- `handBreakdown` explica CADA contrato (unidades capturadas × pontos) e é comparado célula a
+  célula com `scoreHand` → `contracts.test.ts`.
+- `handSummary` entrega ao Placar: delta da mão, ranking antes/depois, trunfo + quem escolheu,
+  encerramento antecipado e próximo contrato → `match.test.ts`.
+- O adaptador da UI vê **um placar por mão**, na ordem, com os checksums preservados →
+  `apps/web/src/game/kingGame.test.ts`.
 
 ## Testes multiplayer (Fase 6, seção 63)
 4 humanos; humanos + bots; disconnect; reconnect; timeout; app em background; ação duplicada;

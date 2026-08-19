@@ -4,8 +4,8 @@
 // vaza, a pontuação e as transições de mão. Toda a lógica de KING vive em @king/engine.
 import {
   createMatch, startNextHand, selectTrump, legalCardsFor, playCard, publicView,
-  rankings, matchWinners, chooseBotCard, chooseBotTrump,
-  type Card, type Trump, type Seat, type MatchState, type RankRow,
+  rankings, matchWinners, chooseBotCard, chooseBotTrump, handSummary, handBreakdown, matchStats,
+  type Card, type Trump, type Seat, type MatchState, type RankRow, type HandSummary, type HandBreakdown, type MatchStats,
 } from "@king/engine";
 
 export type Phase = "trump" | "play" | "handEnd" | "matchEnd";
@@ -30,6 +30,14 @@ export class KingGame {
   rankings(): RankRow[] { return rankings(this.m); }
   winners(): Seat[] { return matchWinners(this.m); }
   history() { return this.m.history.map((h) => ({ ...h, handScores: h.handScores.slice() })); }
+  /**
+   * Resumo autoritativo da mão encerrada — tudo que o Placar entre-mãos mostra
+   * (o que cada um capturou, delta, ranking antes/depois, próximo contrato).
+   * `null` enquanto a mão está em andamento.
+   */
+  summary(): HandSummary | null { return handSummary(this.m); }
+  /** Destaques da partida (melhor mão, negativas ilesas, quem levou o K♥, margem). */
+  stats(): MatchStats { return matchStats(this.m); }
   lastHandScores(): number[] | null {
     const last = this.m.history[this.m.history.length - 1];
     return last ? last.handScores.slice() : null;
@@ -42,6 +50,12 @@ export class KingGame {
     return { number: t.number, leader: t.leader, winner: t.winner, cards: t.cards.slice() };
   }
   trickNumber(): number { return this.m.hand?.trickNumber ?? 0; }
+  /** Detalhamento SÓ da última vaza (o motor é quem diz o que ela custou) — usado pelo áudio. */
+  lastTrickBreakdown(): HandBreakdown | null {
+    const h = this.m.hand;
+    if (!h || h.completedTricks.length === 0) return null;
+    return handBreakdown(h.contract.kind, [h.completedTricks[h.completedTricks.length - 1]]);
+  }
   currentTrick() { return this.m.hand ? this.m.hand.currentTrick.slice() : []; }
   handCounts(): number[] { return this.m.hand ? this.m.hand.handCounts.slice() : [13, 13, 13, 13]; }
   awaitingTrumpFrom(): Seat | null { return this.m.hand?.awaitingTrumpFrom ?? null; }

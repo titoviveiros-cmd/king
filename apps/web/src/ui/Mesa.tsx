@@ -1,6 +1,12 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Card, Trump, Seat } from "@king/engine";
-import { RANK_ORDER, SUIT_SYMBOL } from "@king/engine";
+import { RANK_ORDER } from "@king/engine";
+import { contractTitle, penaltyText, trumpLabel } from "./contractText.js";
+import { Placar } from "./Placar.js";
+import { PlacarFinal } from "./PlacarFinal.js";
+import { AudioButton } from "./AudioPanel.js";
+import { FullscreenButton } from "./FullscreenButton.js";
+import { sfxCardSelect, sfxTap } from "../audio/sounds.js";
 import type { KingGame } from "../game/kingGame.js";
 import { CardView } from "./CardView.js";
 
@@ -18,16 +24,36 @@ function sortDisplay(cards: Card[]): Card[] {
   return [...cards].sort((a, b) => (SUIT_ORDER[a.suit] - SUIT_ORDER[b.suit]) || (RANK_ORDER[b.rank] - RANK_ORDER[a.rank]));
 }
 const same = (a: Card, b: Card) => a.rank === b.rank && a.suit === b.suit;
+const cardKey = (c: Card) => c.rank + c.suit;
+const isRedSuit = (t: Trump) => t === "hearts" || t === "diamonds";
+
+/** Aparelho sem mouse (celular/tablet): o toque seleciona antes de confirmar. */
+function useCoarsePointer(): boolean {
+  const [coarse, setCoarse] = useState(
+    () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches,
+  );
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const mq = matchMedia("(pointer: coarse)");
+    const on = () => setCoarse(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return coarse;
+}
 
 export function Mesa({
-  game, reviewing, onPlay, onChooseTrump, onAdvance, onHome,
+  game, reviewing, shake, onPlay, onChooseTrump, onAdvance, onHome, onRestart, onOpenAudio,
 }: {
   game: KingGame;
   reviewing: boolean;
+  shake: number;
   onPlay: (c: Card) => void;
   onChooseTrump: (t: Trump) => void;
   onAdvance: () => void;
   onHome: () => void;
+  onRestart: () => void;
+  onOpenAudio: () => void;
 }) {
   const players = game.players();
   const contract = game.contract();
@@ -40,6 +66,77 @@ export function Mesa({
   const legal = humanTurn ? game.legalCards() : [];
   const hand = sortDisplay(game.view().yourHand);
 
+  const coarse = useCoarsePointer();
+  const [selected, setSelected] = useState<string | null>(null);
+  useEffect(() => { if (!humanTurn) setSelected(null); }, [humanTurn]);
+
+  // "SUA VEZ" é temporário (Design System): o estado permanente é o anel dourado no seu card.
+  // Some antes de você começar a escolher a carta, para não disputar espaço com o leque.
+  const [showTurnChip, setShowTurnChip] = useState(false);
+  useEffect(() => {
+    if (!humanTurn) { setShowTurnChip(false); return; }
+    setShowTurnChip(true);
+    const id = setTimeout(() => setShowTurnChip(false), 2200);
+    return () => clearTimeout(id);
+  }, [humanTurn]);
+
+  // screen-shake nos momentos heróicos (King capturado) — Design System
+  const [shaking, setShaking] = useState(false);
+  useEffect(() => {
+    if (!shake) return;
+    setShaking(true);
+    const id = setTimeout(() => setShaking(false), 520);
+    return () => clearTimeout(id);
+  }, [shake]);
+
+  /** No toque: 1º toque seleciona, 2º na mesma carta joga. No mouse: clique joga direto. */
+  const pickCard = (c: Card) => {
+    if (!coarse) { setSelected(null); onPlay(c); return; }
+    if (selected === cardKey(c)) { setSelected(null); onPlay(c); return; }
+    setSelected(cardKey(c));
+    sfxCardSelect();
+  };
+
+  // ---- teclado (PC) ----
+  // O handler é registrado UMA vez e lê o estado atual por ref (a mesa re-renderiza a cada
+  // passo dos bots; não faz sentido reassinar o listener nesse ritmo).
+  const kb = useRef({ phase, humanTurn, hand, legal, selected, onPlay, onChooseTrump, setSelected, chooseTrump: false });
+  kb.current = {
+    phase, humanTurn, hand, legal, selected, onPlay, onChooseTrump, setSelected,
+    chooseTrump: phase === "trump" && game.humanChoosesTrump(),
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const s = kb.current;
+      if (s.chooseTrump) {
+        const i = ["1", "2", "3", "4", "5"].indexOf(e.key);
+        if (i >= 0) { e.preventDefault(); s.onChooseTrump(TRUMPS[i].t); }
+        return;
+      }
+      if (s.phase !== "play" || !s.humanTurn || s.legal.length === 0) return;
+      const legalCards = s.hand.filter((c) => s.legal.some((l) => same(l, c)));
+      const at = legalCards.findIndex((c) => cardKey(c) === s.selected);
+
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const step = e.key === "ArrowRight" ? 1 : -1;
+        const next = at < 0
+          ? (step > 0 ? 0 : legalCards.length - 1)
+          : (at + step + legalCards.length) % legalCards.length;
+        s.setSelected(cardKey(legalCards[next]));
+        sfxCardSelect();
+        return;
+      }
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        if (at >= 0) { s.setSelected(null); s.onPlay(legalCards[at]); }
+        else { s.setSelected(cardKey(legalCards[0])); sfxCardSelect(); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // vaza a mostrar: a corrente, ou a última resolvida durante a pausa de leitura
   const cur = game.currentTrick();
   const last = game.lastCompletedTrick();
@@ -50,7 +147,7 @@ export function Mesa({
   const oppName = (s: Seat) => players[s];
 
   return (
-    <div className="mesa">
+    <div className={`mesa${shaking ? " shaking" : ""}`}>
       <div className="inlay" />
 
       {/* HUD do contrato */}
@@ -58,13 +155,24 @@ export function Mesa({
         <div className="ph">{contract?.isPositive ? "Fase positiva" : "Fase negativa"} · Mão {contract?.hand}</div>
         <div className="c">{contractTitle(contract?.kind)}</div>
         <div className="r">
-          {!contract?.isPositive && <span className="pen">{penaltyText(contract?.kind)}</span>}
-          {contract?.isPositive && <span className="pen">+25 / vaza</span>}
+          <span className="pen">{penaltyText(contract?.kind)}</span>
           <span className="vz">Vaza <b>{Math.min(game.trickNumber(), 13)}</b>/13</span>
-          {contract?.isPositive && trump && <span className="trump">Trunfo: {trumpLabel(trump)}</span>}
         </div>
       </div>
-      <div className="topbtn"><button className="btn ghost" onClick={onHome}>Sair</button></div>
+
+      {/* Slot de trunfo — só existe nas mãos positivas (Design System). Símbolo grande:
+          é consultado o tempo todo durante a mão. */}
+      {contract?.isPositive && trump && (
+        <div className={`trumpslot ${trump === "no-trump" ? "nt" : isRedSuit(trump) ? "red" : "black"}`}>
+          <span className="lb">Trunfo</span>
+          <span className="sym">{trumpLabel(trump)}</span>
+        </div>
+      )}
+      <div className="topbtn">
+        <FullscreenButton />
+        <AudioButton onOpen={onOpenAudio} />
+        <button className="btn ghost" onClick={() => { sfxTap(); onHome(); }}>Sair</button>
+      </div>
 
       {/* adversários */}
       {oppSeats.map((s) => (
@@ -81,7 +189,7 @@ export function Mesa({
       <div className="trick">
         {shownTrick.map((pc) => (
           <div key={pc.seat} className={`slot ${NAMES_SLOT[pc.seat]} ${winnerSeat === pc.seat ? "win" : ""}`}>
-            <CardView card={pc.card} cw={60} />
+            <CardView card={pc.card} />
           </div>
         ))}
       </div>
@@ -89,19 +197,40 @@ export function Mesa({
       {/* jogador local */}
       <div className={`youtag ${humanTurn ? "active" : ""}`}>
         <div className="av">{players[0][0]}</div>
-        <div><div className="n">{players[0]}</div><div className="m">🂠 {counts[0]} · {cumulative[0]} pts</div></div>
+        <div>
+          <div className="n">{players[0]}</div>
+          <div className="m">🂠 {counts[0]} · {cumulative[0]} pts</div>
+        </div>
       </div>
-      {humanTurn && <div className="suavez">Sua vez</div>}
+      {humanTurn && (
+        <>
+          {showTurnChip && !selected && <div className="suavez">Sua vez</div>}
+          {coarse && selected && <div className="confirmchip">Toque de novo ▸</div>}
+          <div className="keyhint"><b>← →</b> escolher · <b>Enter</b> jogar</div>
+        </>
+      )}
 
-      {/* leque */}
-      <div className="hand" style={{ width: fanWidth(hand.length) }}>
+      {/* leque — largura, passo e ângulo são calculados no CSS a partir de --n, --i e --ymax */}
+      <div
+        className="hand"
+        style={{
+          ["--n" as string]: hand.length || 1,
+          ["--ymax" as string]: arc((hand.length - 1) / 2),
+        }}
+      >
         {hand.map((c, i) => {
           const isLegal = legal.some((l) => same(l, c));
           const state = humanTurn ? (isLegal ? "legal" : "illegal") : "";
+          const mid = (hand.length - 1) / 2;
           return (
-            <CardView key={c.rank + c.suit} card={c} cw={66} state={state as "legal" | "illegal" | ""}
-              style={fanStyle(i, hand.length)}
-              onClick={humanTurn && isLegal ? () => onPlay(c) : undefined} />
+            <CardView
+              key={cardKey(c)}
+              card={c}
+              state={state as "legal" | "illegal" | ""}
+              selected={selected === cardKey(c)}
+              style={fanVars(i, Math.abs(i - mid))}
+              onClick={humanTurn && isLegal ? () => pickCard(c) : undefined}
+            />
           );
         })}
       </div>
@@ -111,111 +240,54 @@ export function Mesa({
         <TrumpOverlay onChoose={onChooseTrump} />
       )}
       {phase === "trump" && !game.humanChoosesTrump() && (
-        <div className="suavez" style={{ bottom: "auto", top: "46%" }}>
+        <div className="pickmsg">
           {oppName(game.awaitingTrumpFrom() as Seat)} está escolhendo o trunfo…
         </div>
       )}
-      {phase === "handEnd" && <HandEndOverlay game={game} onAdvance={onAdvance} />}
-      {phase === "matchEnd" && <MatchEndOverlay game={game} onHome={onHome} />}
+      {phase === "handEnd" && (
+        <Placar game={game} onAdvance={onAdvance} onHome={onHome} onRestart={onRestart} />
+      )}
+      {phase === "matchEnd" && (
+        <PlacarFinal game={game} onRestart={onRestart} onHome={onHome} />
+      )}
     </div>
   );
 }
 
+/**
+ * Painel de trunfo — ocupa só o miolo da mesa. O leque continua **visível e nítido** porque
+ * escolher o trunfo exige justamente analisar as 13 cartas.
+ */
 function TrumpOverlay({ onChoose }: { onChoose: (t: Trump) => void }) {
   return (
-    <div className="ov">
-      <div className="ovcard">
+    <div className="trumpov">
+      <div className="trumppanel">
         <h2>Escolha o trunfo</h2>
-        <div className="sub">Sua mão positiva — escolha o naipe (ou Sem Trunfo).</div>
+        <div className="sub">Analise sua mão abaixo e escolha o naipe (ou Sem Trunfo).</div>
         <div className="trumpgrid">
-          {TRUMPS.map((x) => (
-            <button key={x.t} className={`trumpbtn ${x.red ? "red" : ""} ${x.t === "no-trump" ? "nt" : ""}`} onClick={() => onChoose(x.t)}>
+          {TRUMPS.map((x, i) => (
+            <button
+              key={x.t}
+              className={`trumpbtn ${x.red ? "red" : ""} ${x.t === "no-trump" ? "nt" : ""}`}
+              autoFocus={i === 0}
+              onClick={() => onChoose(x.t)}
+            >
               {x.sym}<small>{x.label}</small>
             </button>
           ))}
         </div>
+        <div className="keyhint" style={{ position: "static", transform: "none", marginTop: 10 }}>
+          <b>1–5</b> escolhe pelo teclado
+        </div>
       </div>
     </div>
   );
 }
 
-function HandEndOverlay({ game, onAdvance }: { game: KingGame; onAdvance: () => void }) {
-  const scores = game.lastHandScores() ?? [0, 0, 0, 0];
-  const players = game.players();
-  const rows = game.rankings();
-  return (
-    <div className="ov">
-      <div className="ovcard">
-        <h2>Fim da mão</h2>
-        <div className="sub">{players.map((p, i) => `${p} ${fmt(scores[i])}`).join(" · ")}</div>
-        {rows.map((r) => (
-          <div key={r.seat} className="rankrow">
-            <span className="pos">{r.tied ? "=" : r.position + "º"}</span>
-            <span className="nm">{r.player}</span>
-            <span className={`sc ${r.score < 0 ? "neg" : r.score > 0 ? "pos" : ""}`}>{r.score}</span>
-          </div>
-        ))}
-        <div style={{ marginTop: 14 }}><button className="btn gold" onClick={onAdvance}>Próxima mão</button></div>
-      </div>
-    </div>
-  );
-}
+/** Curva do arco: quanto a carta desce conforme se afasta do centro do leque. */
+const arc = (dist: number) => Math.pow(Math.max(dist, 0), 1.25);
 
-function MatchEndOverlay({ game, onHome }: { game: KingGame; onHome: () => void }) {
-  const rows = game.rankings();
-  const champ = rows.find((r) => r.position === 1);
-  const tie = rows.filter((r) => r.position === 1).length > 1;
-  return (
-    <div className="ov">
-      <div className="ovcard">
-        <h2>🏆 {tie ? "Empate!" : `${champ?.player} venceu!`}</h2>
-        <div className="sub">Placar final da partida</div>
-        {rows.map((r) => (
-          <div key={r.seat} className="rankrow">
-            <span className="pos">{r.tied ? "=" : r.position + "º"}</span>
-            <span className="nm">{r.player}</span>
-            <span className={`sc ${r.score < 0 ? "neg" : r.score > 0 ? "pos" : ""}`}>{r.score}</span>
-          </div>
-        ))}
-        <div style={{ marginTop: 14 }}><button className="btn gold" onClick={onHome}>Voltar à Home</button></div>
-      </div>
-    </div>
-  );
+/** Só o índice e o afastamento do centro; o tamanho do leque é responsabilidade do CSS. */
+function fanVars(i: number, dist: number): CSSProperties {
+  return { ["--i" as string]: i, ["--y" as string]: arc(dist) } as CSSProperties;
 }
-
-// helpers de layout / textos
-function fanWidth(n: number) { const step = Math.min(46, 640 / Math.max(n, 1)); return (n - 1) * step + 66; }
-function fanStyle(i: number, n: number): CSSProperties {
-  const step = Math.min(46, 640 / Math.max(n, 1));
-  const mid = (n - 1) / 2;
-  const ang = (i - mid) * 2.3, x = i * step, y = Math.pow(Math.abs(i - mid), 1.25) * 2.1;
-  return { position: "absolute", bottom: 0, left: x, transform: `rotate(${ang}deg) translateY(${y}px)`, zIndex: i };
-}
-function contractTitle(kind?: string): string {
-  switch (kind) {
-    case "no-tricks": return "Não faça vazas";
-    case "no-hearts": return "❤️ Não faça Copas";
-    case "no-queens": return "👸 Não faça Damas";
-    case "no-men": return "Não faça Homens";
-    case "no-king": return "👑♥ Fuja do King";
-    case "no-last-two": return "Não faça as 2 últimas";
-    case "positive": return "Positiva — faça vazas";
-    default: return "";
-  }
-}
-function penaltyText(kind?: string): string {
-  switch (kind) {
-    case "no-tricks": return "−20 / vaza";
-    case "no-hearts": return "−20 / copa";
-    case "no-queens": return "−50 / dama";
-    case "no-men": return "−30 / homem";
-    case "no-king": return "K♥ = −160";
-    case "no-last-two": return "−90 (12ª e 13ª)";
-    default: return "";
-  }
-}
-function trumpLabel(t: Trump): string {
-  if (t === "no-trump") return "Sem Trunfo";
-  return SUIT_SYMBOL[t];
-}
-const fmt = (n: number) => (n > 0 ? `+${n}` : `${n}`);

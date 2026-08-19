@@ -12,6 +12,7 @@ import {
   playCard,
   legalCardsFor,
   rankings,
+  handSummary,
   type MatchState,
 } from "./match.js";
 import { simulateHand, simulateMatch } from "./sim.js";
@@ -171,5 +172,84 @@ describe("ranking", () => {
     expect(byScore(10).tied).toBe(true);
     expect(byScore(5).position).toBe(3);
     expect(byScore(0).position).toBe(4);
+  });
+});
+
+describe("handSummary — dados do Placar entre-mãos", () => {
+  it("é null enquanto a mão está em andamento", () => {
+    const m = createMatch(PLAYERS, 42);
+    expect(handSummary(m)).toBeNull();
+    startNextHand(m);
+    expect(handSummary(m)).toBeNull();
+  });
+
+  it("explica a mão encerrada e aponta o próximo contrato", () => {
+    const m = createMatch(PLAYERS, 42);
+    startNextHand(m);
+    simulateHand(m, createRng(99));
+    const s = handSummary(m)!;
+    expect(s.handNumber).toBe(1);
+    expect(s.contract.kind).toBe("no-tricks");
+    expect(s.scores).toEqual(m.hand!.handScores);
+    expect(s.breakdown.rows.map((r) => r.points)).toEqual(s.scores);
+    expect(sum(s.scores)).toBe(HAND_CONTRACTS[1].handTotal);
+    expect(s.nextContract?.hand).toBe(2);
+    expect(s.nextTrumpChooser).toBeNull();
+    expect(s.finished).toBe(false);
+  });
+
+  it("rankBefore + delta da mão reproduz exatamente o rankAfter", () => {
+    const m = createMatch(PLAYERS, 7);
+    for (let hn = 1; hn <= 4; hn++) {
+      startNextHand(m);
+      simulateHand(m, createRng(hn * 31 + 5));
+    }
+    const s = handSummary(m)!;
+    for (const row of s.rankBefore) {
+      const after = s.rankAfter.find((r) => r.seat === row.seat)!;
+      expect(row.score + s.scores[row.seat]).toBe(after.score);
+      expect(row.negatives + s.scores[row.seat]).toBe(after.negatives); // mão 4 é negativa
+      expect(row.positives).toBe(after.positives);
+    }
+  });
+
+  it("na mão positiva registra trunfo, quem escolheu e quem escolhe a seguir", () => {
+    const m = createMatch(PLAYERS, 5);
+    for (let hn = 1; hn <= 7; hn++) {
+      startNextHand(m);
+      simulateHand(m, createRng(hn * 17 + 3));
+    }
+    const s = handSummary(m)!;
+    expect(s.contract.isPositive).toBe(true);
+    expect(s.chooser).toBe(0);
+    expect(s.trump).not.toBeNull();
+    expect(sum(s.scores)).toBe(POSITIVE_CHECKSUM / 4);
+    expect(s.nextContract?.hand).toBe(8);
+    expect(s.nextTrumpChooser).toBe(1);
+  });
+
+  it("na 10ª mão marca fim de partida e não oferece próximo contrato", () => {
+    const m = playedMatch(2024);
+    const s = handSummary(m)!;
+    expect(s.handNumber).toBe(10);
+    expect(s.finished).toBe(true);
+    expect(s.nextContract).toBeNull();
+    expect(s.nextTrumpChooser).toBeNull();
+    expect(sum(s.rankAfter.map((r) => r.score))).toBe(FINAL_CHECKSUM);
+  });
+
+  it("marca encerramento antecipado quando a negativa acaba antes da 13ª vaza", () => {
+    let early = false;
+    for (let seed = 1; seed <= 40 && !early; seed++) {
+      const m = createMatch(PLAYERS, seed);
+      for (let hn = 1; hn <= 5; hn++) {
+        startNextHand(m);
+        simulateHand(m, createRng(seed * 100 + hn));
+        const s = handSummary(m)!;
+        expect(s.earlyEnd).toBe(s.breakdown.tricksPlayed < 13);
+        if (s.earlyEnd) early = true;
+      }
+    }
+    expect(early).toBe(true); // a mão 5 (King) praticamente sempre encerra antes
   });
 });

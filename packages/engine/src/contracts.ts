@@ -42,12 +42,12 @@ export interface CompletedTrick {
 
 /** Definição fixa dos 10 contratos, indexados por número da mão (1..10). */
 export const HAND_CONTRACTS: Record<number, ContractDef> = {
-  1: { hand: 1, kind: "no-tricks", label: "Não fazer vazas", noLeadHearts: false, isPositive: false, handTotal: -260 },
-  2: { hand: 2, kind: "no-hearts", label: "Não fazer Copas", noLeadHearts: true, isPositive: false, handTotal: -260 },
-  3: { hand: 3, kind: "no-queens", label: "Não fazer Damas", noLeadHearts: false, isPositive: false, handTotal: -200 },
-  4: { hand: 4, kind: "no-men", label: "Não fazer Homens", noLeadHearts: false, isPositive: false, handTotal: -240 },
-  5: { hand: 5, kind: "no-king", label: "Não fazer o King", noLeadHearts: true, isPositive: false, handTotal: -160 },
-  6: { hand: 6, kind: "no-last-two", label: "Não fazer as duas últimas", noLeadHearts: false, isPositive: false, handTotal: -180 },
+  1: { hand: 1, kind: "no-tricks", label: "Não pegar Vazas", noLeadHearts: false, isPositive: false, handTotal: -260 },
+  2: { hand: 2, kind: "no-hearts", label: "Não pegar Copas", noLeadHearts: true, isPositive: false, handTotal: -260 },
+  3: { hand: 3, kind: "no-queens", label: "Não pegar Damas", noLeadHearts: false, isPositive: false, handTotal: -200 },
+  4: { hand: 4, kind: "no-men", label: "Não pegar Reis e Valetes", noLeadHearts: false, isPositive: false, handTotal: -240 },
+  5: { hand: 5, kind: "no-king", label: "Não pegar o Rei de Copas", noLeadHearts: true, isPositive: false, handTotal: -160 },
+  6: { hand: 6, kind: "no-last-two", label: "Não pegar as duas últimas", noLeadHearts: false, isPositive: false, handTotal: -180 },
   7: { hand: 7, kind: "positive", label: "Positiva", noLeadHearts: false, isPositive: true, handTotal: 325 },
   8: { hand: 8, kind: "positive", label: "Positiva", noLeadHearts: false, isPositive: true, handTotal: 325 },
   9: { hand: 9, kind: "positive", label: "Positiva", noLeadHearts: false, isPositive: true, handTotal: 325 },
@@ -107,4 +107,80 @@ export function scoreHand(kind: ContractKind, tricks: CompletedTrick[]): number[
  */
 export function trumpChooserFor(handNumber: number): Seat {
   return ((handNumber - 7) % 4) as Seat;
+}
+
+/** Uma linha do detalhamento da mão (o que cada assento capturou e quanto valeu). */
+export interface HandBreakdownRow {
+  seat: Seat;
+  /** Vazas vencidas na mão (informativo em todos os contratos). */
+  tricks: number;
+  /** Itens contados pelo contrato que o assento capturou (copas, damas, homens, King…). */
+  units: number;
+  /** Delta da mão para o assento. Sempre igual a `units * perUnit`. */
+  points: number;
+}
+
+/** Detalhamento legível de UMA mão: o que cada assento capturou e o porquê da pontuação. */
+export interface HandBreakdown {
+  kind: ContractKind;
+  /** Pontos por unidade contada (ex.: −50 por Dama, +25 por vaza). */
+  perUnit: number;
+  /** Rótulo da unidade, singular e plural (pt-BR), para a UI não reinventar textos. */
+  unit: string;
+  unitPlural: string;
+  /** Vazas efetivamente jogadas (pode ser < 13 no encerramento antecipado das negativas). */
+  tricksPlayed: number;
+  rows: HandBreakdownRow[];
+}
+
+const UNIT_LABEL: Record<ContractKind, { unit: string; unitPlural: string; perUnit: number }> = {
+  "no-tricks": { unit: "vaza", unitPlural: "vazas", perUnit: -20 },
+  "no-hearts": { unit: "copa", unitPlural: "copas", perUnit: -20 },
+  "no-queens": { unit: "dama", unitPlural: "damas", perUnit: -50 },
+  "no-men": { unit: "homem", unitPlural: "homens", perUnit: -30 },
+  "no-king": { unit: "King", unitPlural: "King", perUnit: -160 },
+  "no-last-two": { unit: "última", unitPlural: "últimas", perUnit: -90 },
+  positive: { unit: "vaza", unitPlural: "vazas", perUnit: 25 },
+};
+
+/** Quantas unidades do contrato uma vaza entrega a quem a venceu. */
+function unitsInTrick(kind: ContractKind, trick: CompletedTrick): number {
+  const cards = trick.cards.map((p) => p.card);
+  switch (kind) {
+    case "no-tricks":
+    case "positive":
+      return 1;
+    case "no-hearts":
+      return cards.filter((c) => c.suit === "hearts").length;
+    case "no-queens":
+      return cards.filter(isQueen).length;
+    case "no-men":
+      return cards.filter(isMan).length;
+    case "no-king":
+      return cards.some(isKingOfHearts) ? 1 : 0;
+    case "no-last-two":
+      return trick.number === 12 || trick.number === 13 ? 1 : 0;
+  }
+}
+
+/**
+ * Explica a pontuação de UMA mão (mesma fonte de verdade de `scoreHand`).
+ * Puro e determinístico: a UI apenas apresenta, nunca recalcula regra.
+ */
+export function handBreakdown(kind: ContractKind, tricks: CompletedTrick[]): HandBreakdown {
+  const { unit, unitPlural, perUnit } = UNIT_LABEL[kind];
+  const rows: HandBreakdownRow[] = [0, 1, 2, 3].map((seat) => ({
+    seat: seat as Seat,
+    tricks: 0,
+    units: 0,
+    points: 0,
+  }));
+  for (const trick of tricks) {
+    const r = rows[trick.winner];
+    r.tricks += 1;
+    r.units += unitsInTrick(kind, trick);
+  }
+  // `|| 0` evita -0 quando nada foi capturado (ruído em comparações e na UI).
+  for (const r of rows) r.points = r.units * perUnit || 0;
+  return { kind, perUnit, unit, unitPlural, tricksPlayed: tricks.length, rows };
 }

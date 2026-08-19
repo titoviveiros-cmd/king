@@ -84,3 +84,53 @@ describe("integração adaptador ↔ engine — 1 humano + 3 bots", () => {
     expect(humanTrumpChoices).toBe(1); // rotação M7→P0..M10→P3: o humano (P0) escolhe uma vez
   });
 });
+
+describe("summary() — dados do Placar entre-mãos", () => {
+  it("só existe entre as mãos e descreve corretamente a mão que acabou", () => {
+    const g = new KingGame(PLAYERS, 21);
+    expect(g.summary()).toBeNull(); // mão 1 em andamento
+
+    const seen: number[] = [];
+    let guard = 0;
+    while (!g.finished()) {
+      if (++guard > 20000) throw new Error("loop de segurança");
+      const ph = g.phase();
+      if (ph === "handEnd") {
+        const s = g.summary()!;
+        seen.push(s.handNumber);
+        // o delta da mão bate com o contrato e com o detalhamento
+        expect(sum(s.scores)).toBe(s.contract.handTotal);
+        expect(s.breakdown.rows.map((r) => r.points)).toEqual(s.scores);
+        // ranking exibido = ranking do motor; antes + delta = depois
+        expect(s.rankAfter).toEqual(g.rankings());
+        for (const before of s.rankBefore) {
+          const after = s.rankAfter.find((r) => r.seat === before.seat)!;
+          expect(before.score + s.scores[before.seat]).toBe(after.score);
+        }
+        // próximo contrato: existe até a 9ª, some na 10ª
+        if (s.handNumber < 10) expect(s.nextContract?.hand).toBe(s.handNumber + 1);
+        else expect(s.nextContract).toBeNull();
+        // trunfo só nas positivas
+        expect(s.trump === null).toBe(!s.contract.isPositive);
+        g.advanceHand();
+        continue;
+      }
+      if (ph === "trump") {
+        if (g.humanChoosesTrump()) g.chooseTrumpHuman(chooseTrumpByMajority(g.view().yourHand));
+        else g.stepBotTrump();
+        continue;
+      }
+      if (g.isHumanTurn()) g.playHuman(g.legalCards()[0]);
+      else g.stepBotPlay();
+    }
+    // mãos 1..9 encerram em "handEnd"; a 10ª cai direto em "matchEnd" (fim de partida),
+    // por isso a Mesa renderiza o Placar nas duas fases.
+    expect(seen).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(g.phase()).toBe("matchEnd");
+    const last = g.summary()!;
+    expect(last.handNumber).toBe(10);
+    expect(last.finished).toBe(true);
+    expect(last.nextContract).toBeNull();
+    expect(sum(last.rankAfter.map((r) => r.score))).toBe(0); // checksum final
+  });
+});

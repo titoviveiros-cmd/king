@@ -12,5 +12,6 @@ export default defineConfig({
       ),
     },
   },
-  server: { port: 5173, open: true },
+  // host: true => o servidor também escuta na rede local (celular no mesmo Wi-Fi).
+  server: { port: 5173, open: true, host: true },
 });

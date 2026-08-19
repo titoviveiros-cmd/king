@@ -5,4 +5,5 @@ export * from "./contracts.js";
 export * from "./rules.js";
 export * from "./match.js";
 export * from "./sim.js";
+export * from "./stats.js";
 export * from "./bot.js";

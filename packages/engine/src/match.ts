@@ -4,8 +4,11 @@ import type { Card } from "./cards.js";
 import { createRng, deal, isKingOfHearts, makeDeck, sameCard, shuffle } from "./cards.js";
 import {
   HAND_CONTRACTS,
+  TRICKS_PER_HAND,
+  handBreakdown,
   trumpChooserFor,
   scoreHand,
+  type HandBreakdown,
   type CompletedTrick,
   type ContractDef,
   type ContractKind,
@@ -229,14 +232,22 @@ function endHand(m: MatchState): void {
   if (h.handNumber === 10) m.finished = true;
 }
 
-/** Ranking final/parcial. Empate na pontuação => MESMA posição (não inventamos desempate). */
-export function rankings(m: MatchState): RankRow[] {
+/**
+ * Classifica QUALQUER conjunto de saldos — usado pelo ranking atual e pelo ranking ANTERIOR à
+ * última mão (movimentação no placar entre-mãos). Empate => MESMA posição.
+ */
+export function rankFrom(
+  players: string[],
+  cumulative: number[],
+  negatives: number[],
+  positives: number[],
+): RankRow[] {
   const rows = [0, 1, 2, 3].map((seat) => ({
     seat: seat as Seat,
-    player: m.players[seat],
-    score: m.cumulative[seat],
-    negatives: m.negatives[seat],
-    positives: m.positives[seat],
+    player: players[seat],
+    score: cumulative[seat],
+    negatives: negatives[seat],
+    positives: positives[seat],
     position: 1,
     tied: false,
   }));
@@ -252,6 +263,11 @@ export function rankings(m: MatchState): RankRow[] {
   for (const r of rows) counts.set(r.position, (counts.get(r.position) ?? 0) + 1);
   for (const r of rows) r.tied = (counts.get(r.position) ?? 0) > 1;
   return rows;
+}
+
+/** Ranking final/parcial. Empate na pontuação => MESMA posição (não inventamos desempate). */
+export function rankings(m: MatchState): RankRow[] {
+  return rankFrom(m.players, m.cumulative, m.negatives, m.positives);
 }
 
 /** Assentos campeões (mais de um em caso de empate — registrado como empate). */
@@ -280,5 +296,61 @@ export function publicView(m: MatchState, seat: Seat) {
     handCounts: h ? h.handCounts.slice() : [0, 0, 0, 0],
     yourHand: h ? h.hands[seat].slice() : [],
     yourLegalCards: legalCardsFor(m, seat),
+  };
+}
+
+/**
+ * Resumo AUTORITATIVO da mão recém-encerrada — tudo que o Placar entre-mãos precisa mostrar:
+ * o que cada assento capturou, o delta da mão, o ranking antes/depois e o próximo contrato.
+ * A apresentação não recalcula nada; só formata o que vem daqui.
+ */
+export interface HandSummary {
+  handNumber: number;
+  contract: ContractDef;
+  trump: Trump | null;
+  /** Assento que escolheu o trunfo (só nas positivas). */
+  chooser: Seat | null;
+  /** Delta da mão por assento. */
+  scores: number[];
+  breakdown: HandBreakdown;
+  /** true quando a negativa terminou antes da 13ª vaza (todas as penalizadas já caíram). */
+  earlyEnd: boolean;
+  rankBefore: RankRow[];
+  rankAfter: RankRow[];
+  /** Contrato da próxima mão (null na 10ª). */
+  nextContract: ContractDef | null;
+  /** Quem escolherá o trunfo na próxima mão (null se negativa ou fim de partida). */
+  nextTrumpChooser: Seat | null;
+  finished: boolean;
+}
+
+export function handSummary(m: MatchState): HandSummary | null {
+  const h = m.hand;
+  if (!h || h.handScores === null) return null;
+  const scores = h.handScores.slice();
+  const before = (arr: number[], deltas: number[]) => arr.map((v, i) => v - deltas[i]);
+  const zero = [0, 0, 0, 0];
+  const negDeltas = h.contract.isPositive ? zero : scores;
+  const posDeltas = h.contract.isPositive ? scores : zero;
+  const nextNumber = h.handNumber + 1;
+  const nextContract = m.finished ? null : (HAND_CONTRACTS[nextNumber] ?? null);
+  return {
+    handNumber: h.handNumber,
+    contract: h.contract,
+    trump: h.trump,
+    chooser: h.contract.isPositive ? trumpChooserFor(h.handNumber) : null,
+    scores,
+    breakdown: handBreakdown(h.contract.kind, h.completedTricks),
+    earlyEnd: h.completedTricks.length < TRICKS_PER_HAND,
+    rankBefore: rankFrom(
+      m.players,
+      before(m.cumulative, scores),
+      before(m.negatives, negDeltas),
+      before(m.positives, posDeltas),
+    ),
+    rankAfter: rankings(m),
+    nextContract,
+    nextTrumpChooser: nextContract && nextContract.isPositive ? trumpChooserFor(nextNumber) : null,
+    finished: m.finished,
   };
 }

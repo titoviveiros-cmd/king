@@ -10,7 +10,7 @@ distribuição, vazas, pontuação, turno, trunfo e vencedor. O cliente apenas *
 | **Game Engine** | Regras puras, determinísticas, testáveis. Sem UI/rede. | ✅ implementado (`packages/engine`) |
 | **Multiplayer Engine** | Salas, matchmaking, sincronização autoritativa, reconexão, timeout. | ⏳ Fase 6 (`apps/server`, Colyseus) |
 | **Presentation** | UI, game feel, animações, partículas. | ⏳ Fase 4–5 (`apps/web`, React) |
-| **Audio** | Música / efeitos / haptics (controles separados). | ⏳ Fase 5 |
+| **Audio** | Música / efeitos / haptics (controles separados). | ✅ implementado (`apps/web/src/audio`, procedural) |
 | **Persistence** | Perfil, XP, progressão, cosméticos. | ⏳ Fase 7 |
 | **Analytics** | Eventos desacoplados. | ⏳ Fase 7 |
 | **Social** | Amigos, convites, emotes, compartilhamento. | ⏳ Fase 7 |
@@ -32,11 +32,18 @@ Motor puro; simula partida inteira **sem renderizar tela**. Determinístico por 
 | `legalCardsFor(m, seat)` | Cartas legais do jogador da vez (servir/baldar/contrato). |
 | `playCard(m, seat, card)` | Valida e aplica a jogada; resolve a vaza; avança. Lança erro se ilegal. |
 | `rankings(m)` | Classificação com empate = mesma posição. |
+| `rankFrom(players, cum, neg, pos)` | Classifica quaisquer saldos (usado p/ o ranking **anterior** à mão). |
+| `handBreakdown(kind, tricks)` | Explica a pontuação: o que cada assento capturou e quanto valeu. |
+| `handSummary(m)` | Pacote do **Placar entre-mãos**: delta, ranking antes/depois, trunfo, próximo contrato. |
+| `matchStats(m)` | Destaques da partida: melhor/pior mão, negativas ilesas, quem levou o K♥, margem. |
 | `matchWinners(m)` | Assento(s) campeão(ões). |
 | `publicView(m, seat)` | **Visão redigida** para o cliente (informação oculta — sem mãos alheias). |
 | `simulateMatch(m, rng)` | Driver de simulação legal-aleatória (Fase 3 / testes). |
 
-Módulos: `cards.ts` (baralho/força), `contracts.ts` (10 contratos + pontuação),
+> O Placar **não recalcula nada**: `handSummary` é a fonte única do que aparece entre as mãos
+> (e no fim da partida). A apresentação só formata texto pt-BR.
+
+Módulos: `cards.ts` (baralho/força), `contracts.ts` (10 contratos + pontuação), `stats.ts` (destaques),
 `rules.ts` (legalidade + resolução de vaza), `match.ts` (máquina de estado), `sim.ts` (simulação).
 
 ## Multiplayer autoritativo (Fase 6)
@@ -78,3 +85,7 @@ positivas e escolhe trunfo racionalmente. O driver `sim.ts` é a base técnica (
 ## Determinismo
 Embaralhamento por semente (`createRng`, mulberry32) combinada com o número da mão. Mesma
 semente ⇒ mesma partida — essencial para testes, reprodução de bugs e autoridade.
+
+A base web expõe isso em `?seed=N`: fixa a semente da partida solo. Serve para reproduzir um
+bug relatado e para revisar uma tela específica sem depender de sorte (foi assim que o cenário
+de vitória do jogador local foi montado para validar o Placar Final).
