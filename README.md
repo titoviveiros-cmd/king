@@ -14,6 +14,47 @@ npm test        # testes do motor + do adaptador web (Vitest) — inclui os chec
 npm run dev     # base web jogável (React) em http://localhost:5173
 ```
 
+## Continuar em outra máquina
+Todo o trabalho vive no Git — nada essencial fica só no disco local. Para retomar noutro
+computador:
+
+```
+git clone https://github.com/titoviveiros-cmd/king.git
+cd king
+git checkout feat/placar-audio-responsividade   # branch de trabalho atual
+npm install
+npm test
+npm run dev
+```
+
+Antes de trocar de máquina, na que você está deixando:
+
+```
+git status          # precisa estar limpo
+git push            # a branch precisa estar no remoto
+```
+
+O que **não** vem no clone e é normal:
+- `node_modules/` — resolvido pelo `npm install`.
+- Regra de firewall e IP da rede local, se você testa no celular. São por máquina; veja
+  "Testar no celular" abaixo.
+- Preferências de áudio (Música / Efeitos / Vibração) — ficam no navegador de cada aparelho.
+
+## Testar no celular (mesma rede Wi-Fi)
+O `vite.config.ts` já expõe o servidor na rede (`server.host: true`). Com `npm run dev` rodando,
+o terminal mostra o endereço `Network: http://SEU-IP:5173/` — é esse que se abre no celular,
+**com `http://` explícito** (o Safari tenta HTTPS sozinho e falha).
+
+Na primeira vez, o Windows pode exigir liberar a porta. No PowerShell **como Administrador**:
+
+```
+Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
+New-NetFirewallRule -DisplayName "KING dev server (Vite 5173)" -Direction Inbound -Protocol TCP -LocalPort 5173 -Action Allow -Profile Private
+```
+
+`?seed=N` na URL fixa a semente e reproduz uma partida idêntica — o motor é determinístico.
+Útil para revisar uma tela específica ou reproduzir um bug relatado.
+
 ## Estrutura
 ```
 packages/engine   Rule Engine puro (TypeScript). Simula partida inteira sem tela.
