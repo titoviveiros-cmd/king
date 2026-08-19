@@ -5,6 +5,7 @@
 import {
   createMatch, startNextHand, selectTrump, legalCardsFor, playCard, publicView,
   rankings, matchWinners, chooseBotCard, chooseBotTrump, handSummary, handBreakdown, matchStats, trumpChooserFor,
+  liveScores,
   type Card, type Trump, type Seat, type MatchState, type RankRow, type HandSummary, type HandBreakdown, type MatchStats,
 } from "@king/engine";
 
@@ -25,6 +26,14 @@ export class KingGame {
   handNumber(): number { return this.m.handNumber; }
   finished(): boolean { return this.m.finished; }
   cumulative(): number[] { return this.m.cumulative.slice(); }
+  /**
+   * Pontuação PÚBLICA ao vivo por assento (cumulativo consolidado + parcial da mão em curso,
+   * ambos do motor). É a fonte dos cards da Mesa: o card do vencedor incorpora o delta assim que
+   * a vaza é resolvida, sem esperar o fim da mão/fase. Ver `liveScores` em @king/engine.
+   */
+  liveScores(): number[] { return liveScores(this.m); }
+  /** Quantas vazas da mão corrente já foram resolvidas (0..13) — usado pelas regressões. */
+  completedTrickCount(): number { return this.m.hand?.completedTricks.length ?? 0; }
   negatives(): number[] { return this.m.negatives.slice(); }
   positives(): number[] { return this.m.positives.slice(); }
   rankings(): RankRow[] { return rankings(this.m); }

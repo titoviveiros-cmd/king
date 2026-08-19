@@ -65,6 +65,18 @@ partir de um ranking com assentos fora de ordem; os saldos "antes" (total − de
 por assento; a interpolação da contagem animada preserva os extremos; numa partida real, o vetor
 por assento é idêntico a `m.cumulative` e **soma 0**.
 
+## Mesa — pontuação pública AO VIVO por assento (`liveScores`)
+O card de cada jogador na Mesa incorpora o delta **no instante em que a vaza é resolvida** — sem
+esperar fim de mão/fase. A fonte é `liveScores(m)` no motor = `m.cumulative` (consolidado) **+**
+`scoreHand` sobre as vazas **já resolvidas** da mão em curso; ao encerrar a mão o parcial zera e
+`liveScores == cumulative` (sem dupla contagem). Nenhuma regra nova na UI — a Presentation só lê.
+- **Motor** (`match.test.ts`): a cada vaza resolvida, `liveScores == cumulativo + scoreHand(vazas
+  resolvidas)` nas 10 mãos, e `== cumulative` ao encerrar; prova tabelada de que o delta por
+  contrato (M1 −20/vaza … M7–10 +25/vaza) chega ao vencedor no instante da vaza.
+- **Mesa** (`mesaScore.test.tsx`): renderiza a Mesa real vaza a vaza e confere, por **assento**,
+  card == `liveScores` — Mão 1 incremental (−20 ao vencedor, outro mantém), acúmulo entre mãos
+  (não reinicia) e +25 imediato na fase positiva.
+
 ## Placar entre-mãos (apresentação sobre o motor)
 - `handBreakdown` explica CADA contrato (unidades capturadas × pontos) e é comparado célula a
   célula com `scoreHand` → `contracts.test.ts`.

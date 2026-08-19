@@ -60,7 +60,9 @@ export function Mesa({
   const contract = game.contract();
   const phase = game.phase();
   const counts = game.handCounts();
-  const cumulative = game.cumulative();
+  // Pontuação pública AO VIVO por assento (cumulativo + parcial da mão em curso, tudo do motor):
+  // o card do vencedor incorpora o delta assim que a vaza é resolvida. NUNCA por posição/ranking.
+  const scores = game.liveScores();
   const turn = game.turn();
   const trump = game.trump();
   const humanTurn = game.isHumanTurn();
@@ -197,7 +199,7 @@ export function Mesa({
           <div className="av">{oppName(s)[0]}</div>
           <div>
             <div className="n">{oppName(s)}</div>
-            <div className="m"><span className="cc">🂠 {counts[s]}</span><span className="pt">{cumulative[s]} pts</span></div>
+            <div className="m"><span className="cc">🂠 {counts[s]}</span><span className="pt">{scores[s]} pts</span></div>
           </div>
         </div>
       ))}
@@ -216,7 +218,7 @@ export function Mesa({
         <div className="av">{players[0][0]}</div>
         <div>
           <div className="n">{players[0]}</div>
-          <div className="m">🂠 {counts[0]} · {cumulative[0]} pts</div>
+          <div className="m">🂠 {counts[0]} · {scores[0]} pts</div>
         </div>
       </div>
       {humanTurn && (

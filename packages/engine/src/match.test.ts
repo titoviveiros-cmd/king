@@ -9,12 +9,16 @@ import {
 import {
   createMatch,
   startNextHand,
+  selectTrump,
   playCard,
   legalCardsFor,
   rankings,
   handSummary,
+  liveScores,
   type MatchState,
 } from "./match.js";
+import { scoreHand } from "./contracts.js";
+import { chooseBotCard } from "./bot.js";
 import { simulateHand, simulateMatch } from "./sim.js";
 
 const PLAYERS = ["P0", "P1", "P2", "P3"];
@@ -251,5 +255,86 @@ describe("handSummary — dados do Placar entre-mãos", () => {
       }
     }
     expect(early).toBe(true); // a mão 5 (King) praticamente sempre encerra antes
+  });
+});
+
+describe("liveScores — pontuação pública AO VIVO por assento (fonte dos cards da Mesa)", () => {
+  it("o card do vencedor incorpora o delta assim que a vaza RESOLVE — nas 10 mãos, sem dupla contagem", () => {
+    const m = createMatch(PLAYERS, 42);
+    let sawEarly = false, sawPositive = false;
+
+    for (let hn = 1; hn <= 10; hn++) {
+      startNextHand(m);
+      // mão positiva: resolve o trunfo antes de jogar (não afeta liveScores)
+      while (m.hand!.awaitingTrumpFrom !== null) selectTrump(m, m.hand!.awaitingTrumpFrom!, "no-trump");
+
+      const base = m.cumulative.slice(); // cumulativo consolidado ANTES desta mão
+      // fora de qualquer vaza resolvida, liveScores == cumulativo (nada parcial ainda)
+      expect(liveScores(m)).toEqual(base);
+
+      let prev = 0;
+      for (let guard = 0; m.hand!.handScores === null && guard < 200; guard++) {
+        const seat = m.hand!.turn!;
+        playCard(m, seat, chooseBotCard(m, seat));
+        const completed = m.hand!.completedTricks.length;
+        if (completed > prev) {
+          prev = completed;
+          if (m.hand!.handScores === null) {
+            // MÃO EM CURSO: liveScores == cumulativo(base) + parcial do motor sobre as vazas resolvidas
+            const partial = scoreHand(m.hand!.contract.kind, m.hand!.completedTricks);
+            expect(liveScores(m)).toEqual(base.map((v, i) => v + partial[i]));
+          }
+        }
+      }
+
+      if (m.hand!.completedTricks.length < 13) sawEarly = true;
+      if (m.hand!.contract.isPositive) sawPositive = true;
+      // MÃO ENCERRADA: cumulativo já incorporou o total; o parcial zera → sem dupla contagem
+      expect(m.hand!.handScores).not.toBeNull();
+      expect(liveScores(m)).toEqual([...m.cumulative]);
+    }
+
+    expect(m.finished).toBe(true);
+    expect(sawEarly).toBe(true);     // ao menos uma negativa encerrou cedo (parcial acompanhou)
+    expect(sawPositive).toBe(true);  // e as positivas (+25/vaza) também foram exercitadas
+    expect(liveScores(m).reduce((a, b) => a + b, 0)).toBe(FINAL_CHECKSUM); // soma 0 no fim
+  });
+
+  it("prova tabelada: o delta por contrato chega ao card do vencedor no instante da vaza", () => {
+    // Para cada tipo de contrato, joga a mão vaza a vaza e confere que o incremento do liveScores
+    // do vencedor bate exatamente com o delta do motor daquela vaza (M1 −20, M3 −50, M7 +25, …).
+    const m = createMatch(PLAYERS, 7);
+    const perContractSeen = new Set<string>();
+    for (let hn = 1; hn <= 10; hn++) {
+      startNextHand(m);
+      while (m.hand!.awaitingTrumpFrom !== null) selectTrump(m, m.hand!.awaitingTrumpFrom!, "no-trump");
+      const kind = m.hand!.contract.kind;
+      let prevLive = liveScores(m);
+      let prevCompleted = 0;
+      while (m.hand!.handScores === null) {
+        const seat = m.hand!.turn!;
+        playCard(m, seat, chooseBotCard(m, seat));
+        if (m.hand!.completedTricks.length > prevCompleted) {
+          prevCompleted = m.hand!.completedTricks.length;
+          const trick = m.hand!.completedTricks[prevCompleted - 1];
+          const soFar = m.hand!.handScores === null;
+          if (soFar) {
+            const live = liveScores(m);
+            // o delta desta vaza (motor) só pode ter mudado o assento vencedor
+            const trickDelta = scoreHand(kind, [trick]);
+            for (const s of [0, 1, 2, 3]) {
+              expect(live[s] - prevLive[s]).toBe(trickDelta[s]);
+            }
+            prevLive = live;
+            perContractSeen.add(kind);
+          }
+        }
+      }
+    }
+    // exercitou um amplo espectro de contratos com vazas intermediárias (o no-king pode encerrar
+    // na própria captura do K♥, sem vaza intermediária) — incluindo, com certeza, o positivo.
+    expect(perContractSeen.size).toBeGreaterThanOrEqual(6);
+    expect(perContractSeen.has("positive")).toBe(true);
+    expect(perContractSeen.has("no-tricks")).toBe(true);
   });
 });

@@ -142,3 +142,75 @@ describe("BUG 2 — score dos player cards da Mesa é o canônico do motor, por 
     expect(rankSwap!.mesa[0]).not.toBe(rankSwap!.canon[leaderSeat]);
   });
 });
+
+/** Joga até UMA vaza a mais ser resolvida (só a API pública). Retorna o assento vencedor, ou null. */
+function playOneTrick(game: KingGame): number | null {
+  const before = game.completedTrickCount();
+  for (let guard = 0; guard < 80 && game.completedTrickCount() === before; guard++) {
+    const ph = game.phase();
+    if (ph === "handEnd" || ph === "matchEnd") return null;
+    if (ph === "trump") {
+      if (game.humanChoosesTrump()) game.chooseTrumpHuman("no-trump");
+      else game.stepBotTrump();
+      continue;
+    }
+    if (game.isHumanTurn()) game.playHuman(game.legalCards()[0]);
+    else game.stepBotPlay();
+  }
+  return game.completedTrickCount() > before ? (game.lastCompletedTrick()!.winner as number) : null;
+}
+
+describe("BUG (vaza a vaza) — o card incorpora o delta assim que a vaza é RESOLVIDA", () => {
+  it("A · Mão 1: cada vaza vencida = −20 no card do vencedor; Mesa == liveScores por assento", () => {
+    const game = new KingGame(["Você", "Bia", "Léo", "Nara"], 42);
+    const running = [0, 0, 0, 0];
+    let tricks = 0;
+    for (let k = 0; k < 13; k++) {
+      const winner = playOneTrick(game);
+      if (winner === null) break;
+      tricks++;
+      running[winner] -= 20; // no-tricks: cada vaza custa −20 a quem a vence
+      const mesa = mesaScoresBySeat(renderMesaRoot(game));
+      const live = game.liveScores();
+      for (const s of SEATS) {
+        expect(live[s], `liveScores assento ${s} após vaza ${tricks}`).toBe(running[s]);
+        expect(mesa[s], `card da Mesa assento ${s} após vaza ${tricks}`).toBe(running[s]);
+      }
+    }
+    expect(tricks).toBeGreaterThanOrEqual(4);
+    // exemplo pedido: mais de um assento vence vazas (um mantém o valor, outro passa a −20)
+    expect(running.filter((v) => v < 0).length).toBeGreaterThan(1);
+  });
+
+  it("C · acumulado: a mão 2 soma SOBRE o total da mão 1 — o card não reinicia", () => {
+    const game = new KingGame(["Você", "Bia", "Léo", "Nara"], 42);
+    playHandToEnd(game);
+    const afterHand1 = game.cumulative();
+    expect(afterHand1.some((v) => v !== 0)).toBe(true); // a mão 1 já pontuou
+    game.advanceHand(); // mão 2 (ainda negativa)
+    for (let k = 0; k < 6; k++) if (playOneTrick(game) === null) break;
+    const live = game.liveScores();
+    const mesa = mesaScoresBySeat(renderMesaRoot(game));
+    expect(game.cumulative()).toEqual(afterHand1); // cumulativo consolidado ainda é o da mão 1
+    for (const s of SEATS) {
+      expect(mesa[s]).toBe(live[s]); // Mesa == liveScores por assento
+      expect(live[s]).toBeLessThanOrEqual(afterHand1[s]); // parcial negativo soma por cima do total
+    }
+    expect(live).not.toEqual(afterHand1); // algo acumulou (a mão não reiniciou o saldo)
+  });
+
+  it("D · fase positiva: vencer uma vaza soma +25 imediatamente ao saldo do vencedor", () => {
+    const game = new KingGame(["Você", "Bia", "Léo", "Nara"], 42);
+    for (let h = 1; h <= 6; h++) { playHandToEnd(game); game.advanceHand(); }
+    expect(game.contract()!.isPositive).toBe(true); // mão 7
+    const before = game.liveScores();
+    const winner = playOneTrick(game);
+    expect(winner).not.toBeNull();
+    const after = game.liveScores();
+    const mesa = mesaScoresBySeat(renderMesaRoot(game));
+    for (const s of SEATS) {
+      expect(after[s]).toBe(before[s] + (s === winner ? 25 : 0)); // +25 só ao vencedor, na hora
+      expect(mesa[s]).toBe(after[s]); // Mesa reflete imediatamente
+    }
+  });
+});

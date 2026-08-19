@@ -354,3 +354,25 @@ export function handSummary(m: MatchState): HandSummary | null {
     finished: m.finished,
   };
 }
+
+/**
+ * Pontuação PÚBLICA ao vivo por assento — a fonte dos números exibidos nos cards da Mesa.
+ *
+ * É o cumulativo canônico (`m.cumulative`, consolidado ao ENCERRAR cada mão) MAIS, enquanto a mão
+ * corrente está em andamento, o parcial dela calculado pelo próprio motor (`scoreHand`) sobre as
+ * vazas JÁ RESOLVIDAS (`completedTricks`). Assim o card do vencedor incorpora o delta no instante
+ * em que a vaza fecha — sem regra nova na UI, só reaproveitando `scoreHand`.
+ *
+ * Sem dupla contagem: ao encerrar a mão, `endHand` já somou o total a `m.cumulative` e marca
+ * `handScores`; a partir daí o parcial deixa de ser aplicado (liveScores volta a ser exatamente o
+ * cumulativo). Indexado por ASSENTO (0..3) — nunca por posição/ranking.
+ */
+export function liveScores(m: MatchState): number[] {
+  const out = m.cumulative.slice();
+  const h = m.hand;
+  if (h && h.handScores === null && h.completedTricks.length > 0) {
+    const partial = scoreHand(h.contract.kind, h.completedTricks);
+    for (let i = 0; i < 4; i++) out[i] += partial[i];
+  }
+  return out;
+}
