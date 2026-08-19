@@ -147,6 +147,22 @@ confirmação; quando falta espaço, quem encolhe é o passo entre cartas, não 
   ✅ 740×400 e 375×812 (Android emulado) — sem rolagem horizontal, 13 cartas acessíveis,
   Placar inteiro sem rolagem.
 
+## Ritmo — tokens centralizados (decisão de auditoria)
+Todos os tempos da apresentação vivem em `apps/web/src/game/timings.ts`. **Não existe opção de
+velocidade para o jogador** — quando existir ("Animações rápidas"), será um multiplicador sobre
+estes valores e **nunca** tocará em regra: o motor é síncrono e não conhece tempo.
+
+| Token | Valor | Papel |
+|---|---|---|
+| `botPasso` | 520ms | intervalo entre passos dos bots (era 620) |
+| `leituraDaVaza` | 1150ms | pausa para ler a vaza resolvida (era 1300) |
+| `chipSuaVez` | 2200ms | permanência do chip "Sua vez" |
+| `shakeKing` | 520ms | screen-shake do K de Copas |
+| `fim.*` | 900 / 2350 / 3300 / 4300ms | marcos do Placar Final |
+
+A calibragem reduziu a partida contra bots de ~8 para ~6,5 minutos sem prejudicar a leitura da
+vaza. Os valores de CSS que acompanham estes estão marcados com `// par de TEMPOS.fim`.
+
 ## Orientação
 - **Gameplay em Landscape** (necessidade das 13 cartas + 4 jogadores). Home/menus podem ser
   portrait-friendly; a mesa é landscape.
@@ -243,12 +259,22 @@ motivo funcional comprovado. (Artifact eaf64375-0108-462b-bfa8-60c1b4875730.)
 | 3 | Não pegar Damas | **Não pegar Q** | −50 / dama |
 | 4 | Não pegar Reis e Valetes | **Não pegar K e J** | −30 / homem |
 | 5 | Não pegar o Rei de Copas | **Não pegar o K♥** | K♥ = −160 |
-| 6 | Não pegar as duas últimas | **Não pegar as 2 últimas Vazas** | −90 (12ª e 13ª) |
+| 6 | Não pegar as duas últimas | **Não pegar as 2 últimas Vazas** | −90 na 12ª e na 13ª |
 | 7–10 | Positiva | **Positiva — faça vazas** | +25 / vaza |
 
 - Macro-fases: **Fase negativa** (1–6) e **Fase positiva** (7–10).
 - **Sem emoji** nos títulos de contrato (a versão anterior usava ❤️/👸/👑♥).
 - Os identificadores de código (`no-tricks`, `no-hearts`, …) **não mudam**: são internos.
+
+### Linguagem: compacto na Mesa, natural no Placar (decisão de auditoria)
+Os códigos **Q / K e J** só valem onde o espaço é apertado — o chip de penalidade do HUD da Mesa.
+Onde há espaço, escreve-se por extenso. **"Homens" foi abolido.**
+
+| Contexto | Forma | Exemplo |
+|---|---|---|
+| Chip do HUD (Mesa) | compacta — `penaltyText` | `−50 / q` · `−30 / k e j` |
+| Placar (penalidade) | natural — `penaltyTextLong` | "−50 por Dama" · "−30 por Rei ou Valete" |
+| Placar (unidades capturadas) | natural — `handBreakdown` | "2 Damas" · "3 Reis/Valetes" · "5 Copas" · "4 vazas" · "1 K de Copas" |
 
 ## Slot de trunfo — ✅ implementado
 Nas mãos **7–10** aparece um slot dedicado logo abaixo do HUD, com o **naipe em tamanho grande**
@@ -285,7 +311,7 @@ próximo escolhedor de trunfo · CTA **PRÓXIMA MÃO** · encerramento antecipad
 > O **Placar Final** é outra tela (seção abaixo) — o fim da partida não é este componente sem
 > o botão "Próxima mão".
 
-## Placar Final / Encerramento — 🟡 em validação
+## Placar Final / Encerramento — 🟡 em validação (decisões de auditoria aplicadas)
 Ápice emocional da partida. **Sequência encenada**, não tabela: entrada → contagem → ranking →
 coroação → completo (com "toque para pular"). Motion, áudio e glow com intensidade **acima** do
 entre-mãos, sem estética de cassino. Dados 100% do motor; o **checksum final (soma = 0)** aparece
@@ -309,6 +335,20 @@ como selo na própria tela.
 
 - **"O Rei" não aparece**: a arte final 2.5D é etapa posterior e inventar uma versão dele aqui
   contrariaria o congelamento do personagem. O espaço da coluna heroica comporta a entrada dele.
+### Decisões da auditoria já incorporadas
+- **Duração:** 4,3s é o **teto aprovado** da sequência, com "toque para pular" mantido e
+  **micro-pausas deliberadas** entre as etapas: 300ms de respiro depois da contagem e 330ms
+  depois da reordenação do ranking (ver `apps/web/src/game/timings.ts`).
+- **Peso heroico (moderado):** a coroa desce maior e com mais overshoot, deixa um **anel de
+  impacto** que se abre e some, o título ganha um *soco* de escala e a faixa do campeão recebe
+  **um único varrer de luz** — nada permanente.
+- **Festa curta:** as partículas viram **burst radial** disparado no instante da coroação
+  (~1,3s) e desmontam; o clarão dourado acende forte e **cai para um brilho calmo** em 1,6s.
+  Não há confete contínuo nem glow pulsando indefinidamente.
+- **Conteúdo aprovado**; não acrescentar mais estatísticas. Um botão **`VER DETALHES DA
+  PARTIDA`** fica registrado como possibilidade futura, fora deste milestone.
+- **Layout aprovado:** duas colunas — área heroica à esquerda, ranking/dados à direita.
+
 - **Reprodutibilidade:** `?seed=N` fixa a semente (o motor é determinístico) — foi assim que o
   cenário de vitória do jogador local foi reproduzido para validação.
 

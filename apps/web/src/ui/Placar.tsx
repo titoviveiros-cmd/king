@@ -1,6 +1,6 @@
 import type { KingGame } from "../game/kingGame.js";
 import {
-  contractTitle, penaltyText, trumpLabel, earlyEndText, unitsText, fmtSigned, ordinal,
+  contractTitle, penaltyTextLong, trumpLabel, earlyEndText, unitsText, fmtSigned, ordinal,
 } from "./contractText.js";
 
 /**
@@ -43,7 +43,7 @@ export function Placar({
           </h2>
           <div className="pl-meta">
             {s.finished && <span className="pl-tag">Última mão: {contractTitle(contract.kind)}</span>}
-            <span className="pl-tag">{penaltyText(contract.kind)}</span>
+            <span className="pl-tag">{penaltyTextLong(contract.kind)}</span>
             {s.trump && (
               <span className="pl-tag turq">
                 Trunfo {trumpLabel(s.trump)}
@@ -89,7 +89,7 @@ export function Placar({
             <div className="pl-next">
               <b>A seguir · Mão {s.nextContract.hand}</b>
               <span>
-                {contractTitle(s.nextContract.kind)} · {penaltyText(s.nextContract.kind)}
+                {contractTitle(s.nextContract.kind)} · {penaltyTextLong(s.nextContract.kind)}
                 {s.nextTrumpChooser !== null && ` · trunfo com ${game.players()[s.nextTrumpChooser]}`}
               </span>
             </div>

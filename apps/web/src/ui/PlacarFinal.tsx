@@ -3,7 +3,8 @@ import type { RankRow, Seat } from "@king/engine";
 import type { KingGame } from "../game/kingGame.js";
 import { Crown } from "./Crown.js";
 import { contractTitle, trumpLabel, fmtSigned, ordinal } from "./contractText.js";
-import { audio } from '../audio/engine.js';
+import { audio } from "../audio/engine.js";
+import { TEMPOS } from "../game/timings.js";
 import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVictory } from "../audio/sounds.js";
 
 /**
@@ -14,8 +15,14 @@ import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVicto
 type Etapa = "entrada" | "contagem" | "ranking" | "campeao" | "completo";
 
 const ORDEM: Etapa[] = ["entrada", "contagem", "ranking", "campeao", "completo"];
-const MARCOS: Record<Etapa, number> = { entrada: 0, contagem: 950, ranking: 2350, campeao: 3150, completo: 4350 };
-const DUR_CONTAGEM = 1250;
+const MARCOS: Record<Etapa, number> = {
+  entrada: 0,
+  contagem: TEMPOS.fim.contagem,
+  ranking: TEMPOS.fim.ranking,
+  campeao: TEMPOS.fim.campeao,
+  completo: TEMPOS.fim.completo,
+};
+const DUR_CONTAGEM = TEMPOS.fim.duracaoContagem;
 
 export function PlacarFinal({
   game, onRestart, onHome,
@@ -99,12 +106,21 @@ export function PlacarFinal({
     [game, stats, finais, eu, empate, venci],
   );
 
+  // o burst vive só o instante da coroação; depois a tela desce de intensidade
+  const [burst, setBurst] = useState(false);
+  useEffect(() => {
+    if (etapa !== "campeao") return;
+    setBurst(true);
+    const id = setTimeout(() => setBurst(false), TEMPOS.fim.burstParticulas);
+    return () => clearTimeout(id);
+  }, [etapa]);
+
   const revelado = etapa === "campeao" || etapa === "completo";
   const completo = etapa === "completo";
 
   return (
     <div className={`fim etapa-${etapa}`} onClick={pular} role="dialog" aria-label="Placar final da partida">
-      {!reduzido && revelado && <Confetes />}
+      {!reduzido && burst && <Confetes />}
       <div className="fimgrid" onClick={(e) => e.stopPropagation()}>
 
         {/* ---- coluna heroica ---- */}
@@ -251,15 +267,21 @@ function Compartilhar({
 }
 
 function Confetes() {
-  // partículas suficientes para festejar, poucas o bastante para não virar cassino
+  // BURST, não chuva: as partículas saem todas juntas do centro no instante da coroação e
+  // somem em ~1,3s. Decisão de auditoria: festa elegante e curta, sem confete contínuo.
   const pecas = useMemo(
-    () => Array.from({ length: 22 }, (_, i) => ({
-      esq: (i * 37) % 100,
-      atraso: (i % 7) * 0.14,
-      dur: 2.4 + (i % 5) * 0.35,
-      cor: ["var(--gold)", "var(--turq)", "var(--violet)", "var(--magenta)"][i % 4],
-      giro: (i % 2 ? 1 : -1) * (180 + (i % 4) * 90),
-    })),
+    () => Array.from({ length: 26 }, (_, i) => {
+      const ang = (i / 26) * Math.PI * 2 + (i % 3) * 0.21;
+      const forca = 34 + (i % 5) * 9;
+      return {
+        dx: Math.cos(ang) * forca,
+        dy: Math.sin(ang) * forca * 0.72 + 26, // leve viés para baixo: gravidade insinuada
+        atraso: (i % 4) * 0.035,
+        dur: 1.05 + (i % 5) * 0.11,
+        cor: ["var(--gold)", "var(--turq)", "var(--violet)", "var(--magenta)"][i % 4],
+        giro: (i % 2 ? 1 : -1) * (200 + (i % 4) * 70),
+      };
+    }),
     [],
   );
   return (
@@ -268,10 +290,11 @@ function Confetes() {
         <i
           key={i}
           style={{
-            left: `${p.esq}%`,
             background: p.cor,
             animationDelay: `${p.atraso}s`,
             animationDuration: `${p.dur}s`,
+            ["--dx" as string]: `${p.dx}vmin`,
+            ["--dy" as string]: `${p.dy}vmin`,
             ["--giro" as string]: `${p.giro}deg`,
           }}
         />

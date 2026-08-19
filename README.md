@@ -33,7 +33,9 @@ demo/             Protótipo visual antigo (genérico) — será substituído pe
 - ✅ Fase 1 — Documentação formal.
 - ✅ Fase 2 — Rule Engine (testes **executados e verdes**).
 - ✅ Fase 3 — simulação em massa (`stress.test.ts`).
-- 🔵 Fase 4–5 — apresentação: base jogável (1 humano + 3 bots) + **Placar entre-mãos**.
+- 🔵 Fase 4–5 — apresentação: base jogável, **Placar entre-mãos** (congelado) e **Placar Final**
+  (em validação), áudio procedural e responsividade.
+- ⏭️ Próximo milestone aprovado: **Bot Normal V1** (heurístico), depois multiplayer autoritativo.
 - ⏳ Fase 6 multiplayer → Fase 9 release.
 
 ## Invariantes garantidas pelos testes

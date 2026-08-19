@@ -9,7 +9,7 @@ distribuição, vazas, pontuação, turno, trunfo e vencedor. O cliente apenas *
 |--------|------------------|--------|
 | **Game Engine** | Regras puras, determinísticas, testáveis. Sem UI/rede. | ✅ implementado (`packages/engine`) |
 | **Multiplayer Engine** | Salas, matchmaking, sincronização autoritativa, reconexão, timeout. | ⏳ Fase 6 (`apps/server`, Colyseus) |
-| **Presentation** | UI, game feel, animações, partículas. | ⏳ Fase 4–5 (`apps/web`, React) |
+| **Presentation** | UI, game feel, animações, partículas. | 🔵 Fase 4–5 em curso (`apps/web`, React) — ritmo em `game/timings.ts` |
 | **Audio** | Música / efeitos / haptics (controles separados). | ✅ implementado (`apps/web/src/audio`, procedural) |
 | **Persistence** | Perfil, XP, progressão, cosméticos. | ⏳ Fase 7 |
 | **Analytics** | Eventos desacoplados. | ⏳ Fase 7 |
@@ -76,6 +76,18 @@ Fonte única de verdade UI × multiplayer:
 ## Timeout (seção 40)
 Política parametrizável: tempo normal → aviso → crítico → ação após timeout. Nunca travar a
 partida indefinidamente; nunca curto a ponto de prejudicar iniciantes.
+
+## Roadmap aprovado (auditoria de 18/08/2026)
+1. **Concluir o milestone atual:** validação do Placar Final + **avaliação auditiva do áudio em
+   aparelho real** + último ciclo de testes/build. Só então PR e integração à `main`.
+2. **Bot Normal V1** — próxima prioridade, **antes do multiplayer**. Heurístico e suficiente:
+   compreender contratos, evitar penalidades, buscar vazas positivas e escolher trunfo
+   racionalmente. **Não overengineer** (nada de busca em árvore ou modelo de oponente).
+3. **Multiplayer autoritativo** (Colyseus) — prioridade imediata depois do Bot Normal.
+
+> **Trava explícita antes do multiplayer:** a identidade sonora **não pode ser congelada** antes
+> de o áudio ser ouvido em aparelho real. A arquitetura sonora foi construída tecnicamente, mas
+> ainda não houve julgamento estético por ouvido. Isso **não bloqueia** o Bot Normal.
 
 ## Bots (seção 41)
 Usam a **mesma API do motor** e **nunca** informação oculta (isso seria cheat). "Bot Normal":

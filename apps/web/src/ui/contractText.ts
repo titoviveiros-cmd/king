@@ -23,8 +23,25 @@ export function penaltyText(kind?: ContractKind): string {
     case "no-queens": return "−50 / q";
     case "no-men": return "−30 / k e j";
     case "no-king": return "K de Copas = −160";
-    case "no-last-two": return "−90 (12ª e 13ª)";
+    case "no-last-two": return "−90 na 12ª e na 13ª";
     case "positive": return "+25 / vaza";
+    default: return "";
+  }
+}
+
+/**
+ * Forma LONGA da penalidade, para onde há espaço (Placar). Decisão de auditoria: no Placar usa-se
+ * linguagem natural; os códigos Q / K e J ficam só nas áreas apertadas da Mesa.
+ */
+export function penaltyTextLong(kind?: ContractKind): string {
+  switch (kind) {
+    case "no-tricks": return "−20 por vaza";
+    case "no-hearts": return "−20 por Copa";
+    case "no-queens": return "−50 por Dama";
+    case "no-men": return "−30 por Rei ou Valete";
+    case "no-king": return "K de Copas = −160";
+    case "no-last-two": return "−90 na 12ª e na 13ª";
+    case "positive": return "+25 por vaza";
     default: return "";
   }
 }

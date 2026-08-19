@@ -133,13 +133,18 @@ export interface HandBreakdown {
   rows: HandBreakdownRow[];
 }
 
+/**
+ * Rótulos em LINGUAGEM NATURAL (decisão de auditoria): "2 Damas", "3 Reis/Valetes",
+ * "5 Copas", "4 vazas", "1 K de Copas". Códigos compactos (Q, K e J) ficam restritos às
+ * áreas apertadas da Mesa. "Homens" foi abolido.
+ */
 const UNIT_LABEL: Record<ContractKind, { unit: string; unitPlural: string; perUnit: number }> = {
   "no-tricks": { unit: "vaza", unitPlural: "vazas", perUnit: -20 },
-  "no-hearts": { unit: "copa", unitPlural: "copas", perUnit: -20 },
-  "no-queens": { unit: "dama", unitPlural: "damas", perUnit: -50 },
-  "no-men": { unit: "homem", unitPlural: "homens", perUnit: -30 },
-  "no-king": { unit: "King", unitPlural: "King", perUnit: -160 },
-  "no-last-two": { unit: "última", unitPlural: "últimas", perUnit: -90 },
+  "no-hearts": { unit: "Copa", unitPlural: "Copas", perUnit: -20 },
+  "no-queens": { unit: "Dama", unitPlural: "Damas", perUnit: -50 },
+  "no-men": { unit: "Rei/Valete", unitPlural: "Reis/Valetes", perUnit: -30 },
+  "no-king": { unit: "K de Copas", unitPlural: "K de Copas", perUnit: -160 },
+  "no-last-two": { unit: "última vaza", unitPlural: "últimas vazas", perUnit: -90 },
   positive: { unit: "vaza", unitPlural: "vazas", perUnit: 25 },
 };
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Card, Trump } from "@king/engine";
 import { KingGame, type Phase } from "./kingGame.js";
+import { TEMPOS } from "./timings.js";
 import { audio } from "../audio/engine.js";
 import {
   sfxCardPlay, sfxDeal, sfxHandEnd, sfxKingCaptured, sfxLastTrick,
@@ -73,7 +74,7 @@ export function useKingGame() {
   const afterPlay = useCallback((g: KingGame) => {
     if (g.currentTrick().length === 0) {
       announceTrick(g);
-      reviewUntil.current = Date.now() + 1300;
+      reviewUntil.current = Date.now() + TEMPOS.leituraDaVaza;
     } else {
       sfxCardPlay();
     }
@@ -94,7 +95,7 @@ export function useKingGame() {
         return;
       }
       // handEnd / matchEnd / vez do humano → aguarda clique
-    }, 620);
+    }, TEMPOS.botPasso);
     return () => clearInterval(id);
   }, [screen, afterPlay]);
 

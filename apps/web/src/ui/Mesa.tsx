@@ -9,6 +9,7 @@ import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxCardSelect, sfxTap } from "../audio/sounds.js";
 import type { KingGame } from "../game/kingGame.js";
 import { CardView } from "./CardView.js";
+import { TEMPOS } from "../game/timings.js";
 
 const SUIT_ORDER: Record<string, number> = { spades: 0, hearts: 1, clubs: 2, diamonds: 3 };
 const NAMES_SLOT: Record<Seat, "b" | "l" | "t" | "r"> = { 0: "b", 1: "l", 2: "t", 3: "r" };
@@ -76,7 +77,7 @@ export function Mesa({
   useEffect(() => {
     if (!humanTurn) { setShowTurnChip(false); return; }
     setShowTurnChip(true);
-    const id = setTimeout(() => setShowTurnChip(false), 2200);
+    const id = setTimeout(() => setShowTurnChip(false), TEMPOS.chipSuaVez);
     return () => clearTimeout(id);
   }, [humanTurn]);
 
@@ -85,7 +86,7 @@ export function Mesa({
   useEffect(() => {
     if (!shake) return;
     setShaking(true);
-    const id = setTimeout(() => setShaking(false), 520);
+    const id = setTimeout(() => setShaking(false), TEMPOS.shakeKing);
     return () => clearTimeout(id);
   }, [shake]);
 
