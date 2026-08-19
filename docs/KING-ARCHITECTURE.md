@@ -46,6 +46,25 @@ Motor puro; simula partida inteira **sem renderizar tela**. Determinístico por 
 Módulos: `cards.ts` (baralho/força), `contracts.ts` (10 contratos + pontuação), `stats.ts` (destaques),
 `rules.ts` (legalidade + resolução de vaza), `match.ts` (máquina de estado), `sim.ts` (simulação).
 
+## Identidade do jogador (`seat`) — regra arquitetural
+Regra **invariante** de todo o KING (motor, UI e futuro multiplayer/persistência):
+
+- **`seat` (0–3) é a identidade estável do jogador.** Toda estrutura de dados — mão, pontuação,
+  cumulativo, negativas/positivas, avatar, nome, estatísticas, snapshot de reconexão — é
+  **indexada por assento**. O assento não muda durante a partida.
+- **Ranking / posição é SOMENTE ordenação de apresentação.** `rankings(m)` devolve as linhas
+  **ordenadas por classificação** (1º, 2º, …), com empate = mesma posição. Essa ordem serve
+  apenas para desenhar a lista na tela.
+- **NUNCA indexar dado persistente ou de gameplay pela posição visual do ranking.** Usar o índice
+  de uma linha de `rankings()` como se fosse o assento **troca os dados entre jogadores**. Cada
+  `RankRow` carrega o seu `seat` — é por ele que se buscam nome, avatar, cor e pontuação.
+
+> **Origem da regra (regressão real):** um vetor do Placar Final foi indexado pela posição do
+> ranking em vez do assento e a pontuação de dois jogadores apareceu trocada na tela do Tito.
+> Correção: todo vetor do Placar Final passa por
+> [`placarFinalDados.ts`](../apps/web/src/ui/placarFinalDados.ts) (só produz vetores **por
+> assento**), com regressão em `placarFinalDados.test.ts`. Ver [KING-TEST-PLAN.md](KING-TEST-PLAN.md).
+
 ## Multiplayer autoritativo (Fase 6)
 - Fluxo por sala: o servidor mantém `MatchState`; clientes enviam **intenções** (`playCard`,
   `selectTrump`) e recebem `publicView` + eventos.

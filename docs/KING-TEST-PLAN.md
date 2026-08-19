@@ -1,7 +1,7 @@
 # KING — Plano de Testes
 
-> Status: **executados e verdes** — `npm test` roda os dois workspaces
-> (`packages/engine/src/*.test.ts` + `apps/web/src/**/*.test.ts`).
+> Status: **executados e verdes — 76 testes (64 motor + 12 web)** em 2026-08-19. `npm test` roda
+> os dois workspaces (`packages/engine/src/*.test.ts` + `apps/web/src/**/*.test.ts`).
 
 ## Invariantes obrigatórias (seção 60)
 | Invariante | Onde |
@@ -17,6 +17,7 @@
 | Cada jogador escolhe 1 trunfo | `match.test.ts` |
 | Explicação da mão bate com a pontuação | `contracts.test.ts` (`handBreakdown` × `scoreHand`) |
 | Ranking anterior + delta = ranking atual | `match.test.ts` (`handSummary`) |
+| **Dados do Placar Final indexados por assento** (regressão `ranking × seat`) | `placarFinalDados.test.ts` |
 
 ## Testes por contrato (seção 61)
 - **no-tricks / no-hearts / no-queens / no-men / no-king / no-last-two / positive** →
@@ -48,12 +49,21 @@ checksum errado, estados inválidos, mãos incompletas, pontuação impossível.
   ilesas, dono do K♥, maior mão da partida e margem da liderança → `stats.test.ts`.
 - Invariante checada: as vazas positivas dos 4 assentos somam **52** (4 mãos × 13).
 
-## Placar Final — indexação por assento
+## Placar Final — indexação por assento (regressão `ranking × seat` registrada ✅)
 `rankings()` devolve as linhas **ordenadas por posição**. Usar esse array como índice de
 jogador troca a pontuação entre jogadores — foi um bug que chegou à tela do Tito: o 2º colocado
 exibia o número do 3º. Todo vetor do Placar Final passa por `placarFinalDados.ts`, que só
 produz vetores **indexados por assento**, com regressão em `placarFinalDados.test.ts`
 (inclui um ranking com assentos fora de ordem, exatamente o caso do bug).
+
+**Regra arquitetural associada:** `seat` é a identidade estável do jogador; ranking/posição é
+só ordenação de apresentação; nunca indexar dado persistente ou de gameplay pela posição visual
+do ranking. Ver [KING-ARCHITECTURE.md](KING-ARCHITECTURE.md#identidade-do-jogador-seat--regra-arquitetural).
+
+**Cobertura (`placarFinalDados.test.ts`, 6 testes):** `scoresPorAssento` reindexa por assento a
+partir de um ranking com assentos fora de ordem; os saldos "antes" (total − delta) também ficam
+por assento; a interpolação da contagem animada preserva os extremos; numa partida real, o vetor
+por assento é idêntico a `m.cumulative` e **soma 0**.
 
 ## Placar entre-mãos (apresentação sobre o motor)
 - `handBreakdown` explica CADA contrato (unidades capturadas × pontos) e é comparado célula a

@@ -5,6 +5,27 @@
 > valores exatos (hex/oklch, escalas, espaçamentos) — este documento fixa a *direção*, não os
 > pixels finais. Nada aqui autoriza implementar Home/mesa/personagem definitivos sem validação.
 
+## Estado do milestone — FECHADO ✅ (2026-08-19)
+Marco de encerramento do **primeiro milestone jogável do KING**. A **branch `main` é a BASE
+OFICIAL** do projeto a partir deste ponto.
+
+| Item | Estado |
+|---|---|
+| Rule Engine / checksums (−1300 / +1300 / 0) | ✅ |
+| Home | ✅ congelada |
+| Lobby | ✅ oficial |
+| Mesa | ✅ arquitetura congelada |
+| Placar entre-mãos | ✅ componente congelado |
+| Placar Final | ✅ componente congelado |
+| Áudio procedural + haptics | ✅ validado em **iPhone real** |
+| Responsividade | ✅ validada em **aparelhos/tamanhos reais** |
+| Regressão `ranking × seat` | ✅ coberta por teste (`placarFinalDados.test.ts`) |
+| Suíte de testes | ✅ **76 verdes** (64 motor + 12 web) |
+
+> A partir deste marco, **todo novo milestone nasce em nova feature branch** criada a partir
+> desta `main` congelada. **Fora deste fechamento** (não implementados ainda): Bot Normal V1,
+> CI, Playwright, deploy, multiplayer, persistência.
+
 ## Tipografia — CONGELADA ✅
 - **Display — Gabarito** (arredondada, encorpada, contemporânea; premium sem ser infantil).
   Usos: títulos, **contratos**, botões, placar, números grandes, HUD. Pesos **700/800**,
@@ -338,11 +359,20 @@ próximo escolhedor de trunfo · CTA **PRÓXIMA MÃO** · encerramento antecipad
 > O **Placar Final** é outra tela (seção abaixo) — o fim da partida não é este componente sem
 > o botão "Próxima mão".
 
-## Placar Final / Encerramento — 🟡 em validação (decisões de auditoria aplicadas)
+## Placar Final / Encerramento — ✅ CONGELADO (componente oficial)
 Ápice emocional da partida. **Sequência encenada**, não tabela: entrada → contagem → ranking →
 coroação → completo (com "toque para pular"). Motion, áudio e glow com intensidade **acima** do
 entre-mãos, sem estética de cassino. Dados 100% do motor; o **checksum final (soma = 0)** aparece
 como selo na própria tela.
+
+> **Congelado em 2026-08-19.** A validação determinística final (semente com ordem de
+> classificação diferente da ordem dos assentos) confirmou que **cada dado — nome, avatar,
+> pontuação, destaque, campeão — segue o `seat`**, e que o ranking é **só ordenação de
+> apresentação**. Regressão do bug `ranking × seat` fixada em
+> [`placarFinalDados.ts`](../apps/web/src/ui/placarFinalDados.ts) e coberta por
+> [`placarFinalDados.test.ts`](../apps/web/src/ui/placarFinalDados.test.ts). Ver a regra
+> arquitetural em [KING-ARCHITECTURE.md](KING-ARCHITECTURE.md#identidade-do-jogador-seat--regra-arquitetural).
+> **Não fazer nova exploração estrutural sem necessidade funcional comprovada.**
 
 | # | Requisito | Como foi resolvido |
 |---|---|---|
@@ -388,7 +418,7 @@ como selo na própria tela.
 - **Mesa** — ✅ arquitetura oficial congelada (ver seção acima).
 - **Prova de game feel da vaza** — em apresentação (a Mesa em movimento).
 - **Placar entre-mãos** — ✅ CONGELADO (componente oficial).
-- **Placar Final / Encerramento** — 🟡 implementado, aguardando validação.
+- **Placar Final / Encerramento** — ✅ CONGELADO (componente oficial; validação determinística `ranking × seat` aprovada).
 - **Áudio procedural + haptics** — ✅ implementado (Música/Efeitos/Vibração desligáveis).
 - **Responsividade iPhone/iPad/Android/PC + aviso de rotação** — ✅ implementado.
 - **Teclado (PC), tela cheia + trava de orientação e botão Voltar (Android)** — ✅ implementado.
