@@ -22,6 +22,11 @@ export const TEMPOS = {
   leituraDaVazaCastigo: 2700,
   /** O K de Copas é o castigo máximo: pausa ainda maior. */
   leituraDaVazaKing: 3400,
+  /**
+   * Última vaza da mão. O Placar só entra DEPOIS desta pausa — antes ele cobria a mesa no
+   * mesmo instante em que a vaza fechava, e o selo do castigo da última bucha nunca era visto.
+   */
+  fimDeMao: 1800,
   /** Tempo que o chip "Sua vez" permanece visível (o anel dourado é o estado permanente). */
   chipSuaVez: 2200,
   /** Duração do screen-shake do K de Copas. */

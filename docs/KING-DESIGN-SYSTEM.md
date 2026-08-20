@@ -353,7 +353,8 @@ mesa **para** e mostra o castigo.
 
 | Elemento | Comportamento |
 |---|---|
-| Selo | pílula sobre a mesa: avatar + "Fulano pegou" + **o que** (ex.: "2 Damas") + **quanto** (−100) |
+| Selo | pílula sobre a mesa: avatar + "Fulano pegou" + **o que** + **quanto** |
+| Contagem | **acumulada na mão, não por vaza**: na 1ª Dama diz "1 Dama −50"; na 2ª, "2 Damas −100". O jogador acompanha o próprio buraco crescendo |
 | Cor | magenta (tensão, Design System); **K de Copas em ouro com coroa** — é o castigo máximo |
 | Você | moldura mais fechada e brilho maior quando o castigo é seu |
 | Motion | pop de entrada + pulso lento enquanto a mesa está parada; screen-shake em toda bucha |
@@ -363,6 +364,9 @@ mesa **para** e mostra o castigo.
 - vaza comum — **1,15s**
 - vaza com bucha — **2,7s**
 - vaza do K de Copas — **3,4s**
+- **última vaza da mão — piso de 1,8s**: o Placar só entra depois. Antes ele cobria a mesa no
+  mesmo instante em que a vaza fechava, e o selo da última bucha — muitas vezes a decisiva —
+  nunca chegava a ser visto.
 
 **Onde NÃO se aplica:** em "Não pegar Vazas" toda vaza custa e o vencedor é evidente na mesa —
 anunciar as 13 só arrastaria a mão. O selo existe onde a bucha é uma **carta específica**

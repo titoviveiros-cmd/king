@@ -65,6 +65,16 @@ export class KingGame {
     if (!h || h.completedTricks.length === 0) return null;
     return handBreakdown(h.contract.kind, [h.completedTricks[h.completedTricks.length - 1]]);
   }
+
+  /**
+   * Detalhamento ACUMULADO da mão em curso — o total que cada assento já pegou até aqui.
+   * É o que o selo do castigo mostra: "Nara pegou 2 Damas" na segunda, e não "1 Dama" de novo.
+   */
+  handBreakdownSoFar(): HandBreakdown | null {
+    const h = this.m.hand;
+    if (!h || h.completedTricks.length === 0) return null;
+    return handBreakdown(h.contract.kind, h.completedTricks);
+  }
   currentTrick() { return this.m.hand ? this.m.hand.currentTrick.slice() : []; }
   handCounts(): number[] { return this.m.hand ? this.m.hand.handCounts.slice() : [13, 13, 13, 13]; }
   awaitingTrumpFrom(): Seat | null { return this.m.hand?.awaitingTrumpFrom ?? null; }

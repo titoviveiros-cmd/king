@@ -71,23 +71,28 @@ export function useKingGame() {
     const last = g.lastCompletedTrick();
     const contract = g.contract();
     const bd = g.lastTrickBreakdown();
-    if (!last || !contract || !bd) return TEMPOS.leituraDaVaza;
+    // acumulado da MÃO: é o que o selo anuncia ("2 Damas" na segunda, não "1 Dama" de novo)
+    const total = g.handBreakdownSoFar();
+    if (!last || !contract || !bd || !total) return TEMPOS.leituraDaVaza;
     const linha = bd.rows[last.winner];
+    const acumulado = total.rows[last.winner];
     const units = linha.units;
     const mine = last.winner === g.humanSeat;
+    // a última vaza da mão precisa de ar: o Placar só entra depois desta pausa
+    const piso = g.handOver() ? TEMPOS.fimDeMao : 0;
 
     // Positivas: a vaza É o ponto. Sem castigo a anunciar.
     if (contract.isPositive) {
       setCastigo(null);
       mine ? sfxTrickGood() : sfxTrickNeutral();
-      return TEMPOS.leituraDaVaza;
+      return Math.max(TEMPOS.leituraDaVaza, piso);
     }
 
     // Negativa SEM bucha nesta vaza: alívio, ritmo normal.
     if (units === 0) {
       setCastigo(null);
       mine ? sfxTrickNeutral() : sfxTrickGood();
-      return TEMPOS.leituraDaVaza;
+      return Math.max(TEMPOS.leituraDaVaza, piso);
     }
 
     // "Não pegar Vazas": TODA vaza custa e o vencedor é evidente na mesa. Anunciar as 13 só
@@ -96,7 +101,7 @@ export function useKingGame() {
     if (contract.kind === "no-tricks") {
       setCastigo(null);
       mine ? sfxPenalty() : sfxTrickNeutral();
-      return TEMPOS.leituraDaVaza;
+      return Math.max(TEMPOS.leituraDaVaza, piso);
     }
 
     // Alguém pegou bucha: a mesa para e mostra QUEM e QUANTO custou.
@@ -104,8 +109,9 @@ export function useKingGame() {
     setCastigo({
       seat: last.winner,
       jogador: g.players()[last.winner],
-      oQue: `${units} ${units === 1 ? bd.unit : bd.unitPlural}`,
-      pontos: linha.points,
+      // ACUMULADO da mão, não só desta vaza: na segunda Dama o selo diz "2 Damas".
+      oQue: `${acumulado.units} ${acumulado.units === 1 ? total.unit : total.unitPlural}`,
+      pontos: acumulado.points,
       king,
       voce: mine,
       nonce: Date.now(),
@@ -113,13 +119,17 @@ export function useKingGame() {
     if (king) sfxKingCaptured();
     else sfxPenalty();
     setShake((s) => s + 1); // tremor em toda bucha, não só no King
-    return king ? TEMPOS.leituraDaVazaKing : TEMPOS.leituraDaVazaCastigo;
+    return Math.max(king ? TEMPOS.leituraDaVazaKing : TEMPOS.leituraDaVazaCastigo, piso);
   }, []);
 
   /** Chamado depois de qualquer jogada: ou fecha a vaza, ou foi só mais uma carta. */
   const afterPlay = useCallback((g: KingGame) => {
     if (g.currentTrick().length === 0) {
-      reviewUntil.current = Date.now() + announceTrick(g);
+      const pausa = announceTrick(g);
+      reviewUntil.current = Date.now() + pausa;
+      // Re-render exatamente no fim da pausa. Sem isto, quando a MÃO acaba o loop dos bots não
+      // tem mais nada a fazer e não redesenha — o Placar ficaria esperando indefinidamente.
+      window.setTimeout(bump, pausa + 30);
     } else {
       setCastigo(null); // a vaza seguinte começou: o castigo anterior sai da tela
       sfxCardPlay();

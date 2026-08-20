@@ -288,10 +288,12 @@ export function Mesa({
           {oppName(game.awaitingTrumpFrom() as Seat)} está escolhendo o trunfo…
         </div>
       )}
-      {phase === "handEnd" && (
+      {/* Os placares esperam a pausa de leitura terminar. Antes entravam no mesmo instante em
+          que a última vaza fechava e cobriam o selo do castigo — justo o momento decisivo. */}
+      {phase === "handEnd" && !reviewing && (
         <Placar game={game} onAdvance={onAdvance} onHome={onHome} onRestart={onRestart} />
       )}
-      {phase === "matchEnd" && (
+      {phase === "matchEnd" && !reviewing && (
         <PlacarFinal game={game} onRestart={onRestart} onHome={onHome} />
       )}
     </div>
