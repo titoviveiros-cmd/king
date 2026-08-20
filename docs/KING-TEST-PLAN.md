@@ -1,7 +1,15 @@
 # KING — Plano de Testes
 
-> Status: **executados e verdes — 76 testes (64 motor + 12 web)** em 2026-08-19. `npm test` roda
-> os dois workspaces (`packages/engine/src/*.test.ts` + `apps/web/src/**/*.test.ts`).
+> Status: **executados e verdes**. `npm test` roda os dois workspaces
+> (`packages/engine/src/*.test.ts` + `apps/web/src/**/*.test.ts`) e `npm run test:e2e` roda o
+> Playwright de layout. `npm run ci` encadeia os três.
+>
+> **Contagem no encerramento do Milestone 2:** 66 motor + 17 web + 66 layout = **149 testes**.
+>
+> **CI validado de verdade:** GitHub Actions executa em toda PR e nos pushes de `main` e
+> `feat/**`. A execução do HEAD `10e5c6e` concluiu **verde em 137s** com todos os passos —
+> `npm ci`, testes, build, instalação do Chromium e layout. Não houve travamento na instalação
+> do navegador; nenhuma flexibilização do workflow foi necessária.
 
 ## Invariantes obrigatórias (seção 60)
 | Invariante | Onde |

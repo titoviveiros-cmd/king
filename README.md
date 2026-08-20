@@ -76,6 +76,9 @@ demo/             Protótipo visual antigo (genérico) — será substituído pe
 - ✅ Fase 3 — simulação em massa (`stress.test.ts`).
 - 🔵 Fase 4–5 — apresentação: base jogável, **Placar entre-mãos** (congelado) e **Placar Final**
   (em validação), áudio procedural e responsividade.
+- 🔵 **Milestone 2** (branch `feat/quality-infrastructure`): CI no GitHub Actions, Playwright de
+  layout em 7 viewports, preview na Vercel, score ao vivo por vaza e game feel das mãos
+  negativas (selo do castigo). **149 testes** — 66 motor + 17 web + 66 layout.
 - ⏭️ Próximo milestone aprovado: **Bot Normal V1** (heurístico), depois multiplayer autoritativo.
 - ⏳ Fase 6 multiplayer → Fase 9 release.
 

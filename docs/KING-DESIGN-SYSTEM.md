@@ -346,7 +346,9 @@ mesmo peso visual dos cards de jogador. Ganhou um **halo na cor semântica da fa
   folgas medidas e os testes de layout do Playwright seguem válidos.
 - Respeita `prefers-reduced-motion`: quem pede movimento reduzido recebe só o halo estático.
 
-## Selo do castigo — ✅ implementado
+## Selo do castigo — ✅ APROVADO (Milestone 2)
+Validado em partida completa no iPhone pelo Tito e aprovado pela auditoria externa. Os números
+abaixo estão **congelados** para o Milestone 2; mudá-los exige nova validação.
 Nas mãos negativas, a vaza que levava "bucha" era recolhida em 1,15s sem nome nem número:
 ninguém acompanhava **quem** tinha se dado mal, que é justamente a graça dessas mãos. Agora a
 mesa **para** e mostra o castigo.
@@ -371,7 +373,26 @@ mesa **para** e mostra o castigo.
 **Onde NÃO se aplica:** em "Não pegar Vazas" toda vaza custa e o vencedor é evidente na mesa —
 anunciar as 13 só arrastaria a mão. O selo existe onde a bucha é uma **carta específica**
 (Copas, Damas, Reis/Valetes, K de Copas) ou uma vaza específica (as duas últimas), que é o que
-ninguém consegue acompanhar sozinho.
+ninguém consegue acompanhar sozinho. **Exceção confirmada na auditoria do Milestone 2.**
+
+### Ritmo medido com as pausas atuais
+Três partidas completas contra os bots, autopiloto jogando a carta do humano em ~80ms — ou seja,
+**a duração mínima da máquina**; um jogador real pensando entre as cartas adiciona tempo.
+
+| Seed | Duração | Selos | Encerramentos antecipados | Maior pausa |
+|---|---|---|---|---|
+| 4 | 5min54s | 19 | 2 (M3 na 12ª, M5 na 7ª) | 3.435ms |
+| 21 | 6min14s | 20 | 0 | 3.443ms |
+| 42 | 6min03s | 23 | 1 (M5 na 7ª) | 3.432ms |
+
+**Menor 5min54s · maior 6min14s · média 6min03s** — variação de apenas 20 segundos.
+
+- A **maior pausa das três partidas foi sempre o selo do K de Copas** (3,4s configurados).
+  Nenhuma pausa inesperada apareceu.
+- O **encerramento antecipado é o que segura a duração**: sem ele cada negativa custa 37–46s.
+  No seed 21, com o K♥ caindo só na 13ª vaza, a partida foi a mais longa das três.
+- As **positivas são estáveis em 34,1–34,9s** nas três partidas: não têm selo nem encerramento
+  antecipado.
 
 ## Slot de trunfo — ✅ implementado
 Nas mãos **7–10** aparece um slot dedicado logo abaixo do HUD, com o **naipe em tamanho grande**
