@@ -40,6 +40,7 @@ export function App() {
           game={g.game}
           reviewing={g.reviewing}
           shake={g.shake}
+          castigo={g.castigo}
           onPlay={g.playCard}
           onChooseTrump={g.chooseTrump}
           onAdvance={g.advanceHand}

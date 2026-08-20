@@ -321,6 +321,12 @@ Onde há espaço, escreve-se por extenso. **"Homens" foi abolido.**
 | Placar (penalidade) | natural — `penaltyTextLong` | "−50 por Dama" · "−30 por Rei ou Valete" |
 | Placar (unidades capturadas) | natural — `handBreakdown` | "2 Damas" · "3 Reis/Valetes" · "5 Copas" · "4 vazas" · "1 K de Copas" |
 
+**O Placar mostra só o que pontua.** Em "Não pegar Q", quantas vazas alguém levou é irrelevante:
+vaza sem Dama não custa nada e o número só concorre com o que importa. Vale para Copas,
+Reis/Valetes, K de Copas e as duas últimas. Nos contratos em que a **vaza é a própria unidade**
+("Não pegar Vazas" e as positivas), ela continua sendo o dado principal. Quem não pegou nada
+aparece como **"escapou"**.
+
 ## HUD do contrato — destaque por fase ✅
 O HUD carrega o **objetivo da mão**, a informação que mais precisa ser lida — e estava com o
 mesmo peso visual dos cards de jogador. Ganhou um **halo na cor semântica da fase**:
@@ -339,6 +345,29 @@ mesmo peso visual dos cards de jogador. Ganhou um **halo na cor semântica da fa
 - **Só cor e sombra mudam** — a caixa continua idêntica (161×72 no iPhone deitado), então as
   folgas medidas e os testes de layout do Playwright seguem válidos.
 - Respeita `prefers-reduced-motion`: quem pede movimento reduzido recebe só o halo estático.
+
+## Selo do castigo — ✅ implementado
+Nas mãos negativas, a vaza que levava "bucha" era recolhida em 1,15s sem nome nem número:
+ninguém acompanhava **quem** tinha se dado mal, que é justamente a graça dessas mãos. Agora a
+mesa **para** e mostra o castigo.
+
+| Elemento | Comportamento |
+|---|---|
+| Selo | pílula sobre a mesa: avatar + "Fulano pegou" + **o que** (ex.: "2 Damas") + **quanto** (−100) |
+| Cor | magenta (tensão, Design System); **K de Copas em ouro com coroa** — é o castigo máximo |
+| Você | moldura mais fechada e brilho maior quando o castigo é seu |
+| Motion | pop de entrada + pulso lento enquanto a mesa está parada; screen-shake em toda bucha |
+| Áudio | `sfxPenalty`; no K de Copas, `sfxKingCaptured` |
+
+**Pausas** (em `game/timings.ts`):
+- vaza comum — **1,15s**
+- vaza com bucha — **2,7s**
+- vaza do K de Copas — **3,4s**
+
+**Onde NÃO se aplica:** em "Não pegar Vazas" toda vaza custa e o vencedor é evidente na mesa —
+anunciar as 13 só arrastaria a mão. O selo existe onde a bucha é uma **carta específica**
+(Copas, Damas, Reis/Valetes, K de Copas) ou uma vaza específica (as duas últimas), que é o que
+ninguém consegue acompanhar sozinho.
 
 ## Slot de trunfo — ✅ implementado
 Nas mãos **7–10** aparece um slot dedicado logo abaixo do HUD, com o **naipe em tamanho grande**

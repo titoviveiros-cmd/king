@@ -8,6 +8,7 @@ import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxCardSelect, sfxTap } from "../audio/sounds.js";
 import type { KingGame } from "../game/kingGame.js";
+import type { Castigo } from "../game/useKingGame.js";
 import { CardView } from "./CardView.js";
 import { TEMPOS } from "../game/timings.js";
 
@@ -44,11 +45,12 @@ function useCoarsePointer(): boolean {
 }
 
 export function Mesa({
-  game, reviewing, shake, onPlay, onChooseTrump, onAdvance, onHome, onRestart, onOpenAudio,
+  game, reviewing, shake, castigo, onPlay, onChooseTrump, onAdvance, onHome, onRestart, onOpenAudio,
 }: {
   game: KingGame;
   reviewing: boolean;
   shake: number;
+  castigo: Castigo | null;
   onPlay: (c: Card) => void;
   onChooseTrump: (t: Trump) => void;
   onAdvance: () => void;
@@ -224,6 +226,24 @@ export function Mesa({
           <div className="m">🂠 {counts[0]} · {scores[0]} pts</div>
         </div>
       </div>
+      {/* Selo do castigo: a mesa para e todos veem QUEM pegou a bucha e QUANTO custou.
+          Antes a vaza penalizada era recolhida em 1,15s sem nome nem número — ninguém
+          acompanhava quem tinha se dado mal, que é justamente a graça das mãos negativas. */}
+      {castigo && reviewing && (
+        <div
+          key={castigo.nonce}
+          className={`castigo s${castigo.seat}${castigo.king ? " king" : ""}${castigo.voce ? " voce" : ""}`}
+          role="status"
+        >
+          <span className="quem">
+            <i className={`av s${castigo.seat}`}>{castigo.jogador[0]}</i>
+            {castigo.voce ? "Você pegou" : `${castigo.jogador} pegou`}
+          </span>
+          <span className="oque">{castigo.oQue}</span>
+          <span className="quanto">{castigo.pontos}</span>
+        </div>
+      )}
+
       {humanTurn && (
         <>
           {showTurnChip && !selected && <div className="suavez">Sua vez</div>}

@@ -75,7 +75,7 @@ export function Placar({
                 <span className={`pl-av s${r.seat}`}>{r.player[0]}</span>
                 <span className="pl-name">
                   {r.player}
-                  <i className="pl-detail">{detail(b.units, b.tricks, bd, contract.isPositive)}</i>
+                  <i className="pl-detail">{detail(b.units, bd, contract.isPositive)}</i>
                 </span>
                 <span className={`pl-delta ${deltaClass(b.points)}`}>{fmtSigned(b.points)}</span>
                 <span className="pl-total">{fmtSigned(r.score)}</span>
@@ -116,19 +116,17 @@ export function Placar({
 }
 
 /** "2 damas · 5 vazas" — nas mãos em que unidade ≠ vaza, mostra as duas informações. */
-function detail(
-  units: number,
-  tricks: number,
-  bd: { unit: string; unitPlural: string },
-  isPositive: boolean,
-): string {
-  const unitIsTrick = bd.unit === "vaza";
-  if (units === 0) {
-    const clean = isPositive ? "nenhuma vaza" : "escapou";
-    return unitIsTrick ? clean : `${clean} · ${unitsText(tricks, "vaza", "vazas")}`;
-  }
-  const main = unitsText(units, bd.unit, bd.unitPlural);
-  return unitIsTrick ? main : `${main} · ${unitsText(tricks, "vaza", "vazas")}`;
+/**
+ * O que cada jogador capturou. Mostra **só o que pontua**.
+ *
+ * Em "Não pegar Q", quantas vazas alguém levou é irrelevante — vaza sem Dama não custa nada,
+ * e informar isso só concorre com o número que importa. O mesmo vale para Copas, Reis/Valetes,
+ * K de Copas e as duas últimas. Nos contratos em que a **vaza é a própria unidade** (não pegar
+ * Vazas e as positivas), ela continua sendo o dado principal.
+ */
+function detail(units: number, bd: { unit: string; unitPlural: string }, isPositive: boolean): string {
+  if (units === 0) return isPositive ? "nenhuma vaza" : "escapou";
+  return unitsText(units, bd.unit, bd.unitPlural);
 }
 
 const deltaClass = (n: number) => (n < 0 ? "neg" : n > 0 ? "pos" : "zero");

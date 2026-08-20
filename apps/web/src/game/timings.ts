@@ -14,6 +14,14 @@ export const TEMPOS = {
   botPasso: 520,
   /** Pausa para ler a vaza resolvida antes de recolher as cartas. */
   leituraDaVaza: 1150,
+  /**
+   * Vaza que levou "bucha" (Dama, Rei/Valete, Copa, últimas): a mesa PARA para todos verem
+   * quem se deu mal. Sem isso a rodada passava tão rápido que ninguém sabia quem tinha pegado
+   * — e é justamente essa a graça do jogo.
+   */
+  leituraDaVazaCastigo: 2700,
+  /** O K de Copas é o castigo máximo: pausa ainda maior. */
+  leituraDaVazaKing: 3400,
   /** Tempo que o chip "Sua vez" permanece visível (o anel dourado é o estado permanente). */
   chipSuaVez: 2200,
   /** Duração do screen-shake do K de Copas. */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import type { Card, Trump } from "@king/engine";
+import type { Card, Seat, Trump } from "@king/engine";
 import { KingGame, type Phase } from "./kingGame.js";
 import { TEMPOS } from "./timings.js";
 import { audio } from "../audio/engine.js";
@@ -7,6 +7,22 @@ import {
   sfxCardPlay, sfxDeal, sfxHandEnd, sfxKingCaptured, sfxLastTrick,
   sfxPenalty, sfxTrickGood, sfxTrickNeutral, sfxTrump, sfxYourTurn, sfxFinalSwell,
 } from "../audio/sounds.js";
+
+/**
+ * O "castigo" de uma vaza: quem levou bucha, o quê e quanto custou. É o que a Mesa exibe
+ * enquanto a mesa está parada, para todos verem quem se deu mal.
+ */
+export interface Castigo {
+  seat: Seat;
+  jogador: string;
+  /** Já formatado pelo motor: "2 Damas", "1 K de Copas", "3 Copas". */
+  oQue: string;
+  pontos: number;
+  king: boolean;
+  voce: boolean;
+  /** Muda a cada anúncio para a animação tocar de novo. */
+  nonce: number;
+}
 
 /**
  * `?seed=123` fixa a semente da partida. O motor é determinístico por semente (ver
@@ -31,6 +47,7 @@ export function useKingGame() {
   const [, bump] = useReducer((x) => x + 1, 0);
   const [screen, setScreen] = useState<"home" | "mesa">("home");
   const [shake, setShake] = useState(0); // contador: cada incremento redispara o screen-shake
+  const [castigo, setCastigo] = useState<Castigo | null>(null);
 
   // memória para detectar transições (mão nova, fase nova, "sua vez")
   const prev = useRef({ phase: null as Phase | null, hand: 0, humanTurn: false, trick: 0 });
@@ -45,37 +62,66 @@ export function useKingGame() {
   }, []);
   const goHome = useCallback(() => setScreen("home"), []);
 
-  /** Som da vaza que acabou de fechar — quem levou e o que isso custou (dados do motor). */
-  const announceTrick = useCallback((g: KingGame) => {
+  /**
+   * Anúncio da vaza que acabou de fechar: som + o "castigo" a mostrar na mesa.
+   * Tudo vem do motor (`lastTrickBreakdown`) — nada é recontado aqui.
+   * Devolve quanto tempo a mesa deve ficar parada antes de recolher as cartas.
+   */
+  const announceTrick = useCallback((g: KingGame): number => {
     const last = g.lastCompletedTrick();
     const contract = g.contract();
     const bd = g.lastTrickBreakdown();
-    if (!last || !contract || !bd) return;
-    const units = bd.rows[last.winner].units;
+    if (!last || !contract || !bd) return TEMPOS.leituraDaVaza;
+    const linha = bd.rows[last.winner];
+    const units = linha.units;
     const mine = last.winner === g.humanSeat;
 
-    if (contract.kind === "no-king" && units > 0) {
-      sfxKingCaptured();
-      setShake((s) => s + 1);
-      return;
-    }
+    // Positivas: a vaza É o ponto. Sem castigo a anunciar.
     if (contract.isPositive) {
-      if (mine) sfxTrickGood();
-      else sfxTrickNeutral();
-      return;
+      setCastigo(null);
+      mine ? sfxTrickGood() : sfxTrickNeutral();
+      return TEMPOS.leituraDaVaza;
     }
-    if (mine && units > 0) sfxPenalty();
-    else if (!mine && units > 0) sfxTrickNeutral();
-    else if (mine) sfxTrickNeutral();
-    else sfxTrickGood(); // negativa que sobrou para outro: alívio
+
+    // Negativa SEM bucha nesta vaza: alívio, ritmo normal.
+    if (units === 0) {
+      setCastigo(null);
+      mine ? sfxTrickNeutral() : sfxTrickGood();
+      return TEMPOS.leituraDaVaza;
+    }
+
+    // "Não pegar Vazas": TODA vaza custa e o vencedor é evidente na mesa. Anunciar as 13 só
+    // arrastaria a mão. O suspense existe onde a bucha é uma CARTA específica — Copas, Damas,
+    // Reis/Valetes, K de Copas, as duas últimas —, que é o que ninguém consegue acompanhar.
+    if (contract.kind === "no-tricks") {
+      setCastigo(null);
+      mine ? sfxPenalty() : sfxTrickNeutral();
+      return TEMPOS.leituraDaVaza;
+    }
+
+    // Alguém pegou bucha: a mesa para e mostra QUEM e QUANTO custou.
+    const king = contract.kind === "no-king";
+    setCastigo({
+      seat: last.winner,
+      jogador: g.players()[last.winner],
+      oQue: `${units} ${units === 1 ? bd.unit : bd.unitPlural}`,
+      pontos: linha.points,
+      king,
+      voce: mine,
+      nonce: Date.now(),
+    });
+    if (king) sfxKingCaptured();
+    else sfxPenalty();
+    setShake((s) => s + 1); // tremor em toda bucha, não só no King
+    return king ? TEMPOS.leituraDaVazaKing : TEMPOS.leituraDaVazaCastigo;
   }, []);
 
   /** Chamado depois de qualquer jogada: ou fecha a vaza, ou foi só mais uma carta. */
   const afterPlay = useCallback((g: KingGame) => {
     if (g.currentTrick().length === 0) {
-      announceTrick(g);
-      reviewUntil.current = Date.now() + TEMPOS.leituraDaVaza;
+      reviewUntil.current = Date.now() + announceTrick(g);
     } else {
+      setCastigo(null); // a vaza seguinte começou: o castigo anterior sai da tela
       sfxCardPlay();
     }
   }, [announceTrick]);
@@ -132,7 +178,7 @@ export function useKingGame() {
   }, []);
   const advanceHand = useCallback(() => {
     const g = ref.current;
-    if (g) { g.advanceHand(); reviewUntil.current = 0; bump(); }
+    if (g) { g.advanceHand(); reviewUntil.current = 0; setCastigo(null); bump(); }
   }, []);
 
   return {
@@ -140,6 +186,7 @@ export function useKingGame() {
     screen,
     reviewing: Date.now() < reviewUntil.current,
     shake,
+    castigo,
     start, goHome, playCard, chooseTrump, advanceHand,
   };
 }
