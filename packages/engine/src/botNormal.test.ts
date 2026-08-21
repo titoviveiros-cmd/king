@@ -146,13 +146,6 @@ describe("Bot Normal — Mão 6 (não pegar as 2 últimas)", () => {
 });
 
 describe("Bot Normal — contrato/robustez", () => {
-  it("mão positiva ainda NÃO implementada: lança erro explícito (ETAPA 2B)", () => {
-    const view = mkView({ kind: "positive", legal: [c("2", "spades"), c("A", "spades")] });
-    // força isPositive = true (mkView cria negativa por padrão)
-    view.contract = { kind: "positive", isPositive: true, noLeadHearts: false };
-    expect(() => chooseNormalCard(view)).toThrow(/positiv/i);
-  });
-
   it("nas 6 negativas dirigidas pelo Bot Normal: nunca joga ilegal, mão termina, e o total bate o contrato", () => {
     for (const seed of [1, 7, 42, 100, 2024]) {
       const m = createMatch(["A", "B", "C", "D"], seed);
