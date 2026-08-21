@@ -8,3 +8,4 @@ export * from "./sim.js";
 export * from "./stats.js";
 export * from "./bot.js";
 export * from "./botView.js";
+export * from "./botNormal.js";
