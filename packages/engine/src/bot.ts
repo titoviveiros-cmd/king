@@ -1,6 +1,7 @@
-// Bot legal simples (usa a legalidade OFICIAL do motor — não reimplementa regra alguma).
-// Política mínima: joga a menor carta legal (tende a evitar vencer vazas e pegar penalidades).
-// "Bot Normal" mais esperto fica para etapa futura.
+// BASELINE BOT (referência técnica interna — NÃO é uma dificuldade apresentada ao jogador).
+// Usa a legalidade OFICIAL do motor — não reimplementa regra alguma.
+// Política mínima: joga a menor carta legal (tende a evitar vencer vazas e pegar penalidades) e
+// escolhe trunfo pela maioria. Serve apenas de baseline de comparação para o Bot Normal V1.
 import type { Card } from "./cards.js";
 import { RANK_ORDER } from "./cards.js";
 import type { Seat, Trump } from "./contracts.js";
