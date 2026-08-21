@@ -9,8 +9,37 @@ import { chooseBotCard, chooseBotTrump } from "./bot.js";
 import { buildBotView } from "./botView.js";
 import { chooseNormalCard, chooseNormalTrump } from "./botNormal.js";
 
-const RUN = process.env.BENCH === "1";
-const N = 1000;                    // seeds 1..1000 (diagnóstico); holdout 10001..11000 NÃO tocado
+/**
+ * Leitura do ambiente com tipagem LOCAL. O tsconfig do motor alcança os `.test.ts` e o projeto
+ * não tem `@types/node`, então `process` não existe para o TypeScript aqui — era o que deixava
+ * o build vermelho. `globalThis.process.env` é exatamente o mesmo objeto em runtime: nenhum
+ * valor, default ou comportamento muda; só o compilador passa a ter um tipo para olhar.
+ */
+const ENV: Record<string, string | undefined> =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+
+const RUN = ENV.BENCH === "1";
+
+/**
+ * Intervalo de seeds vindo de fora — única mudança funcional em relação à ETAPA 3A.
+ * Defaults preservam exatamente o comportamento original: seeds 1..1000.
+ *   calibração: BENCH=1                                        (1..1000)
+ *   holdout:    BENCH=1 BENCH_SEED_START=10001 BENCH_SEED_COUNT=1000   (10001..11000)
+ * Nada mais muda: geração das partidas, pareamento, métricas, IC95 e invariantes são os mesmos.
+ */
+function envInt(name: string, def: number): number {
+  const raw = ENV[name];
+  if (raw === undefined || raw.trim() === "") return def;
+  const t = raw.trim();
+  if (!/^\d+$/.test(t)) throw new Error(`${name} inválido: "${raw}". Use um inteiro positivo (>= 1).`);
+  const v = Number(t);
+  if (!Number.isSafeInteger(v) || v < 1) throw new Error(`${name} inválido: "${raw}". Deve ser inteiro >= 1.`);
+  return v;
+}
+const SEED_START = envInt("BENCH_SEED_START", 1);
+const SEED_COUNT = envInt("BENCH_SEED_COUNT", 1000);
+const SEED_END = SEED_START + SEED_COUNT - 1;   // start=10001, count=1000 ⇒ end=11000
+const N = SEED_COUNT;
 const SEATS = [0, 1, 2, 3] as const;
 const TRUMPS: Trump[] = ["spades", "hearts", "diamonds", "clubs", "no-trump"];
 
@@ -62,7 +91,7 @@ function rankOf(final: number[], seat: number) {
   return { position, isFirst: v === max, isLast: v === min, winCredit: v === max ? 1 / firstCount : 0 };
 }
 
-describe("BENCH — Bot Normal V1 × Baseline (diagnóstico, seeds 1..1000)", () => {
+describe(`BENCH — Bot Normal V1 × Baseline (seeds ${SEED_START}..${SEED_END})`, () => {
   it.runIf(RUN)("5000 partidas: deltas pareados, IC95, 10 mãos, trunfo, invariantes", () => {
     const t0 = Date.now();
     const dFinalAll: number[] = [], dNegAll: number[] = [], dPosAll: number[] = [], vsAvg3All: number[] = [], chooserDeltaAll: number[] = [];
@@ -77,7 +106,7 @@ describe("BENCH — Bot Normal V1 × Baseline (diagnóstico, seeds 1..1000)", ()
     const baseSeat = SEATS.map(() => ({ final: 0, pos: 0, credit: 0 }));
     let matches = 0;
 
-    for (let seed = 1; seed <= N; seed++) {
+    for (let seed = SEED_START; seed <= SEED_END; seed++) {
       const base = playMatch(seed, -1); matches++;
       for (const s of SEATS) { baseSeat[s].final += base.final[s]; const r = rankOf(base.final, s); baseSeat[s].pos += r.position; baseSeat[s].credit += r.winCredit; }
       const ch = SEATS.map((k) => { const r = playMatch(seed, k); matches++; return r; });
@@ -111,8 +140,8 @@ describe("BENCH — Bot Normal V1 × Baseline (diagnóstico, seeds 1..1000)", ()
     const finIC = ic95(seedFinal), negIC = ic95(seedNeg), posIC = ic95(seedPos), chIC = ic95(seedChooser);
     const L: string[] = [];
     L.push("========== BENCH Bot Normal V1 (c62f5e3) × Baseline ==========");
-    L.push(`partidas=${matches} (1000 all-Baseline + 4000 challenger) | tempo=${f2(secs)}s | ${f2(matches / secs)} partidas/s | ${f2((secs * 1000) / matches)} ms/partida`);
-    L.push(`INVARIANTES: 5000/5000 ok (nenhuma ilegal/exceção/deadlock; 10 mãos; −1300/+1300/0). SANITY deltas: ok (Δfinal=ΣΔmãos=Δneg+Δpos).`);
+    L.push(`seeds=${SEED_START}..${SEED_END} (${N}) | partidas=${matches} (${N} all-Baseline + ${4 * N} challenger) | tempo=${f2(secs)}s | ${f2(matches / secs)} partidas/s | ${f2((secs * 1000) / matches)} ms/partida`);
+    L.push(`INVARIANTES: ${matches}/${5 * N} ok (nenhuma ilegal/exceção/deadlock; 10 mãos; −1300/+1300/0). SANITY deltas: ok (Δfinal=ΣΔmãos=Δneg+Δpos).`);
     L.push("");
     L.push("TABELA EXECUTIVA");
     L.push("MÉTRICA | NORMAL(méd) | BASELINE(méd) | DELTA(méd) | IC95 | LEITURA");
@@ -122,7 +151,7 @@ describe("BENCH — Bot Normal V1 × Baseline (diagnóstico, seeds 1..1000)", ()
     L.push(`Fase positiva | Δ | ref | ${f2(posIC.mean)} | [${f2(posIC.lo)}, ${f2(posIC.hi)}] | ${verdict(posIC)}`);
     L.push(`Chooser (mão do trunfo do Normal) | Δ | ref | ${f2(chIC.mean)} | [${f2(chIC.lo)}, ${f2(chIC.hi)}] | ${verdict(chIC)}`);
     L.push("");
-    L.push("Δ FINAL — distribuição (4000 obs) + inferência (1000 médias por seed)");
+    L.push(`Δ FINAL — distribuição (${4 * N} obs) + inferência (${N} médias por seed)`);
     L.push(`média=${f2(finIC.mean)} IC95=[${f2(finIC.lo)}, ${f2(finIC.hi)}] SD(seed)=${f2(finIC.sd)}`);
     L.push(`mediana=${f2(quantile(dFinalAll, .5))} min=${f2(Math.min(...dFinalAll))} max=${f2(Math.max(...dFinalAll))} SD(obs)=${f2(sd(dFinalAll))}`);
     L.push(`p5=${f2(quantile(dFinalAll, .05))} p25=${f2(quantile(dFinalAll, .25))} p50=${f2(quantile(dFinalAll, .5))} p75=${f2(quantile(dFinalAll, .75))} p95=${f2(quantile(dFinalAll, .95))}`);
@@ -131,15 +160,15 @@ describe("BENCH — Bot Normal V1 × Baseline (diagnóstico, seeds 1..1000)", ()
     L.push("Mão | contrato | Normal(méd) | Baseline(méd) | Δ méd | IC95 | leitura");
     for (let h = 0; h < 10; h++) {
       const hic = ic95(seedHand[h]);
-      L.push(`M${h + 1} | ${HAND_CONTRACTS[h + 1].label} | ${f2(normHandSum[h] / 4000)} | ${f2(baseHandSum[h] / 4000)} | ${f2(hic.mean)} | [${f2(hic.lo)}, ${f2(hic.hi)}] | ${verdict(hic)}`);
+      L.push(`M${h + 1} | ${HAND_CONTRACTS[h + 1].label} | ${f2(normHandSum[h] / (4 * N))} | ${f2(baseHandSum[h] / (4 * N))} | ${f2(hic.mean)} | [${f2(hic.lo)}, ${f2(hic.hi)}] | ${verdict(hic)}`);
     }
     L.push("");
-    L.push("RANKING do Normal (4000 challenger)");
+    L.push(`RANKING do Normal (${4 * N} challenger)`);
     L.push(`posição média=${f2(mean(rankPos))} | %1º(qualquer)=${f2(100 * firsts / games)}% | win-credit=${f2(100 * mean(winCredit))}% | %top2=${f2(100 * top2 / games)}% | %último=${f2(100 * lasts / games)}%`);
     L.push(`(controle: 4 bots equivalentes ⇒ ~25% win-credit)`);
     L.push(`Normal × média dos 3 Baselines da própria partida: méd=${f2(mean(vsAvg3All))} (secundária)`);
     L.push("");
-    L.push("ESCOLHA DE TRUNFO do Normal (4000 escolhas, 1 por challenger)");
+    L.push(`ESCOLHA DE TRUNFO do Normal (${4 * N} escolhas, 1 por challenger)`);
     const totT = sum(TRUMPS.map((t) => trumpFreq[t]));
     for (const t of TRUMPS) L.push(`${t}: ${trumpFreq[t]} (${f2(100 * trumpFreq[t] / totT)}%)`);
     L.push("");
@@ -147,7 +176,7 @@ describe("BENCH — Bot Normal V1 × Baseline (diagnóstico, seeds 1..1000)", ()
     L.push("trunfo | n | score méd | vazas méd | Δ méd vs baseline pareado");
     for (const t of TRUMPS) { const p = perTrump[t]; if (p.count) L.push(`${t} | ${p.count} | ${f2(p.score / p.count)} | ${f2(p.tricks / p.count)} | ${f2(p.delta / p.count)}`); else L.push(`${t} | 0 | — | — | —`); }
     L.push("");
-    L.push("VIÉS DE ASSENTO — 1000 partidas all-Baseline");
+    L.push(`VIÉS DE ASSENTO — ${N} partidas all-Baseline`);
     L.push("seat | score final méd | posição méd | win-credit");
     for (const s of SEATS) L.push(`seat${s} | ${f2(baseSeat[s].final / N)} | ${f2(baseSeat[s].pos / N)} | ${f2(100 * baseSeat[s].credit / N)}%`);
     L.push("");
@@ -163,6 +192,6 @@ describe("BENCH — Bot Normal V1 × Baseline (diagnóstico, seeds 1..1000)", ()
     L.push("==============================================================");
     console.log("\n" + L.join("\n") + "\n");
 
-    expect(matches).toBe(5000);
+    expect(matches).toBe(5 * N);
   }, 900_000);
 });
