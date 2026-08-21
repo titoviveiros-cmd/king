@@ -4,7 +4,7 @@
 // vaza, a pontuação e as transições de mão. Toda a lógica de KING vive em @king/engine.
 import {
   createMatch, startNextHand, selectTrump, legalCardsFor, playCard, publicView,
-  rankings, matchWinners, chooseBotCard, chooseBotTrump, handSummary, handBreakdown, matchStats, trumpChooserFor,
+  rankings, matchWinners, buildBotView, chooseNormalCard, chooseNormalTrump, handSummary, handBreakdown, matchStats, trumpChooserFor,
   liveScores,
   type Card, type Trump, type Seat, type MatchState, type RankRow, type HandSummary, type HandBreakdown, type MatchStats,
 } from "@king/engine";
@@ -106,11 +106,11 @@ export class KingGame {
 
   // ---- passos dos bots (síncronos; a UI adiciona o timing) ----
   needsBotTrump(): boolean { return this.phase() === "trump" && this.awaitingTrumpFrom() !== this.humanSeat; }
-  stepBotTrump(): void { const seat = this.awaitingTrumpFrom()!; selectTrump(this.m, seat, chooseBotTrump(this.m, seat)); }
+  stepBotTrump(): void { const seat = this.awaitingTrumpFrom()!; selectTrump(this.m, seat, chooseNormalTrump(buildBotView(this.m, seat).hand)); }
   needsBotPlay(): boolean { return this.phase() === "play" && this.turn() !== this.humanSeat; }
   stepBotPlay(): { seat: Seat; card: Card } {
     const seat = this.turn()!;
-    const card = chooseBotCard(this.m, seat);
+    const card = chooseNormalCard(buildBotView(this.m, seat));
     playCard(this.m, seat, card);
     return { seat, card };
   }
