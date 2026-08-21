@@ -214,7 +214,10 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   background:linear-gradient(180deg,#ffe27a,var(--gold));padding:5px clamp(10px,2vw,16px);border-radius:999px;
   border:2px solid rgba(255,255,255,.7);white-space:nowrap;
   animation:fadeChip .35s ease both;}
+/* saída suave: sem isto o chip sumia num corte seco (par de TEMPOS.chipSuaVezSaida) */
+.suavez.out{animation:fadeChipOut .35s ease both;}
 @keyframes fadeChip{from{opacity:0;}to{opacity:1;}}
+@keyframes fadeChipOut{from{opacity:1;}to{opacity:0;}}
 
 /* ---- selo do castigo ----
    Quem pegou a bucha, o quê e quanto custou. Aparece sobre a mesa enquanto a vaza penalizada

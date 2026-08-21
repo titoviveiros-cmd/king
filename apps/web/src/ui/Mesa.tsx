@@ -77,13 +77,22 @@ export function Mesa({
 
   // "SUA VEZ" é temporário (Design System): o estado permanente é o anel dourado no seu card.
   // Some antes de você começar a escolher a carta, para não disputar espaço com o leque.
+  //
+  // A contagem só começa com a mesa LIVRE (`!reviewing`). `humanTurn` fica true assim que a vaza
+  // resolve, mas a mesa ainda passa a pausa de leitura congelada (até 3400ms no K de Copas): o
+  // chip nascia atrás do selo do castigo e expirava antes de a mesa liberar. Isto NÃO adia o
+  // turno nem a habilitação das cartas — elas seguem habilitadas por `humanTurn`, e jogar
+  // enquanto o chip está na tela continua possível.
   const [showTurnChip, setShowTurnChip] = useState(false);
+  const [chipSaindo, setChipSaindo] = useState(false);
   useEffect(() => {
-    if (!humanTurn) { setShowTurnChip(false); return; }
+    if (!humanTurn || reviewing) { setShowTurnChip(false); setChipSaindo(false); return; }
     setShowTurnChip(true);
-    const id = setTimeout(() => setShowTurnChip(false), TEMPOS.chipSuaVez);
-    return () => clearTimeout(id);
-  }, [humanTurn]);
+    setChipSaindo(false);
+    const sai = setTimeout(() => setChipSaindo(true), TEMPOS.chipSuaVez);
+    const some = setTimeout(() => setShowTurnChip(false), TEMPOS.chipSuaVez + TEMPOS.chipSuaVezSaida);
+    return () => { clearTimeout(sai); clearTimeout(some); };
+  }, [humanTurn, reviewing]);
 
   // Dica de teclado (SÓ em ambiente com teclado — ver `coarse` e o gate CSS por `pointer:fine`).
   // Aparece depois do chip "Sua vez", fica ACIMA do leque (nunca sobre as cartas) e some após
@@ -246,7 +255,7 @@ export function Mesa({
 
       {humanTurn && (
         <>
-          {showTurnChip && !selected && <div className="suavez">Sua vez</div>}
+          {showTurnChip && !selected && <div className={`suavez${chipSaindo ? " out" : ""}`}>Sua vez</div>}
           {coarse && selected && <div className="confirmchip">Toque de novo ▸</div>}
           {!coarse && keyhintOn && !selected && (
             <div className="keyhint"><b>← →</b> escolher · <b>Enter</b> jogar</div>

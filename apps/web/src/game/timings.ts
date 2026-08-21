@@ -27,8 +27,14 @@ export const TEMPOS = {
    * mesmo instante em que a vaza fechava, e o selo do castigo da última bucha nunca era visto.
    */
   fimDeMao: 1800,
-  /** Tempo que o chip "Sua vez" permanece visível (o anel dourado é o estado permanente). */
+  /**
+   * Tempo que o chip "Sua vez" permanece OPACO (o anel dourado é o estado permanente).
+   * A contagem só começa com a mesa livre — durante a pausa de leitura da vaza o chip expirava
+   * sem nunca ter sido visto (ver Mesa.tsx).
+   */
   chipSuaVez: 2200,
+  /** Fade-out do chip "Sua vez". Par do `.suavez.out` no theme.css (.35s). */
+  chipSuaVezSaida: 350,
   /** Duração do screen-shake do K de Copas. */
   shakeKing: 520,
 
