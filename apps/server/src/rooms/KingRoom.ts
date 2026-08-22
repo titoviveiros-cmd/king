@@ -23,10 +23,12 @@ import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import { ArraySchema, schema } from "@colyseus/schema";
 import type { Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
+import { TEMPOS } from "../match/tempos.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
   type Causa, type DefinirPronto, type EscolherTrunfo,
-  type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao, type StatusDaSala,
+  type FaseDoRelogio, type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao,
+  type StatusDaSala, type TipoDeDecisao,
 } from "../protocol/index.js";
 
 /** KING é sempre 4 assentos. Não é configurável — é regra do jogo. */
@@ -42,6 +44,8 @@ export const AssentoPublico = schema({
   nick: "string",
   connected: "boolean",
   ready: "boolean",
+  /** O servidor está agindo por este assento? Informação pública — a Mesa precisa mostrar. */
+  assisted: "boolean",
 }, "AssentoPublico");
 export type AssentoPublico = InstanceType<typeof AssentoPublico>;
 
@@ -108,6 +112,23 @@ export class KingRoom extends Room<{
    */
   #conexaoAtiva = new Map<string, ClienteDoKing>();
 
+  /**
+   * RELÓGIO AUTORITATIVO. O servidor é a única fonte de tempo; o cliente só representa.
+   *
+   * `#pendencia` descreve a decisão que a partida está esperando AGORA. Todo timer agendado
+   * carrega o `id` e a `versao` do momento do agendamento — se qualquer um dos dois mudar, o
+   * callback é inerte. É assim que timer velho nunca age sobre estado novo.
+   */
+  #pendencia: {
+    id: number; tipo: TipoDeDecisao; seat: Seat | null; versao: number; deadlineEm: number;
+  } | null = null;
+  #timers: { clear(): void }[] = [];
+  #decisaoSeq = 0;
+  /** Quando a mão corrente terminou — origem dos prazos de auto-ready. */
+  #maoTerminouEm = 0;
+  /** Sala sem nenhuma conexão viva: se ninguém voltar, ela morre. */
+  #timerOrfa: { clear(): void } | null = null;
+
   /** Há partida em curso? Só o BOOLEANO — nunca o estado. */
   partidaIniciada(): boolean {
     return this.autoridade.iniciada;
@@ -171,12 +192,12 @@ export class KingRoom extends Room<{
       if (!dados) return;
       const r = this.autoridade.marcarPronto(dados.seat, dados.playerId, msg);
       if (!r.ok) return this.#recusar(client, msg?.actionId ?? "", r.code, r.message);
-      if (r.avancou) return this.#publicar("HAND_ADVANCED");
-      // consenso ainda incompleto: ninguém avança, e todos veem quem já pediu
+      this.#refletirProntos(r.prontos);
       difundir(this, "READY_STATE", {
         handNumber: this.autoridade.estadoAutoritativo()?.hand?.handNumber ?? 0,
         ready: r.prontos,
       });
+      this.#tentarAvancar();
     });
   }
 
@@ -195,7 +216,183 @@ export class KingRoom extends Room<{
     const r = this.autoridade.iniciar(nomes, generateId(), semente);
     if (!r.ok) return;
     this.state.status = "playing" satisfies StatusDaSala;
+    // O ready do LOBBY cumpriu o papel dele. Entre mãos a mesma flag passa a significar
+    // "pedi a próxima mão" — deixá-la ligada faria o consenso nascer satisfeito.
+    for (const a of this.state.seats) a.ready = false;
     this.#publicar("MATCH_STARTED");
+  }
+
+  // ══════════════════ RELÓGIO AUTORITATIVO E ASSISTÊNCIA ══════════════════
+
+  /** Assistência contínua: assento sem ninguém do outro lado e já assistido ao menos uma vez. */
+  #assistido(seat: Seat): boolean {
+    const a = this.state.seats[seat];
+    return a.assisted && !a.connected;
+  }
+
+  /** Qual decisão a partida espera agora, e por quanto tempo. */
+  #decisaoPendente(): { tipo: TipoDeDecisao; seat: Seat | null; prazo: number } | null {
+    if (this.state.status !== "playing") return null;
+    const m = this.autoridade.estadoAutoritativo();
+    if (!m || m.finished || !m.hand) return null;
+    const h = m.hand;
+
+    if (h.awaitingTrumpFrom !== null) {
+      const seat = h.awaitingTrumpFrom;
+      return { tipo: "TRUMP", seat, prazo: this.#assistido(seat) ? TEMPOS.cortesiaDoBot : TEMPOS.trunfo };
+    }
+    if (h.handScores !== null) {
+      // READY é de todos: o prazo é o do assento que estoura primeiro.
+      const base = this.#maoTerminouEm || Date.now();
+      let menor = Infinity;
+      for (const a of this.state.seats) {
+        if (a.playerId === ASSENTO_VAZIO || a.ready) continue;
+        const limite = a.connected ? TEMPOS.autoReadyConectado : TEMPOS.autoReadyDesconectado;
+        menor = Math.min(menor, base + Math.max(TEMPOS.pisoDoPlacar, limite) - Date.now());
+      }
+      if (menor === Infinity) return null; // todos prontos: quem cuida é #tentarAvancar
+      return { tipo: "READY", seat: null, prazo: Math.max(0, menor) };
+    }
+    if (h.turn === null) return null;
+    const seat = h.turn;
+    if (this.#assistido(seat)) return { tipo: "PLAY", seat, prazo: TEMPOS.cortesiaDoBot };
+    // primeira jogada da mão: 13 cartas novas e um contrato novo para ler
+    const primeira = h.completedTricks.length === 0 && h.currentTrick.length === 0;
+    return { tipo: "PLAY", seat, prazo: TEMPOS.turno + (primeira ? TEMPOS.primeiraJogadaExtra : 0) };
+  }
+
+  /**
+   * Reagenda o relógio. Chamado depois de TODA mutação autoritativa — e SÓ aí.
+   *
+   * Nunca é chamado por conexão ou desconexão: é o que garante a decisão D3 (uma queda não
+   * reinicia, não pausa e não estende o prazo). Trocar de socket não muda nada aqui.
+   */
+  #reagendar(): void {
+    for (const t of this.#timers) t.clear();
+    this.#timers = [];
+    this.#pendencia = null;
+
+    const d = this.#decisaoPendente();
+    if (!d) return;
+
+    const id = ++this.#decisaoSeq;
+    const versao = this.autoridade.stateVersion;
+    this.#pendencia = { id, tipo: d.tipo, seat: d.seat, versao, deadlineEm: Date.now() + d.prazo };
+
+    const agendar = (ms: number, fn: () => void) => {
+      if (ms < 0) return;
+      this.#timers.push(this.clock.setTimeout(() => {
+        // GUARDA DE STALENESS: mesma decisão E mesma versão, senão o timer é inerte.
+        if (!this.#pendencia || this.#pendencia.id !== id) return;
+        if (this.autoridade.stateVersion !== versao) return;
+        fn();
+      }, ms));
+    };
+
+    if (d.prazo > TEMPOS.aviso) agendar(d.prazo - TEMPOS.aviso, () => this.#anunciarRelogio("WARNING"));
+    if (d.prazo > TEMPOS.critico) agendar(d.prazo - TEMPOS.critico, () => this.#anunciarRelogio("CRITICAL"));
+    agendar(d.prazo, () => this.#expirou());
+
+    this.#anunciarRelogio(
+      d.prazo <= TEMPOS.critico ? "CRITICAL" : d.prazo <= TEMPOS.aviso ? "WARNING" : "NORMAL",
+    );
+  }
+
+  #anunciarRelogio(fase: FaseDoRelogio): void {
+    const p = this.#pendencia;
+    if (!p) return;
+    difundir(this, "TURN_CLOCK", {
+      tipo: p.tipo,
+      seat: p.seat,
+      fase,
+      restanteMs: Math.max(0, p.deadlineEm - Date.now()),
+    });
+  }
+
+  /** O prazo estourou. O servidor age — pelo MESMO caminho de uma ação humana. */
+  #expirou(): void {
+    const p = this.#pendencia;
+    if (!p) return;
+
+    if (p.tipo === "READY") return this.#autoReady();
+
+    const seat = p.seat as Seat;
+    const assento = this.state.seats[seat];
+    const playerId = assento.playerId;
+    if (!playerId) return;
+
+    const acao = "auto:" + seat + ":" + p.versao;
+    let r: Resultado;
+
+    if (p.tipo === "PLAY") {
+      const cardId = this.autoridade.cartaAutomatica(seat);
+      if (!cardId) return;
+      r = this.autoridade.jogarCarta(seat, playerId, { actionId: acao, cardId });
+    } else {
+      const trump = this.autoridade.trunfoAutomatico(seat);
+      if (!trump) return;
+      r = this.autoridade.escolherTrunfo(seat, playerId, { actionId: acao, trump });
+    }
+    if (!r.ok) return;
+
+    // Assistência CONTÍNUA só quando o jogador está ausente. Um estouro isolado de quem está
+    // conectado NÃO o coloca em modo bot: na próxima decisão ele recebe controle e prazo cheio.
+    if (!assento.connected) assento.assisted = true;
+
+    difundir(this, "AUTO_ACTION", { seat, tipo: p.tipo, assistido: assento.assisted });
+    this.#publicar(p.tipo === "PLAY" ? "CARD_PLAYED" : "TRUMP_SELECTED");
+  }
+
+  /** Marca pronto quem já passou do próprio prazo, respeitando o piso do Placar. */
+  #autoReady(): void {
+    const base = this.#maoTerminouEm || Date.now();
+    const agora = Date.now();
+    for (const a of this.state.seats) {
+      if (a.playerId === ASSENTO_VAZIO || a.ready) continue;
+      const limite = a.connected ? TEMPOS.autoReadyConectado : TEMPOS.autoReadyDesconectado;
+      if (agora + 1 < base + Math.max(TEMPOS.pisoDoPlacar, limite)) continue;
+      const seat = a.seat as Seat;
+      const r = this.autoridade.marcarPronto(seat, a.playerId, {
+        actionId: "auto:ready:" + seat + ":" + base,
+      });
+      if (r.ok) difundir(this, "AUTO_ACTION", { seat, tipo: "READY", assistido: !a.connected });
+    }
+    this.#refletirProntos(this.autoridade.prontos);
+    difundir(this, "READY_STATE", {
+      handNumber: this.autoridade.estadoAutoritativo()?.hand?.handNumber ?? 0,
+      ready: this.autoridade.prontos,
+    });
+    if (!this.#tentarAvancar()) this.#reagendar();
+  }
+
+  /**
+   * Avança a mão se houver consenso E o piso de leitura do Placar já tiver passado.
+   * O piso vale mesmo com os quatro prontos de imediato: o Placar entre-mãos precisa ser visto.
+   */
+  #tentarAvancar(): boolean {
+    if (this.autoridade.prontos.length < 4) return false;
+    const falta = this.#maoTerminouEm + TEMPOS.pisoDoPlacar - Date.now();
+    if (falta > 0) {
+      const id = ++this.#decisaoSeq;
+      const versao = this.autoridade.stateVersion;
+      this.#pendencia = { id, tipo: "READY", seat: null, versao, deadlineEm: Date.now() + falta };
+      this.#timers.push(this.clock.setTimeout(() => {
+        if (!this.#pendencia || this.#pendencia.id !== id) return;
+        if (this.autoridade.stateVersion !== versao) return;
+        this.#tentarAvancar();
+      }, falta));
+      return true;
+    }
+    const r = this.autoridade.avancarMao();
+    if (!r.ok) return false;
+    for (const a of this.state.seats) a.ready = false; // mão nova, consenso zerado
+    this.#publicar("HAND_ADVANCED");
+    return true;
+  }
+
+  /** Espelha no estado público quem já pediu a próxima mão. */
+  #refletirProntos(prontos: Seat[]): void {
+    for (const a of this.state.seats) a.ready = prontos.includes(a.seat as Seat);
   }
 
   /**
@@ -223,11 +420,19 @@ export class KingRoom extends Room<{
 
   /** Fan-out: cada cliente recebe a SUA visão redigida. Nunca uma visão comum difundida. */
   #publicar(causa: Causa): void {
+    const m = this.autoridade.estadoAutoritativo();
     // o fim da partida é do MOTOR; a sala só reflete
-    if (this.autoridade.estadoAutoritativo()?.finished && this.state.status !== "finished") {
+    if (m?.finished && this.state.status !== "finished") {
       this.state.status = "finished" satisfies StatusDaSala;
     }
+    // instante em que a mão acabou: origem do piso do Placar e dos prazos de auto-ready
+    if (m?.hand && m.hand.handScores !== null) {
+      if (this.#maoTerminouEm === 0) this.#maoTerminouEm = Date.now();
+    } else {
+      this.#maoTerminouEm = 0;
+    }
     for (const c of this.clients) this.#publicarPara(c as ClienteDoKing, causa);
+    this.#reagendar();
   }
 
   #publicarPara(client: ClienteDoKing, causa: Causa): void {
@@ -273,6 +478,8 @@ export class KingRoom extends Room<{
     client.userData = dados;
     this.#sessoes.set(client.sessionId, dados);
     this.#conexaoAtiva.set(dados.playerId, client);
+    this.#timerOrfa?.clear();
+    this.#timerOrfa = null;
 
     const nick = options?.nick?.trim() || `Jogador ${seat + 1}`;
     const assento = this.state.seats[seat];
@@ -319,13 +526,43 @@ export class KingRoom extends Room<{
 
     this.state.seats[dados.seat].connected = false;
     difundir(this, "PLAYER_CONNECTION", { seat: dados.seat, connected: false });
+    this.#armarTimerDeSalaOrfa();
+    // Uma queda NÃO reagenda PLAY nem TRUMP: o prazo é do ESTADO, não da conexão — é o que
+    // impede transformar "cair" em pedir tempo (decisão D3). O relógio de READY é a exceção
+    // legítima: quem sumiu passa a ter o prazo CURTO, o que encurta a espera dos outros.
+    if (this.#pendencia?.tipo === "READY") this.#reagendar();
+
+    const espera = this.allowReconnection(client, "manual");
+
+    // No LOBBY o assento é reservado por um prazo: ninguém está no meio de uma partida, e um
+    // assento preso para sempre travaria a sala dos amigos. Em PARTIDA a reserva não expira —
+    // o assento continua sendo do humano até o fim (decisão D1).
+    let prazo: { clear(): void } | null = null;
+    if (this.state.status === "lobby") {
+      prazo = this.clock.setTimeout(
+        () => espera.reject(new Error("prazo de reserva do lobby esgotado")),
+        TEMPOS.lobbyReservaAposQueda,
+      );
+    }
 
     try {
-      // "manual": sem prazo. A reserva do assento só cai quando o jogador voltar.
-      await this.allowReconnection(client, "manual");
+      await espera;
+      prazo?.clear();
     } catch {
+      prazo?.clear();
       this.#liberarAssento(dados);
+      this.#reagendar();
     }
+  }
+
+  /** Sala sem nenhuma conexão viva morre — senão reconexões pendentes a manteriam para sempre. */
+  #armarTimerDeSalaOrfa(): void {
+    this.#timerOrfa?.clear();
+    this.#timerOrfa = null;
+    if (this.clients.length > 0) return;
+    this.#timerOrfa = this.clock.setTimeout(() => {
+      if (this.clients.length === 0) void this.disconnect();
+    }, TEMPOS.salaOrfa);
   }
 
   /**
@@ -346,8 +583,15 @@ export class KingRoom extends Room<{
     }
 
     client.userData = dados;
-    this.state.seats[dados.seat].connected = true;
+    this.#timerOrfa?.clear();
+    this.#timerOrfa = null;
+    const assento = this.state.seats[dados.seat];
+    assento.connected = true;
+    // O humano voltou: a assistência contínua termina AQUI. A próxima decisão é dele, com prazo
+    // cheio. O que o bot já fez continua valendo — o estado autoritativo vence, sem rollback.
+    assento.assisted = false;
     difundir(this, "PLAYER_CONNECTION", { seat: dados.seat, connected: true });
+    if (this.#pendencia?.tipo === "READY") this.#reagendar();
 
     enviar(client, "SERVER_WELCOME", {
       protocolVersion: PROTOCOL_VERSION,
@@ -408,5 +652,6 @@ function assentoVazio(seat: number): AssentoPublico {
   a.nick = "";
   a.connected = false;
   a.ready = false;
+  a.assisted = false;
   return a;
 }

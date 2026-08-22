@@ -9,7 +9,8 @@
 // aplica idempotência e versão, e chama o motor. `playCard` do motor revalida e **lança** em
 // jogada ilegal — é a trava final, mesmo que uma checagem daqui falhe.
 import {
-  SUITS, cardId, createMatch, legalCardsFor, playCard, redactFor, selectTrump, startNextHand,
+  SUITS, buildBotView, cardId, chooseNormalCard, chooseNormalTrump, createMatch, legalCardsFor,
+  playCard, redactFor, selectTrump, startNextHand,
   type Card, type MatchState, type PlayerView, type Seat, type Trump,
 } from "@king/engine";
 
@@ -30,9 +31,13 @@ export const ERRO = {
 } as const;
 export type CodigoDeErro = (typeof ERRO)[keyof typeof ERRO];
 
-/** Resultado de um READY: além do estado, diz se o consenso avançou a mão. */
+/**
+ * Resultado de um READY. `consenso` diz que os quatro pediram — mas **não avança nada**.
+ * Quem decide QUANDO avançar é a Room, porque o avanço tem um piso de tempo (o Placar
+ * entre-mãos precisa ser lido) e esta classe é deliberadamente atemporal.
+ */
 export type ResultadoPronto =
-  | { ok: true; duplicada: boolean; avancou: boolean; prontos: Seat[]; stateVersion: number }
+  | { ok: true; duplicada: boolean; consenso: boolean; prontos: Seat[]; stateVersion: number }
   | { ok: false; code: CodigoDeErro; message: string };
 
 export type Resultado =
@@ -177,7 +182,10 @@ export class AutoridadeDaPartida {
 
     const repetida = this.#jaAplicada(playerId, acao.actionId);
     if (repetida !== null) {
-      return { ok: true, duplicada: true, avancou: false, prontos: this.prontos, stateVersion: this.#stateVersion };
+      return {
+        ok: true, duplicada: true, consenso: this.#prontos.size === 4,
+        prontos: this.prontos, stateVersion: this.#stateVersion,
+      };
     }
 
     const versao = this.#verificarVersao(acao.expectedStateVersion);
@@ -195,15 +203,51 @@ export class AutoridadeDaPartida {
     // Registrar a actionId SEM avançar versão: pedir a próxima não altera o estado da partida.
     this.#aplicadas.set(this.#chave(playerId, acao.actionId), this.#stateVersion);
 
-    if (this.#prontos.size < 4) {
-      return { ok: true, duplicada: false, avancou: false, prontos: this.prontos, stateVersion: this.#stateVersion };
-    }
+    return {
+      ok: true,
+      duplicada: false,
+      consenso: this.#prontos.size === 4,
+      prontos: this.prontos,
+      stateVersion: this.#stateVersion,
+    };
+  }
+
+  /**
+   * Avança de fato para a próxima mão. Só a Room chama, e só depois do piso de leitura.
+   * Reconfere o consenso: um assento que saiu entre o pedido e o avanço invalida a decisão.
+   */
+  avancarMao(): Resultado {
+    const m = this.#match;
+    if (m === null) return falha(ERRO.MATCH_NOT_STARTED, "A partida ainda não começou");
+    if (m.finished) return falha(ERRO.WRONG_PHASE, "A partida já terminou");
+    if (!m.hand || m.hand.handScores === null) return falha(ERRO.HAND_NOT_OVER, "A mão ainda não acabou");
+    if (this.#prontos.size < 4) return falha(ERRO.WRONG_PHASE, "Ainda falta gente pedir a próxima");
 
     startNextHand(m);
     this.#stateVersion += 1;
     this.#prontos.clear();
     this.#maoDoConsenso = 0;
-    return { ok: true, duplicada: false, avancou: true, prontos: [], stateVersion: this.#stateVersion };
+    return { ok: true, duplicada: false, stateVersion: this.#stateVersion };
+  }
+
+  // ─────────────── decisões automáticas (assistência) ───────────────
+  //
+  // Passam pela MESMA fronteira anti-cheat do bot da Mesa: `buildBotView` projeta só o público
+  // + a própria mão, e `chooseNormalCard`/`chooseNormalTrump` não importam `MatchState`.
+  // Não existe versão privilegiada do bot para multiplayer.
+
+  /** Carta que o Bot Normal jogaria por este assento — `null` se não houver o que jogar. */
+  cartaAutomatica(seat: Seat): string | null {
+    const m = this.#match;
+    if (!m || !m.hand || m.hand.handScores !== null || m.hand.turn !== seat) return null;
+    return cardId(chooseNormalCard(buildBotView(m, seat)));
+  }
+
+  /** Trunfo que o Bot Normal escolheria — SÓ com as 13 cartas do próprio assento. */
+  trunfoAutomatico(seat: Seat): Trump | null {
+    const m = this.#match;
+    if (!m || !m.hand || m.hand.awaitingTrumpFrom !== seat) return null;
+    return chooseNormalTrump(buildBotView(m, seat).hand);
   }
 
   // ───────────────────────── internos ─────────────────────────

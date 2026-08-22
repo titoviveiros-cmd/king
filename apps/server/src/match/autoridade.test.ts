@@ -252,11 +252,12 @@ function ateFaseDeTrunfo(a: AutoridadeDaPartida): void {
     if (++guard > 5000) throw new Error("loop de segurança");
     const m = a.estadoAutoritativo()!;
     if (m.hand!.handScores !== null) {
-      // consenso dos quatro: só assim a mão avança
+      // consenso dos quatro; quem AVANÇA é a camada de tempo (a Room), não a autoridade
       let r!: ReturnType<AutoridadeDaPartida["marcarPronto"]>;
       for (const s of SEATS) r = a.marcarPronto(s, P[s], { actionId: acao() });
       expect(r.ok).toBe(true);
-      expect(r.ok && r.avancou).toBe(true);
+      expect(r.ok && r.consenso).toBe(true);
+      expect(a.avancarMao().ok).toBe(true);
       continue;
     }
     jogarLegal(a);
@@ -351,14 +352,17 @@ describe("consenso entre-mãos (READY_NEXT_HAND)", () => {
 
     for (const s of [0, 1, 2] as Seat[]) {
       const r = a.marcarPronto(s, P[s], { actionId: acao() });
-      expect(r).toMatchObject({ ok: true, avancou: false });
-      expect(a.estadoAutoritativo()!.handNumber).toBe(1); // não avançou
+      expect(r).toMatchObject({ ok: true, consenso: false });
+      expect(a.avancarMao()).toMatchObject({ ok: false }); // sem consenso, não avança
+      expect(a.estadoAutoritativo()!.handNumber).toBe(1);
       expect(a.stateVersion).toBe(versao);               // versão parada
     }
     expect(a.prontos).toEqual([0, 1, 2]);
 
     const r4 = a.marcarPronto(3, P[3], { actionId: acao() });
-    expect(r4).toMatchObject({ ok: true, avancou: true });
+    expect(r4).toMatchObject({ ok: true, consenso: true });
+    expect(a.estadoAutoritativo()!.handNumber).toBe(1);   // consenso NÃO avança sozinho
+    expect(a.avancarMao()).toMatchObject({ ok: true });
     expect(a.estadoAutoritativo()!.handNumber).toBe(2);
     expect(a.stateVersion).toBe(versao + 1);
     expect(a.prontos).toEqual([]); // consenso zerado na virada
@@ -369,7 +373,7 @@ describe("consenso entre-mãos (READY_NEXT_HAND)", () => {
     terminarMao(a);
     // três actionId DIFERENTES, do mesmo assento
     for (let i = 0; i < 3; i++) {
-      expect(a.marcarPronto(0, P[0], { actionId: acao() })).toMatchObject({ ok: true, avancou: false });
+      expect(a.marcarPronto(0, P[0], { actionId: acao() })).toMatchObject({ ok: true, consenso: false });
     }
     expect(a.prontos).toEqual([0]);
     expect(a.estadoAutoritativo()!.handNumber).toBe(1);
@@ -378,10 +382,11 @@ describe("consenso entre-mãos (READY_NEXT_HAND)", () => {
     const id = acao();
     a.marcarPronto(1, P[1], { actionId: id });
     const dup = a.marcarPronto(1, P[1], { actionId: id });
-    expect(dup).toMatchObject({ ok: true, duplicada: true, avancou: false });
+    expect(dup).toMatchObject({ ok: true, duplicada: true, consenso: false });
     expect(a.prontos).toEqual([0, 1]);
 
     for (const s of [2, 3] as Seat[]) a.marcarPronto(s, P[s], { actionId: acao() });
+    expect(a.avancarMao().ok).toBe(true);
     expect(a.estadoAutoritativo()!.handNumber).toBe(2);
   });
 
@@ -389,6 +394,7 @@ describe("consenso entre-mãos (READY_NEXT_HAND)", () => {
     const a = nova(5);
     terminarMao(a);
     for (const s of SEATS) a.marcarPronto(s, P[s], { actionId: acao() });
+    expect(a.avancarMao().ok).toBe(true);
     expect(a.estadoAutoritativo()!.handNumber).toBe(2);
 
     const versao = a.stateVersion;
@@ -405,7 +411,8 @@ describe("consenso entre-mãos (READY_NEXT_HAND)", () => {
     a.marcarPronto(0, P[0], { actionId: acao() });
     a.marcarPronto(1, P[1], { actionId: acao() });
     a.marcarPronto(2, P[2], { actionId: acao() });
-    a.marcarPronto(3, P[3], { actionId: acao() }); // avança para a mão 2
+    a.marcarPronto(3, P[3], { actionId: acao() });
+    expect(a.avancarMao().ok).toBe(true); // avança para a mão 2
     terminarMao(a);
     // dois prontos na mão 2: não pode avançar por herdar os da mão 1
     a.marcarPronto(0, P[0], { actionId: acao() });

@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import type { Card, Rank, Suit } from "@king/engine";
+import { configurarTempos, restaurarTempos } from "../match/tempos.js";
 import { SALA_KING, servidor } from "../app.js";
 import { CODIGO, PROTOCOL_VERSION, type BoasVindas, type EventoDeJogador } from "../protocol/index.js";
 import { ASSENTOS, type KingRoom } from "./KingRoom.js";
@@ -13,7 +14,14 @@ const entrada = (nick?: string) => ({ protocolVersion: PROTOCOL_VERSION, nick })
 
 let colyseus: ColyseusTestServer;
 
-beforeAll(async () => { colyseus = await boot(servidor); });
+// Estes testes exercitam PROTOCOLO, não prazos. Sem encurtar o piso do Placar e os timeouts,
+// cada avanço de mão custaria 8s reais e um turno lento viraria ação automática no meio do
+// roteiro. Os prazos em si têm suíte própria (timeout.test.ts).
+beforeAll(async () => {
+  configurarTempos({ pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000, turno: 3_600_000, trunfo: 3_600_000, primeiraJogadaExtra: 0 });
+  colyseus = await boot(servidor);
+});
+afterAll(() => restaurarTempos());
 afterAll(async () => { await colyseus.shutdown(); });
 beforeEach(async () => { await colyseus.cleanup(); });
 
@@ -293,7 +301,7 @@ describe("J · nenhum estado privado chega ao cliente", () => {
     const assentos = estado.seats as Record<string, unknown>[];
     expect(assentos).toHaveLength(ASSENTOS);
     for (const a of assentos) {
-      expect(Object.keys(a).sort()).toEqual(["connected", "nick", "playerId", "ready", "seat"]);
+      expect(Object.keys(a).sort()).toEqual(["assisted", "connected", "nick", "playerId", "ready", "seat"]);
     }
   });
 });

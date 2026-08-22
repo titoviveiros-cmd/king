@@ -73,6 +73,8 @@ function irAteMao(a: AutoridadeDaPartida, alvo: number): void {
   while (estado(a).handNumber < alvo) {
     if (estado(a).hand!.handScores === null) { jogarMao(a); continue; }
     for (const s of SEATS) a.marcarPronto(s, P[s], { actionId: acao() });
+    // o consenso não avança sozinho desde a Fase 7: quem avança é a camada de tempo
+    expect(a.avancarMao().ok).toBe(true);
   }
 }
 
@@ -276,7 +278,10 @@ describe("invariantes preservados pelo encerramento antecipado", () => {
         vazas += h.completedTricks.length;
         cartas += h.completedTricks.reduce((x, t) => x + t.cards.length, 0);
         exigirRestantesNaoJogadas(a);
-        if (mao < 10) for (const s of SEATS) a.marcarPronto(s, P[s], { actionId: acao() });
+        if (mao < 10) {
+          for (const s of SEATS) a.marcarPronto(s, P[s], { actionId: acao() });
+          expect(a.avancarMao().ok).toBe(true);
+        }
       }
 
       const m = estado(a);

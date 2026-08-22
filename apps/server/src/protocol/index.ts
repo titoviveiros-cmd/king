@@ -98,6 +98,8 @@ export interface ServidorParaCliente {
   ACTION_REJECTED: AcaoRecusada;
   READY_STATE: EstadoDeConsenso;
   PLAYER_CONNECTION: ConexaoDeJogador;
+  TURN_CLOCK: RelogioDaDecisao;
+  AUTO_ACTION: AcaoAutomatica;
 }
 
 export type MensagemDoCliente = keyof ClienteParaServidor;
@@ -191,4 +193,35 @@ export interface AcaoRecusada {
   message: string;
   /** Versão corrente, para o cliente se realinhar sem pedir resync. */
   stateVersion: number;
+}
+
+// ══════════════════════ FASE 7 — RELÓGIO E ASSISTÊNCIA ══════════════════════
+
+/** O que a partida está esperando agora. */
+export type TipoDeDecisao = "PLAY" | "TRUMP" | "READY";
+
+export type FaseDoRelogio = "NORMAL" | "WARNING" | "CRITICAL";
+
+/**
+ * Relógio autoritativo. Enviado no início da decisão e a cada mudança de fase — **não** a cada
+ * segundo: um tique por segundo seria banda desperdiçada e ainda assim aproximado. O cliente
+ * conta localmente entre as mensagens, e o servidor o realinha em cada transição.
+ *
+ * `restanteMs` em vez de instante absoluto: assim não é preciso sincronizar relógios, e a
+ * mensagem continua correta para quem acabou de reconectar.
+ */
+export interface RelogioDaDecisao {
+  tipo: TipoDeDecisao;
+  /** De quem é a decisão. `null` em READY, que é de todos. */
+  seat: Seat | null;
+  fase: FaseDoRelogio;
+  restanteMs: number;
+}
+
+/** O servidor agiu por um assento. É o que a Mesa usa para dizer "jogou automaticamente". */
+export interface AcaoAutomatica {
+  seat: Seat;
+  tipo: TipoDeDecisao;
+  /** O assento está em assistência contínua (jogador ausente), não só um estouro isolado. */
+  assistido: boolean;
 }
