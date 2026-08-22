@@ -285,12 +285,19 @@ describe("4/5/6/25 · queda no turno e assistência contínua", () => {
     await cair(c);
     const t0 = Date.now();
     await ate(() => versao(room) > v0, 10_000, "ação automática");
+    const decorrido = Date.now() - t0;   // medido no ESTADO: é ele que carrega o prazo
     configurarTempos({ turno: HORA, cortesiaDoBot: HORA });
 
     // se a queda tivesse reiniciado o prazo, teria levado ~700ms DEPOIS dela
-    expect(Date.now() - t0).toBeLessThan(600);
+    expect(decorrido).toBeLessThan(600);
     expect(room.state.seats[c.seat].assisted).toBe(true);   // ausente → assistência contínua
+
+    // a mensagem trafega DEPOIS de o estado mudar: esperar por ela, não pela versão
     const outro = todos.find((x) => x !== c)!;
+    await ate(
+      () => outro.automaticas.some((a) => a.seat === c.seat && a.tipo === "PLAY"),
+      10_000, "AUTO_ACTION do assento ausente",
+    );
     expect(outro.automaticas.find((a) => a.seat === c.seat)!.assistido).toBe(true);
   }, 20_000);
 
@@ -389,8 +396,11 @@ describe("18/19/20 · auto-ready e piso do Placar", () => {
     await ate(() => real(room).handNumber === 2, 10_000, "mão 2");
     configurarTempos({ autoReadyDesconectado: HORA });
 
-    const autos = todos[0].automaticas.filter((a) => a.tipo === "READY");
-    expect(autos.some((a) => a.seat === ausente.seat && a.assistido)).toBe(true);
+    // espera o EVENTO, não a versão: a mensagem chega depois de o estado mudar
+    await ate(
+      () => todos[0].automaticas.some((a) => a.tipo === "READY" && a.seat === ausente.seat && a.assistido),
+      10_000, "AUTO_ACTION READY do ausente",
+    );
     expect(real(room).history).toHaveLength(1); // UM avanço só
   }, 40_000);
 
@@ -403,12 +413,18 @@ describe("18/19/20 · auto-ready e piso do Placar", () => {
     const t0 = Date.now();
     // ninguém confirma: só o auto-ready de conectado destrava
     await ate(() => real(room).handNumber === 2, 10_000, "mão 2 por auto-ready");
+    const decorrido = Date.now() - t0;
     configurarTempos({ autoReadyConectado: HORA });
 
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
+    expect(decorrido).toBeGreaterThanOrEqual(250);
     expect(real(room).history).toHaveLength(1);
+
+    // os quatro AUTO_ACTION de READY chegam depois do avanço: esperar por eles
+    await ate(
+      () => todos[0].automaticas.filter((a) => a.tipo === "READY").length === ASSENTOS,
+      10_000, "os quatro AUTO_ACTION de READY",
+    );
     const autos = todos[0].automaticas.filter((a) => a.tipo === "READY");
-    expect(autos).toHaveLength(ASSENTOS);
     expect(autos.every((a) => a.assistido === false)).toBe(true); // todos estavam conectados
   }, 40_000);
 });
@@ -481,8 +497,12 @@ describe("15/16/17 · SELECT_TRUMP automático", () => {
     const esperado = room.autoridadeDaPartida().trunfoAutomatico(escolhedor);
     const v0 = versao(room);
 
-    // o prazo do trunfo estoura e o servidor escolhe
+    // o prazo do trunfo estoura e o servidor escolhe — esperar o EVENTO, que é o que se afirma
     await ate(() => versao(room) > v0, 15_000, "trunfo automático");
+    await ate(
+      () => todos[0].automaticas.some((a) => a.tipo === "TRUMP"),
+      15_000, "AUTO_ACTION de TRUMP",
+    );
     configurarTempos({ trunfo: HORA, turno: HORA });
 
     const trump = real(room).hand!.trump;
