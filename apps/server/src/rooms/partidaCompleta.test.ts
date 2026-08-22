@@ -51,10 +51,10 @@ function cartasEm(x: unknown, achadas: Card[] = []): Card[] {
   return achadas;
 }
 
-async function ate(cond: () => boolean, ms = 15000): Promise<void> {
+async function ate(cond: () => boolean, ms = 15000, rotulo = "?"): Promise<void> {
   const fim = Date.now() + ms;
   while (!cond()) {
-    if (Date.now() > fim) throw new Error("tempo esgotado esperando o estado");
+    if (Date.now() > fim) throw new Error("tempo esgotado esperando: " + rotulo);
     await new Promise((r) => setTimeout(r, 0));
   }
 }
@@ -134,7 +134,7 @@ async function jogarPartidaCompleta(
         trump: TRUNFO_DA_MAO[h.handNumber],
         expectedStateVersion: escolhedor.versao,
       });
-      await ate(() => clientes.every((x) => x.versao > alvo));
+      await ate(() => clientes.every((x) => x.versao > alvo), 15000, "trunfo mao "+h.handNumber);
       continue;
     }
 
@@ -154,8 +154,8 @@ async function jogarPartidaCompleta(
 
       const numeroAntes = h.handNumber;
       for (const c of clientes) c.sdk.send("CLIENT_READY_NEXT_HAND", { actionId: idAcao(`r${c.seat}`) });
-      await ate(() => room.autoridadeDaPartida().estadoAutoritativo()!.handNumber > numeroAntes);
-      await ate(() => clientes.every((x) => x.view!.handNumber > numeroAntes));
+      await ate(() => room.autoridadeDaPartida().estadoAutoritativo()!.handNumber > numeroAntes, 15000, "avanco da mao "+numeroAntes);
+      await ate(() => clientes.every((x) => x.view!.handNumber > numeroAntes), 15000, "clientes na mao "+(numeroAntes+1));
       continue;
     }
 
@@ -170,7 +170,7 @@ async function jogarPartidaCompleta(
       cardId: cardId(legais[0]),
       expectedStateVersion: c.versao,
     });
-    await ate(() => clientes.every((x) => x.versao > alvo));
+    await ate(() => clientes.every((x) => x.versao > alvo), 15000, "jogada mao "+h.handNumber+" vaza "+h.trickNumber);
     aoLongoDoCaminho?.(h.handNumber);
   }
   return registros;
@@ -200,8 +200,8 @@ describe("partida completa autoritativa — 10 mãos até o GAME OVER", () => {
     "10 mãos, checksums por contrato, −1300 / +1300 / 0 e nenhum vazamento no caminho",
     async () => {
       const { room, clientes } = await salaCom4();
-      clientes[0].sdk.send("CLIENT_START_MATCH", {});
-      await ate(() => clientes.every((c) => c.view !== null));
+      for (const c of clientes) c.sdk.send("CLIENT_SET_READY", { ready: true });
+      await ate(() => clientes.every((c) => c.view !== null), 15000, "inicio da partida");
 
       // verificação CONTÍNUA: a cada jogada, as quatro visões continuam limpas
       const maosAuditadas = new Set<number>();
@@ -291,7 +291,7 @@ describe("partida completa autoritativa — 10 mãos até o GAME OVER", () => {
       const c0 = clientes[0];
       c0.sdk.send("CLIENT_PLAY_CARD", { actionId: idAcao("pos"), cardId: "A-spades" });
       c0.sdk.send("CLIENT_SELECT_TRUMP", { actionId: idAcao("pos"), trump: "hearts" });
-      await ate(() => c0.rejeicoes.length >= 3);
+      await ate(() => c0.rejeicoes.length >= 3, 15000, "recusas pos-GAME OVER (tem "+c0.rejeicoes.length+")");
 
       expect(room.autoridadeDaPartida().estadoAutoritativo()!.handNumber).toBe(10);
       expect(room.autoridadeDaPartida().estadoAutoritativo()!.history).toHaveLength(10);
@@ -311,7 +311,7 @@ describe("X/Y/Z/AA · consenso entre-mãos pelo protocolo real", () => {
   /** Leva a sala até o fim da mão 1. */
   async function ateFimDaMao1(): Promise<{ room: KingRoom; clientes: Sintetico[] }> {
     const { room, clientes } = await salaCom4();
-    clientes[0].sdk.send("CLIENT_START_MATCH", {});
+    for (const c of clientes) c.sdk.send("CLIENT_SET_READY", { ready: true });
     await ate(() => clientes.every((c) => c.view !== null));
     let guard = 0;
     while (room.autoridadeDaPartida().estadoAutoritativo()!.hand!.handScores === null) {

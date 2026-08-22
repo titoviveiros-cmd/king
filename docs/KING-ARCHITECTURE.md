@@ -83,8 +83,11 @@ Fonte única de verdade UI × multiplayer:
 - A sala tem **exatamente 4 assentos**.
 - Cada **jogador humano** precisa marcar **PRONTO**.
 - **Bots** são **automaticamente prontos** ao entrar.
-- Apenas o **anfitrião** pode iniciar.
-- **COMEÇAR** só habilita quando **os 4 assentos estão ocupados E todos os humanos estão prontos**.
+- **O início é AUTORITATIVO e por consenso:** o servidor inicia a partida — exatamente uma vez —
+  quando **os 4 assentos estão ocupados E todos os humanos estão prontos**. **O anfitrião NÃO tem
+  autoridade especial para iniciar o gameplay**; ele participa da regra como qualquer um.
+- Na UI, o botão do anfitrião pode continuar rotulado **COMEÇAR** em vez de **PRONTO** — é decisão
+  de apresentação, e o efeito no servidor é o mesmo READY de todo mundo.
 - Assento vazio comunica disponibilidade com **ação principal "Convidar"** + ação secundária
   discreta **"Adicionar bot"** (convidar pessoa ≠ adicionar IA).
 - Status contextual abaixo do CTA é **dinâmico e não técnico** (ex.: "2 vagas disponíveis",

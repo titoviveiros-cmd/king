@@ -285,7 +285,7 @@ describe("J · nenhum estado privado chega ao cliente", () => {
     await room.waitForNextPatch();
 
     const estado = c0.state.toJSON() as Record<string, unknown>;
-    expect(Object.keys(estado).sort()).toEqual(["protocolVersion", "roomId", "seats"]);
+    expect(Object.keys(estado).sort()).toEqual(["protocolVersion", "roomCode", "roomId", "seats", "status"]);
 
     const assentos = estado.seats as Record<string, unknown>[];
     expect(assentos).toHaveLength(ASSENTOS);

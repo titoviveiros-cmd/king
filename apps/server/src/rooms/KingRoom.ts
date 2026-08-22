@@ -19,13 +19,14 @@
 // A Room é transporte e fan-out; a validação vive em `match/autoridade.ts`, pura e sem Colyseus;
 // e a REGRA vive só em `@king/engine`. Nada de KING é reimplementado aqui.
 import { Room, ServerError, generateId, type Client } from "colyseus";
+import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import { ArraySchema, schema } from "@colyseus/schema";
 import type { Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
   type Causa, type DefinirPronto, type EscolherTrunfo,
-  type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao,
+  type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao, type StatusDaSala,
 } from "../protocol/index.js";
 
 /** KING é sempre 4 assentos. Não é configurável — é regra do jogo. */
@@ -50,7 +51,11 @@ export type AssentoPublico = InstanceType<typeof AssentoPublico>;
  */
 export const EstadoPublicoDaSala = schema({
   protocolVersion: "number",
+  /** Código curto de compartilhamento — é também o `roomId`. */
+  roomCode: "string",
   roomId: "string",
+  /** lobby | playing | finished. Vagas são derivadas de `seats` — não duplico estado. */
+  status: "string",
   seats: [AssentoPublico],
 }, "EstadoPublicoDaSala");
 export type EstadoPublicoDaSala = InstanceType<typeof EstadoPublicoDaSala>;
@@ -95,38 +100,38 @@ export class KingRoom extends Room<{
   }
 
   onCreate(): void {
+    // O CÓDIGO É O roomId: `joinById(codigo)` passa a funcionar nativamente, sem uma segunda
+    // tabela de mapeamento para manter em sincronia. Substituir o roomId no onCreate é suportado.
+    const codigo = reservarCodigo();
+    this.roomId = codigo;
+    this.setMetadata({ roomCode: codigo });
+
     const estado = new EstadoPublicoDaSala();
     estado.protocolVersion = PROTOCOL_VERSION;
+    estado.roomCode = codigo;
     estado.roomId = this.roomId;
+    estado.status = "lobby" satisfies StatusDaSala;
     estado.seats = new ArraySchema<AssentoPublico>();
     for (let s = 0; s < ASSENTOS; s++) estado.seats.push(assentoVazio(s));
     this.setState(estado);
 
+    // READY / UNREADY. É o ÚNICO gatilho de início: quando os quatro assentos estão ocupados e
+    // os quatro estão prontos, o servidor inicia. Nenhum jogador — nem o anfitrião — decide a
+    // regra; ele só participa dela.
     this.onMessage("CLIENT_SET_READY", (client: ClienteDoKing, msg: DefinirPronto) => {
       const dados = client.userData;
-      if (!dados) return;
+      if (!dados) return this.#recusar(client, "", "NOT_IN_ROOM", "Você não está sentado");
+      if (this.state.status !== "lobby") {
+        return this.#recusar(client, "", "WRONG_PHASE", "A partida já começou");
+      }
       this.state.seats[dados.seat].ready = !!msg?.ready;
+      this.#iniciarSePronto();
     });
 
     // ── gameplay (Fase 3) ─────────────────────────────────────────────────────
     // Todo handler segue o MESMO roteiro: o assento sai da SESSÃO (nunca do payload), a
     // autoridade valida e aplica pelo motor, e o resultado vira ou fan-out de visões
     // individuais, ou uma recusa endereçada a quem tentou.
-
-    this.onMessage("CLIENT_START_MATCH", (client: ClienteDoKing) => {
-      const dados = client.userData;
-      if (!dados) return;
-      if (dados.seat !== 0) return this.#recusar(client, "", "NOT_HOST", "Só o anfitrião inicia");
-      if (this.state.seats.some((a) => a.playerId === ASSENTO_VAZIO)) {
-        return this.#recusar(client, "", "ROOM_NOT_FULL", "A sala ainda não tem quatro jogadores");
-      }
-      const nomes = this.state.seats.map((a) => a.nick);
-      // A SEMENTE é do servidor. Nunca do cliente nem das opções da sala: quem escolhe a semente
-      // escolhe a distribuição.
-      const semente = Math.floor(Math.random() * 0xffffffff) >>> 0;
-      const r = this.autoridade.iniciar(nomes, generateId(), semente);
-      this.#responder(client, "", r, "MATCH_STARTED");
-    });
 
     this.onMessage("CLIENT_PLAY_CARD", (client: ClienteDoKing, msg: JogarCarta) => {
       const dados = client.userData;
@@ -157,6 +162,24 @@ export class KingRoom extends Room<{
   }
 
   /**
+   * Início automático: quatro assentos ocupados E quatro prontos. Idempotente por construção —
+   * `autoridade.iniciar` recusa a segunda chamada, e o `status` deixa de ser "lobby" na primeira.
+   */
+  #iniciarSePronto(): void {
+    if (this.state.status !== "lobby") return;
+    if (this.state.seats.some((a) => a.playerId === ASSENTO_VAZIO || !a.ready)) return;
+
+    const nomes = this.state.seats.map((a) => a.nick);
+    // A SEMENTE é do servidor. Nunca do cliente nem das opções da sala: quem escolhe a semente
+    // escolhe a distribuição.
+    const semente = Math.floor(Math.random() * 0xffffffff) >>> 0;
+    const r = this.autoridade.iniciar(nomes, generateId(), semente);
+    if (!r.ok) return;
+    this.state.status = "playing" satisfies StatusDaSala;
+    this.#publicar("MATCH_STARTED");
+  }
+
+  /**
    * Resultado de uma intenção.
    *
    * IDEMPOTÊNCIA — política adotada: uma `actionId` repetida **não reexecuta nada**, e o servidor
@@ -181,6 +204,10 @@ export class KingRoom extends Room<{
 
   /** Fan-out: cada cliente recebe a SUA visão redigida. Nunca uma visão comum difundida. */
   #publicar(causa: Causa): void {
+    // o fim da partida é do MOTOR; a sala só reflete
+    if (this.autoridade.estadoAutoritativo()?.finished && this.state.status !== "finished") {
+      this.state.status = "finished" satisfies StatusDaSala;
+    }
     for (const c of this.clients) this.#publicarPara(c as ClienteDoKing, causa);
   }
 
@@ -235,6 +262,7 @@ export class KingRoom extends Room<{
 
     enviar(client, "SERVER_WELCOME", {
       protocolVersion: PROTOCOL_VERSION,
+      roomCode: this.state.roomCode,
       roomId: this.roomId,
       you: { playerId: dados.playerId, sessionToken: dados.sessionToken, seat },
     });
@@ -263,6 +291,7 @@ export class KingRoom extends Room<{
   onDispose(): void {
     // a sala morreu: nada de estado autoritativo sobrevivendo ao processo
     this.autoridade = new AutoridadeDaPartida();
+    liberarCodigo(this.state?.roomCode ?? "");
   }
 
   /** Menor índice livre, ou `null` se os quatro estiverem ocupados. */

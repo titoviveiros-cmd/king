@@ -42,7 +42,6 @@ export interface DefinirPronto {
 
 export interface ClienteParaServidor {
   CLIENT_SET_READY: DefinirPronto;
-  CLIENT_START_MATCH: IniciarPartida;
   CLIENT_PLAY_CARD: JogarCarta;
   CLIENT_SELECT_TRUMP: EscolherTrunfo;
   CLIENT_READY_NEXT_HAND: ProntoParaProximaMao;
@@ -57,6 +56,8 @@ export interface ClienteParaServidor {
  */
 export interface BoasVindas {
   protocolVersion: number;
+  /** O código que se compartilha para os outros entrarem. É o próprio `roomId`. */
+  roomCode: string;
   roomId: string;
   you: {
     playerId: string;
@@ -154,8 +155,11 @@ export interface EstadoDeConsenso {
   ready: Seat[];
 }
 
-/** Sem payload: o anfitrião é derivado da sessão, não declarado. */
-export type IniciarPartida = Record<string, never>;
+/**
+ * Estado da sala. `lobby` = ninguém recebeu carta ainda; `playing` = partida em curso;
+ * `finished` = as 10 mãos acabaram.
+ */
+export type StatusDaSala = "lobby" | "playing" | "finished";
 
 /** Por que o estado mudou. É dica de apresentação — o estado autoritativo é a `view`. */
 export type Causa = "MATCH_STARTED" | "CARD_PLAYED" | "TRUMP_SELECTED" | "HAND_ADVANCED" | "RESYNC";

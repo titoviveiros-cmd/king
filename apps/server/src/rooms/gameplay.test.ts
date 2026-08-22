@@ -73,8 +73,9 @@ async function salaCom4(): Promise<{ room: KingRoom; clientes: Sintetico[] }> {
   return { room, clientes };
 }
 
+/** O início é por CONSENSO: os quatro prontos. Nenhum jogador isolado inicia a partida. */
 async function iniciarPartida(clientes: Sintetico[]): Promise<void> {
-  clientes[0].sdk.send("CLIENT_START_MATCH", {});
+  for (const c of clientes) c.sdk.send("CLIENT_SET_READY", { ready: true });
   await ate(() => clientes.every((c) => c.view !== null));
 }
 
@@ -115,7 +116,7 @@ function exigirVisaoLimpa(v: PlayerView, seat: Seat): void {
 // ═══════════════════ A · B · C — partida autoritativa ═══════════════════
 
 describe("A/B/C · a partida nasce no servidor e cada cliente recebe a sua visão", () => {
-  it("A · CLIENT_START_MATCH cria a Match autoritativa e a versão vai a 1", async () => {
+  it("A · o consenso dos quatro prontos cria a Match autoritativa e a versão vai a 1", async () => {
     const { room, clientes } = await salaCom4();
     expect(room.partidaIniciada()).toBe(false);
     await iniciarPartida(clientes);
@@ -131,28 +132,17 @@ describe("A/B/C · a partida nasce no servidor e cada cliente recebe a sua visã
     }
   });
 
-  it("A · só o anfitrião inicia, e só com a sala cheia", async () => {
+  it("A · sala incompleta não inicia, mesmo com todos os presentes prontos", async () => {
     const room = await colyseus.createRoom<KingRoom>(SALA_KING);
-    const sdk0 = await colyseus.connectTo(room, { protocolVersion: PROTOCOL_VERSION, nick: "P0" });
-    const recusas: AcaoRecusada[] = [];
-    sdk0.onMessage("ACTION_REJECTED", (m: AcaoRecusada) => recusas.push(m));
-
-    sdk0.send("CLIENT_START_MATCH", {});
-    await ate(() => recusas.length > 0);
-    expect(recusas[0].code).toBe("ROOM_NOT_FULL");
-    expect(room.partidaIniciada()).toBe(false);
-
-    // agora com a sala cheia, mas quem pede não é o anfitrião
-    const outros: AcaoRecusada[] = [];
-    let sdkN!: { send: (t: string, m?: unknown) => void; onMessage: (t: string, cb: (...a: never[]) => void) => void };
-    for (let i = 1; i < ASSENTOS; i++) {
-      sdkN = await colyseus.connectTo(room, { protocolVersion: PROTOCOL_VERSION, nick: `P${i}` }) as never;
+    const sdks = [];
+    for (let i = 0; i < 3; i++) {
+      sdks.push(await colyseus.connectTo(room, { protocolVersion: PROTOCOL_VERSION, nick: `P${i}` }));
     }
-    sdkN.onMessage("ACTION_REJECTED", (m: AcaoRecusada) => outros.push(m));
-    sdkN.send("CLIENT_START_MATCH", {});
-    await ate(() => outros.length > 0);
-    expect(outros[0].code).toBe("NOT_HOST");
-    expect(room.partidaIniciada()).toBe(false);
+    for (const s of sdks) s.send("CLIENT_SET_READY", { ready: true });
+    await ate(() => room.state.seats.filter((a) => a.ready).length === 3);
+
+    expect(room.partidaIniciada()).toBe(false);   // falta o quarto assento
+    expect(room.state.status).toBe("lobby");
   });
 
   it("B · os quatro assentos batem com a sessão, e o seat nunca vem do payload", async () => {
