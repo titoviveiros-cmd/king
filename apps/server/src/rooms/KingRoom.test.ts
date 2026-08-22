@@ -216,8 +216,11 @@ describe("I · o protocolo é tipado nas duas direções", () => {
     expect(typeof w.you.playerId).toBe("string");
     expect(typeof w.you.sessionToken).toBe("string");
     expect(w.you.playerId).not.toBe(w.you.sessionToken); // identidade ≠ credencial
-    // o servidor guardou exatamente o mesmo, fora do estado sincronizado
-    expect(room.clients[2].userData).toEqual(w.you);
+    // o servidor guardou a identidade fora do estado sincronizado; a credencial de retorno
+    // NÃO é guardada em userData — ela é derivada do socket a cada envio
+    const { recoveryToken, ...identidade } = w.you;
+    expect(room.clients[2].userData).toEqual(identidade);
+    expect(recoveryToken.startsWith(room.roomId + ":")).toBe(true);
   });
 
   it("CLIENT_SET_READY altera só o assento de quem enviou", async () => {

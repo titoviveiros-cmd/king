@@ -18,7 +18,7 @@
 //
 // A Room é transporte e fan-out; a validação vive em `match/autoridade.ts`, pura e sem Colyseus;
 // e a REGRA vive só em `@king/engine`. Nada de KING é reimplementado aqui.
-import { Room, ServerError, generateId, type Client } from "colyseus";
+import { CloseCode, Room, ServerError, generateId, type Client } from "colyseus";
 import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import { ArraySchema, schema } from "@colyseus/schema";
 import type { Seat } from "@king/engine";
@@ -88,6 +88,25 @@ export class KingRoom extends Room<{
    * NUNCA mover para dentro de um `Schema`.
    */
   private autoridade = new AutoridadeDaPartida();
+
+  /**
+   * SERVER-ONLY. Sessão lógica por conexão, guardada FORA do `Schema`.
+   *
+   * O `sessionId` do socket não é identidade: uma queda produz socket novo. A identidade estável
+   * é o `playerId`, e o vínculo é reconstruído no retorno através do `recoveryToken`. Este mapa
+   * é o que permite devolver o MESMO assento a quem volta.
+   */
+  #sessoes = new Map<string, DadosDaConexao>();
+
+  /**
+   * UMA identidade, UMA conexão ativa.
+   *
+   * O framework aceita reconectar com a credencial mesmo que o socket anterior ainda esteja de pé
+   * — e não derruba o antigo. Sem esta trava, dois sockets representariam o mesmo assento.
+   * A política é "a conexão nova vence": ao voltar, o socket anterior é encerrado, e qualquer
+   * evento vindo dele passa a ser ignorado (ver a guarda em `onDrop`/`onLeave`).
+   */
+  #conexaoAtiva = new Map<string, ClienteDoKing>();
 
   /** Há partida em curso? Só o BOOLEANO — nunca o estado. */
   partidaIniciada(): boolean {
@@ -252,6 +271,8 @@ export class KingRoom extends Room<{
       seat,
     };
     client.userData = dados;
+    this.#sessoes.set(client.sessionId, dados);
+    this.#conexaoAtiva.set(dados.playerId, client);
 
     const nick = options?.nick?.trim() || `Jogador ${seat + 1}`;
     const assento = this.state.seats[seat];
@@ -264,28 +285,105 @@ export class KingRoom extends Room<{
       protocolVersion: PROTOCOL_VERSION,
       roomCode: this.state.roomCode,
       roomId: this.roomId,
-      you: { playerId: dados.playerId, sessionToken: dados.sessionToken, seat },
+      you: {
+        playerId: dados.playerId,
+        sessionToken: dados.sessionToken,
+        seat,
+        recoveryToken: this.#credencial(client),
+      },
     });
     difundir(this, "PLAYER_JOINED", { seat, playerId: dados.playerId, nick }, { except: client });
   }
 
   /**
-   * Saída. Nesta fase o assento é liberado de imediato: não há reconexão ainda (Fase 6), e manter
-   * assento reservado sem quem o reclame só criaria sala travada.
+   * Queda de conexão (ou saída). O Colyseus chama `onDrop` na perda; `onLeave` só quando a saída
+   * é DEFINITIVA — ou seja, quando a janela de reconexão termina.
+   *
+   * Regra adotada:
+   *   • saída CONSENTIDA no lobby  → libera o assento na hora (comportamento da Fase 5)
+   *   • qualquer outra queda       → o assento é RESERVADO e ninguém mais pode ocupá-lo
+   *
+   * Sem timeout nesta fase: quem cai durante a partida mantém o assento até voltar. Abandono
+   * definitivo e takeover por bot são fase própria.
    */
+  async onDrop(client: ClienteDoKing, code?: number): Promise<void> {
+    const dados = client.userData;
+    if (!dados) return;
+    // Socket obsoleto (já substituído por uma conexão mais nova): não mexe em nada.
+    if (this.#conexaoAtiva.get(dados.playerId) !== client) return;
+
+    if (code === CloseCode.CONSENTED && this.state.status === "lobby") {
+      this.#liberarAssento(dados);
+      return;
+    }
+
+    this.state.seats[dados.seat].connected = false;
+    difundir(this, "PLAYER_CONNECTION", { seat: dados.seat, connected: false });
+
+    try {
+      // "manual": sem prazo. A reserva do assento só cai quando o jogador voltar.
+      await this.allowReconnection(client, "manual");
+    } catch {
+      this.#liberarAssento(dados);
+    }
+  }
+
+  /**
+   * O mesmo jogador voltou, num socket NOVO. A identidade não vem do socket: vem da sessão que
+   * o `recoveryToken` reabriu. O assento é RESTAURADO, nunca escolhido pelo cliente.
+   */
+  onReconnect(client: ClienteDoKing): void {
+    const dados = this.#sessoes.get(client.sessionId);
+    if (!dados) return; // sessão desconhecida: o framework já teria recusado o token
+
+    // A conexão NOVA vence. A ORDEM importa: registrar a nova PRIMEIRO faz a guarda de
+    // `onDrop`/`onLeave` já enxergar o socket anterior como obsoleto — se fosse ao contrário,
+    // fechá-lo dispararia a liberação do próprio assento que estamos restaurando.
+    const anterior = this.#conexaoAtiva.get(dados.playerId);
+    this.#conexaoAtiva.set(dados.playerId, client);
+    if (anterior && anterior !== client && this.clients.includes(anterior)) {
+      anterior.leave(CloseCode.CONSENTED);
+    }
+
+    client.userData = dados;
+    this.state.seats[dados.seat].connected = true;
+    difundir(this, "PLAYER_CONNECTION", { seat: dados.seat, connected: true });
+
+    enviar(client, "SERVER_WELCOME", {
+      protocolVersion: PROTOCOL_VERSION,
+      roomCode: this.state.roomCode,
+      roomId: this.roomId,
+      you: { ...dados, recoveryToken: this.#credencial(client) },
+    });
+    // estado ATUAL, nunca o de antes da queda
+    this.#publicarPara(client, "RECONNECTED");
+  }
+
+  /** Só é chamado quando a saída é definitiva. */
   onLeave(client: ClienteDoKing): void {
     const dados = client.userData;
     if (!dados) return;
+    if (this.#conexaoAtiva.get(dados.playerId) !== client) return; // socket obsoleto
+    this.#liberarAssento(dados);
+  }
+
+  #liberarAssento(dados: DadosDaConexao): void {
     const assento = this.state.seats[dados.seat];
+    if (assento.playerId !== dados.playerId) return; // o assento já é de outra pessoa
     const evento = { seat: dados.seat, playerId: dados.playerId, nick: assento.nick };
-    // Campo a campo, NUNCA `Object.assign` de outra instância: copiar um `Schema` por cima de
-    // outro sobrescreve os internos de rastreamento e o cliente passa a decodificar campo
-    // inexistente ("definition mismatch").
+    // Campo a campo, NUNCA `Object.assign` de outra instância de Schema.
     assento.playerId = ASSENTO_VAZIO;
     assento.nick = "";
     assento.connected = false;
     assento.ready = false;
-    difundir(this, "PLAYER_LEFT", evento, { except: client });
+    for (const [sid, d] of this.#sessoes) if (d.playerId === dados.playerId) this.#sessoes.delete(sid);
+    this.#conexaoAtiva.delete(dados.playerId);
+    difundir(this, "PLAYER_LEFT", evento);
+  }
+
+  /** `roomCode:token` — o formato que o SDK espera em `reconnect()`. */
+  #credencial(client: ClienteDoKing): string {
+    return `${this.roomId}:${(client as unknown as { reconnectionToken: string }).reconnectionToken}`;
   }
 
   onDispose(): void {

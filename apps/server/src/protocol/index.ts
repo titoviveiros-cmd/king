@@ -63,6 +63,12 @@ export interface BoasVindas {
     playerId: string;
     sessionToken: string;
     seat: Seat;
+    /**
+     * CREDENCIAL DE RETORNO — `roomCode:token`. Guardar no cliente e reapresentar após uma queda
+     * para recuperar **o mesmo assento**. É segredo do dono: nunca é difundida nem entra no
+     * estado sincronizado. Quem a tem, é o jogador.
+     */
+    recoveryToken: string;
   };
 }
 
@@ -70,6 +76,12 @@ export interface EventoDeJogador {
   seat: Seat;
   playerId: string;
   nick: string;
+}
+
+/** Alguém caiu ou voltou. A Mesa usa isto para esmaecer/reacender o avatar — sem texto técnico. */
+export interface ConexaoDeJogador {
+  seat: Seat;
+  connected: boolean;
 }
 
 export interface Falha {
@@ -85,6 +97,7 @@ export interface ServidorParaCliente {
   STATE_UPDATE: AtualizacaoDeEstado;
   ACTION_REJECTED: AcaoRecusada;
   READY_STATE: EstadoDeConsenso;
+  PLAYER_CONNECTION: ConexaoDeJogador;
 }
 
 export type MensagemDoCliente = keyof ClienteParaServidor;
@@ -162,7 +175,7 @@ export interface EstadoDeConsenso {
 export type StatusDaSala = "lobby" | "playing" | "finished";
 
 /** Por que o estado mudou. É dica de apresentação — o estado autoritativo é a `view`. */
-export type Causa = "MATCH_STARTED" | "CARD_PLAYED" | "TRUMP_SELECTED" | "HAND_ADVANCED" | "RESYNC";
+export type Causa = "MATCH_STARTED" | "CARD_PLAYED" | "TRUMP_SELECTED" | "HAND_ADVANCED" | "RESYNC" | "RECONNECTED";
 
 export interface AtualizacaoDeEstado {
   matchId: string;
