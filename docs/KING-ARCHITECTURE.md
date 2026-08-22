@@ -97,21 +97,40 @@ Política parametrizável: tempo normal → aviso → crítico → ação após 
 partida indefinidamente; nunca curto a ponto de prejudicar iniciantes.
 
 ## Roadmap aprovado (auditoria de 18/08/2026)
-1. **Concluir o milestone atual:** validação do Placar Final + **avaliação auditiva do áudio em
-   aparelho real** + último ciclo de testes/build. Só então PR e integração à `main`.
-2. **Bot Normal V1** — próxima prioridade, **antes do multiplayer**. Heurístico e suficiente:
-   compreender contratos, evitar penalidades, buscar vazas positivas e escolher trunfo
-   racionalmente. **Não overengineer** (nada de busca em árvore ou modelo de oponente).
-3. **Multiplayer autoritativo** (Colyseus) — prioridade imediata depois do Bot Normal.
+1. ✅ **Milestone 2 — Placar Final** + áudio + ciclo de testes/build. Integrado à `main`.
+2. ✅ **Milestone 3 — Bot Normal V1** (22/08/2026). Heurístico, sem busca em árvore nem modelo de
+   oponente, como determinado. Validado em holdout cego, integrado à Mesa e aprovado em gameplay
+   real no iPhone. Ver "Bots" abaixo.
+3. **Multiplayer autoritativo** (Colyseus) — próxima prioridade.
 
-> **Trava explícita antes do multiplayer:** a identidade sonora **não pode ser congelada** antes
-> de o áudio ser ouvido em aparelho real. A arquitetura sonora foi construída tecnicamente, mas
-> ainda não houve julgamento estético por ouvido. Isso **não bloqueia** o Bot Normal.
+> **Trava do áudio: LIBERADA.** A identidade sonora foi julgada por ouvido em aparelho real
+> (iPhone, partida completa, 22/08/2026) e aprovada. O multiplayer não está mais bloqueado por
+> ela.
 
 ## Bots (seção 41)
-Usam a **mesma API do motor** e **nunca** informação oculta (isso seria cheat). "Bot Normal":
-respeita regras, serve/balda corretamente, entende o contrato, evita penalidades, busca vazas
-positivas e escolhe trunfo racionalmente. O driver `sim.ts` é a base técnica (ainda não é o bot final).
+Usam a **mesma API do motor** e **nunca** informação oculta (isso seria cheat).
+
+### Bot Normal V1 — ✅ VALIDADO · ✅ INTEGRADO À MESA · ✅ TESTADO NO IPHONE · ✅ CONGELADO
+
+Validação: benchmark de calibração + **holdout cego** com critérios pré-registrados
+(10/10 cumpridos, 5000/5000 partidas íntegras, Δ FINAL +240,52 fora da amostra contra +239,87
+dentro — 0,27% de diferença, sem sinal de sobreajuste).
+
+| arquivo | papel |
+|---|---|
+| `botView.ts` | **Fronteira anti-cheat.** `buildBotView(m, seat)` é a ÚNICA ponte entre o `MatchState` e a decisão. Como `chooseNormalCard(view: BotView)` não importa `MatchState`, trapaça é impossível **por tipagem**, não por disciplina. |
+| `botNormal.ts` | Heurística das 6 negativas (faixas SAFE/RISK/WIN + passivo por contrato), das 4 positivas (conquista de vaza, corte, reconhecimento de *master*) e a escolha de trunfo, incluindo Sem Trunfo. |
+| `bot.ts` | **Baseline** preservado como referência interna de benchmark e regressão. **Não é uma dificuldade oferecida ao jogador.** |
+| `botNormalBenchmark.test.ts` | Bateria pareada reproduzível (`BENCH=1`, `BENCH_SEED_START`/`BENCH_SEED_COUNT`). |
+
+**Congelado:** `botNormal.ts` e `botView.ts` não mudam sem repetir a validação inteira — isso
+inclui heurísticas, pesos, escolha de trunfo e Sem Trunfo. O Sem Trunfo (Δ ≈ −15 em ~4,2% das
+escolhas) está registrado como oportunidade de um **V2**, não como defeito a corrigir agora.
+
+**Níveis de dificuldade (futuro, NÃO implementado):** FÁCIL / NORMAL / DIFÍCIL. O Bot Normal V1
+desta `main` é a **referência oficial do nível NORMAL**.
+
+O driver `sim.ts` segue sendo apenas base técnica de simulação — nunca foi um bot de jogo.
 
 ## Determinismo
 Embaralhamento por semente (`createRng`, mulberry32) combinada com o número da mão. Mesma

@@ -23,8 +23,11 @@ OFICIAL** do projeto a partir deste ponto.
 | Suíte de testes | ✅ **76 verdes** (64 motor + 12 web) |
 
 > A partir deste marco, **todo novo milestone nasce em nova feature branch** criada a partir
-> desta `main` congelada. **Fora deste fechamento** (não implementados ainda): Bot Normal V1,
-> CI, Playwright, deploy, multiplayer, persistência.
+> desta `main` congelada. **Fora deste fechamento** (não implementados ainda): multiplayer,
+> persistência, níveis de dificuldade.
+>
+> Entregues depois deste marco: CI, Playwright, deploy e o **Bot Normal V1**
+> (Milestone 3, 22/08/2026 — ver `KING-ARCHITECTURE.md`).
 
 ## Tipografia — CONGELADA ✅
 - **Display — Gabarito** (arredondada, encorpada, contemporânea; premium sem ser infantil).
