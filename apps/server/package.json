@@ -1,0 +1,21 @@
+{
+  "name": "@king/server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build && node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@colyseus/schema": "^4.0.31",
+    "@king/engine": "*",
+    "colyseus": "^0.17.10"
+  },
+  "devDependencies": {
+    "@colyseus/testing": "^0.17.11",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
