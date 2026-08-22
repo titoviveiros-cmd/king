@@ -30,6 +30,11 @@ export const ERRO = {
 } as const;
 export type CodigoDeErro = (typeof ERRO)[keyof typeof ERRO];
 
+/** Resultado de um READY: além do estado, diz se o consenso avançou a mão. */
+export type ResultadoPronto =
+  | { ok: true; duplicada: boolean; avancou: boolean; prontos: Seat[]; stateVersion: number }
+  | { ok: false; code: CodigoDeErro; message: string };
+
 export type Resultado =
   /** Aplicada agora: o estado mudou e a versão avançou. */
   | { ok: true; duplicada: false; stateVersion: number }
@@ -37,7 +42,9 @@ export type Resultado =
   | { ok: true; duplicada: true; stateVersion: number }
   | { ok: false; code: CodigoDeErro; message: string };
 
-const falha = (code: CodigoDeErro, message: string): Resultado => ({ ok: false, code, message });
+/** Forma de erro comum aos dois resultados — por isso o tipo é o do ramo, não a união. */
+const falha = (code: CodigoDeErro, message: string): { ok: false; code: CodigoDeErro; message: string } =>
+  ({ ok: false, code, message });
 
 /** Domínio oficial do trunfo. Qualquer coisa fora disto é recusada antes de chegar ao motor. */
 const TRUMPS: readonly Trump[] = [...SUITS, "no-trump"];
@@ -60,8 +67,14 @@ export class AutoridadeDaPartida {
   #stateVersion = 0;
   /** `playerId:actionId` → versão em que foi aplicada. Base da idempotência. */
   #aplicadas = new Map<string, number>();
+  /** Consenso entre-mãos: quem já pediu a próxima. Sempre atrelado a UMA mão. */
+  #prontos = new Set<Seat>();
+  /** Mão a que o consenso corrente se refere — um ready de mão antiga nunca conta. */
+  #maoDoConsenso = 0;
 
   get iniciada(): boolean { return this.#match !== null; }
+  /** Quem já pediu a próxima mão (ordenado, para leitura estável). */
+  get prontos(): Seat[] { return [...this.#prontos].sort(); }
   get stateVersion(): number { return this.#stateVersion; }
   get matchId(): string { return this.#matchId; }
 
@@ -148,11 +161,14 @@ export class AutoridadeDaPartida {
   }
 
   /**
-   * Avança para a próxima mão. Existe porque o servidor **não** avança sozinho: o Placar
-   * entre-mãos precisa de um momento de leitura, e antecipá-lo destruiria o ritmo já aprovado.
-   * Na fase do lobby isto passa a exigir a confirmação dos humanos.
+   * CONSENSO ENTRE-MÃOS. O servidor **não** avança sozinho — o Placar entre-mãos precisa de um
+   * momento de leitura, e antecipá-lo destruiria o ritmo aprovado no iPhone. E nenhum jogador
+   * isolado avança a partida: só quando os QUATRO pedem.
+   *
+   * O consenso é atrelado ao NÚMERO DA MÃO. Se a mão mudou desde o último ready, o conjunto é
+   * zerado antes de contar — assim um ready atrasado, de uma mão que já passou, nunca soma.
    */
-  avancarMao(_seat: Seat, playerId: string, acao: Intencao): Resultado {
+  marcarPronto(seat: Seat, playerId: string, acao: Intencao): ResultadoPronto {
     const m = this.#match;
     if (m === null) return falha(ERRO.MATCH_NOT_STARTED, "A partida ainda não começou");
     if (typeof acao?.actionId !== "string" || !acao.actionId) {
@@ -160,15 +176,34 @@ export class AutoridadeDaPartida {
     }
 
     const repetida = this.#jaAplicada(playerId, acao.actionId);
-    if (repetida !== null) return { ok: true, duplicada: true, stateVersion: repetida };
+    if (repetida !== null) {
+      return { ok: true, duplicada: true, avancou: false, prontos: this.prontos, stateVersion: this.#stateVersion };
+    }
 
     const versao = this.#verificarVersao(acao.expectedStateVersion);
     if (versao) return versao;
 
+    // GAME OVER: nenhum consenso cria a 11ª mão.
     if (m.finished) return falha(ERRO.WRONG_PHASE, "A partida já terminou");
     if (!m.hand || m.hand.handScores === null) return falha(ERRO.HAND_NOT_OVER, "A mão ainda não acabou");
 
-    return this.#aplicar(playerId, acao.actionId, () => startNextHand(m));
+    if (this.#maoDoConsenso !== m.hand.handNumber) {
+      this.#prontos.clear();
+      this.#maoDoConsenso = m.hand.handNumber;
+    }
+    this.#prontos.add(seat);
+    // Registrar a actionId SEM avançar versão: pedir a próxima não altera o estado da partida.
+    this.#aplicadas.set(this.#chave(playerId, acao.actionId), this.#stateVersion);
+
+    if (this.#prontos.size < 4) {
+      return { ok: true, duplicada: false, avancou: false, prontos: this.prontos, stateVersion: this.#stateVersion };
+    }
+
+    startNextHand(m);
+    this.#stateVersion += 1;
+    this.#prontos.clear();
+    this.#maoDoConsenso = 0;
+    return { ok: true, duplicada: false, avancou: true, prontos: [], stateVersion: this.#stateVersion };
   }
 
   // ───────────────────────── internos ─────────────────────────
@@ -189,7 +224,7 @@ export class AutoridadeDaPartida {
    * agir. Uma versão atrasada significa, de fato, que você decidiu sobre uma mesa que já mudou.
    * Versão à frente da do servidor é payload inválido, não atraso.
    */
-  #verificarVersao(esperada: number | undefined): Resultado | null {
+  #verificarVersao(esperada: number | undefined): { ok: false; code: CodigoDeErro; message: string } | null {
     if (esperada === undefined) return null;
     if (!Number.isInteger(esperada) || esperada < 0) {
       return falha(ERRO.INVALID_PAYLOAD, "expectedStateVersion inválida");

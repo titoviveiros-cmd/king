@@ -45,7 +45,7 @@ export interface ClienteParaServidor {
   CLIENT_START_MATCH: IniciarPartida;
   CLIENT_PLAY_CARD: JogarCarta;
   CLIENT_SELECT_TRUMP: EscolherTrunfo;
-  CLIENT_ADVANCE_HAND: AvancarMao;
+  CLIENT_READY_NEXT_HAND: ProntoParaProximaMao;
 }
 
 // ───────────────────────── SERVIDOR → CLIENTE ─────────────────────────
@@ -83,6 +83,7 @@ export interface ServidorParaCliente {
   SERVER_ERROR: Falha;
   STATE_UPDATE: AtualizacaoDeEstado;
   ACTION_REJECTED: AcaoRecusada;
+  READY_STATE: EstadoDeConsenso;
 }
 
 export type MensagemDoCliente = keyof ClienteParaServidor;
@@ -144,7 +145,14 @@ export interface EscolherTrunfo extends IntencaoBase {
   trump: Trump;
 }
 
-export type AvancarMao = IntencaoBase;
+/** "Estou pronto para a próxima mão." Só o consenso dos quatro avança a partida. */
+export type ProntoParaProximaMao = IntencaoBase;
+
+/** Quem já pediu a próxima mão. O Placar entre-mãos usa isto para dizer "aguardando Bia…". */
+export interface EstadoDeConsenso {
+  handNumber: number;
+  ready: Seat[];
+}
 
 /** Sem payload: o anfitrião é derivado da sessão, não declarado. */
 export type IniciarPartida = Record<string, never>;

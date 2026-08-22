@@ -24,8 +24,8 @@ import type { Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
-  type AvancarMao, type Causa, type DefinirPronto, type EscolherTrunfo,
-  type JogarCarta, type OpcoesDeEntrada,
+  type Causa, type DefinirPronto, type EscolherTrunfo,
+  type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao,
 } from "../protocol/index.js";
 
 /** KING é sempre 4 assentos. Não é configurável — é regra do jogo. */
@@ -142,11 +142,17 @@ export class KingRoom extends Room<{
       this.#responder(client, msg?.actionId ?? "", r, "TRUMP_SELECTED");
     });
 
-    this.onMessage("CLIENT_ADVANCE_HAND", (client: ClienteDoKing, msg: AvancarMao) => {
+    this.onMessage("CLIENT_READY_NEXT_HAND", (client: ClienteDoKing, msg: ProntoParaProximaMao) => {
       const dados = client.userData;
       if (!dados) return;
-      const r = this.autoridade.avancarMao(dados.seat, dados.playerId, msg);
-      this.#responder(client, msg?.actionId ?? "", r, "HAND_ADVANCED");
+      const r = this.autoridade.marcarPronto(dados.seat, dados.playerId, msg);
+      if (!r.ok) return this.#recusar(client, msg?.actionId ?? "", r.code, r.message);
+      if (r.avancou) return this.#publicar("HAND_ADVANCED");
+      // consenso ainda incompleto: ninguém avança, e todos veem quem já pediu
+      difundir(this, "READY_STATE", {
+        handNumber: this.autoridade.estadoAutoritativo()?.hand?.handNumber ?? 0,
+        ready: r.prontos,
+      });
     });
   }
 

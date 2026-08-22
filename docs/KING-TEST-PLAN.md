@@ -17,7 +17,10 @@
 | Deck: 52 cartas únicas | `cards.test.ts` |
 | Deal: 4×13 = 52, sem duplicata | `cards.test.ts`, `match.test.ts` |
 | Servir: não baldar tendo o naipe | `rules.test.ts` |
-| Vaza = 4 cartas; mão = 13 vazas | implícito nos totais (`match.test.ts`) |
+| Vaza = 4 cartas; mão = **até** 13 vazas | `encerramento.test.ts` (contrato a contrato) |
+| M1, M6 e M7–M10 sempre chegam à 13ª vaza | `encerramento.test.ts` |
+| M2–M5 encerram quando o contrato se resolve | `encerramento.test.ts` |
+| Cartas abandonadas nunca contam como jogadas | `encerramento.test.ts` |
 | Partida = 10 mãos | `match.test.ts` (`history.length === 10`) |
 | Checksum negativo = −1300 | `match.test.ts` |
 | Checksum positivo = +1300 | `match.test.ts` |
@@ -32,8 +35,9 @@
   `contracts.test.ts` valida o incremento de cada regra.
 - **King** contabilizado **exatamente uma vez** (−160 a um só jogador) → `match.test.ts`.
 - **Duas últimas:** só as vazas 12 e 13 pontuam → `contracts.test.ts`.
-- **Cada mão distribui exatamente o total do contrato** → `match.test.ts` (prova implícita de
-  que houve 13 vazas e nenhuma dupla contagem).
+- **Cada mão distribui exatamente o total do contrato** → `match.test.ts`. Isso vale **também**
+  no encerramento antecipado: ele só ocorre quando a última carta penalizada já saiu, então nada
+  é perdido. Prova por contrato em `encerramento.test.ts`.
 
 ## Testes de trunfo (seção 62)
 - Sem trunfo, um trunfo, múltiplos trunfos, obrigação de servir, "Sem Trunfo" → `rules.test.ts`.

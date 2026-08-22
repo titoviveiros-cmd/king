@@ -6,8 +6,13 @@
 
 ## 1. Estrutura
 - **4 jogadores**, todos contra todos (sem parcerias).
-- Baralho **padrão de 52 cartas**; **13 cartas** por jogador; todas as 52 usadas em cada mão.
-- Uma **partida = 10 mãos**. Cada mão = **13 vazas**.
+- Baralho **padrão de 52 cartas**; **13 cartas** por jogador. As 52 são **DISTRIBUÍDAS** no
+  início de cada mão; só são todas **efetivamente jogadas** quando a mão chega à 13ª vaza.
+- Uma **partida = 10 mãos**. Cada mão tem **até 13 vazas**: as mãos **1, 6 e 7–10** chegam
+  obrigatoriamente à 13ª; as mãos **2–5** podem terminar antes, quando todos os eventos
+  pontuáveis do contrato já tiverem sido resolvidos (ver §6, *Encerramento antecipado*).
+- Daí decorrem **máximos teóricos**, nunca invariantes: **130 vazas** e **520 cartas jogadas**
+  por partida. O que É invariante: cartas jogadas = vazas × 4, e os checksums da §8.
 - **6 mãos negativas** (evitar pontos) + **4 mãos positivas** (buscar pontos).
 
 ## 2. Hierarquia das cartas
