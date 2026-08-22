@@ -13,7 +13,7 @@
 //   `stateVersion` → junto do primeiro snapshot autoritativo (Fase 3)
 // `protocolVersion`, `playerId`, `sessionToken` e `seat` entram agora porque a Fase 2 já precisa
 // deles: negociar compatibilidade, identificar a conexão e devolver o assento atribuído.
-import type { Seat } from "@king/engine";
+import type { PlayerView, Seat, Trump } from "@king/engine";
 
 /**
  * Versão do protocolo. O cliente informa a sua no `join`; divergência é recusada na porta, e não
@@ -42,6 +42,10 @@ export interface DefinirPronto {
 
 export interface ClienteParaServidor {
   CLIENT_SET_READY: DefinirPronto;
+  CLIENT_START_MATCH: IniciarPartida;
+  CLIENT_PLAY_CARD: JogarCarta;
+  CLIENT_SELECT_TRUMP: EscolherTrunfo;
+  CLIENT_ADVANCE_HAND: AvancarMao;
 }
 
 // ───────────────────────── SERVIDOR → CLIENTE ─────────────────────────
@@ -77,6 +81,8 @@ export interface ServidorParaCliente {
   PLAYER_JOINED: EventoDeJogador;
   PLAYER_LEFT: EventoDeJogador;
   SERVER_ERROR: Falha;
+  STATE_UPDATE: AtualizacaoDeEstado;
+  ACTION_REJECTED: AcaoRecusada;
 }
 
 export type MensagemDoCliente = keyof ClienteParaServidor;
@@ -113,4 +119,51 @@ export function difundir<T extends MensagemDoServidor>(
   opcoes?: unknown,
 ): void {
   alvo.broadcast(tipo, payload, opcoes);
+}
+
+// ══════════════════════ FASE 3 — GAMEPLAY ══════════════════════
+//
+// O cliente envia INTENÇÃO, nunca estado. Repare no que NÃO existe nestes payloads: `seat`,
+// `score`, `turn`, `winner`, `legalCards`, `stateVersion` autoritativa. O assento sai da sessão
+// no servidor; todo o resto é calculado pelo motor.
+
+/** Campos comuns a toda intenção de gameplay. */
+export interface IntencaoBase {
+  /** Identificador único da ação, gerado pelo cliente. Base da idempotência. */
+  actionId: string;
+  /** Opcional: a versão sobre a qual o cliente acredita estar agindo. */
+  expectedStateVersion?: number;
+}
+
+export interface JogarCarta extends IntencaoBase {
+  /** `cardId(carta)` do motor — `"${rank}-${suit}"`. Nunca o objeto carta. */
+  cardId: string;
+}
+
+export interface EscolherTrunfo extends IntencaoBase {
+  trump: Trump;
+}
+
+export type AvancarMao = IntencaoBase;
+
+/** Sem payload: o anfitrião é derivado da sessão, não declarado. */
+export type IniciarPartida = Record<string, never>;
+
+/** Por que o estado mudou. É dica de apresentação — o estado autoritativo é a `view`. */
+export type Causa = "MATCH_STARTED" | "CARD_PLAYED" | "TRUMP_SELECTED" | "HAND_ADVANCED" | "RESYNC";
+
+export interface AtualizacaoDeEstado {
+  matchId: string;
+  stateVersion: number;
+  /** Visão redigida DESTE assento — cada cliente recebe a sua. */
+  view: PlayerView;
+  cause: Causa;
+}
+
+export interface AcaoRecusada {
+  actionId: string;
+  code: string;
+  message: string;
+  /** Versão corrente, para o cliente se realinhar sem pedir resync. */
+  stateVersion: number;
 }

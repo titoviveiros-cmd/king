@@ -1,4 +1,4 @@
-// KingRoom — esqueleto da sala autoritativa (Fase 2: lifecycle e assentos, SEM gameplay).
+// KingRoom — a sala autoritativa: lobby (Fase 2) + partida real governada pelo motor (Fase 3).
 //
 // ═══════════════════ A REGRA DE SEGURANÇA CENTRAL DESTE ARQUIVO ═══════════════════
 //
@@ -8,22 +8,24 @@
 //
 // Por isso a separação é física, não disciplinar:
 //
-//   this.state  → EstadoPublicoDaSala (Schema)  → sincronizado a todos: roomId, assentos, ready
-//   this.match  → MatchState                    → campo privado comum: NUNCA sai daqui
+//   this.state      → EstadoPublicoDaSala (Schema) → sincronizado: roomId, assentos, ready
+//   this.autoridade → MatchState lá dentro         → campo privado comum: NUNCA sai daqui
 //
 // O `MatchState` carrega as mãos completas e a semente (que sozinha reconstrói o baralho inteiro
-// — ver `playerView.ts`). Ele não pode estar dentro de um `Schema` em hipótese alguma. Quando a
-// Fase 3 preencher `this.match`, o caminho de saída será `redactFor(match, seat)` enviado
-// individualmente, nunca o broadcast automático do framework.
+// — ver `playerView.ts`). Ele não pode estar dentro de um `Schema` em hipótese alguma. A ÚNICA
+// saída de estado é `autoridade.visaoDe(seat)` → `redactFor`, enviada individualmente a cada
+// cliente. Nunca há broadcast de uma visão comum.
 //
-// `KingRoom.test.ts` prova isso injetando um `MatchState` real e distribuído neste campo e
-// varrendo tudo que o cliente observa em busca de carta.
+// A Room é transporte e fan-out; a validação vive em `match/autoridade.ts`, pura e sem Colyseus;
+// e a REGRA vive só em `@king/engine`. Nada de KING é reimplementado aqui.
 import { Room, ServerError, generateId, type Client } from "colyseus";
 import { ArraySchema, schema } from "@colyseus/schema";
-import type { MatchState, Seat } from "@king/engine";
+import type { Seat } from "@king/engine";
+import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
-  type DefinirPronto, type OpcoesDeEntrada,
+  type AvancarMao, type Causa, type DefinirPronto, type EscolherTrunfo,
+  type JogarCarta, type OpcoesDeEntrada,
 } from "../protocol/index.js";
 
 /** KING é sempre 4 assentos. Não é configurável — é regra do jogo. */
@@ -75,18 +77,21 @@ export class KingRoom extends Room<{
   maxClients = ASSENTOS;
 
   /**
-   * SERVER-ONLY. Reservado para a Fase 3 — permanece `null` nesta fase, que não cria partida.
-   * Declarado aqui de propósito: é o campo cuja não-serialização o teste anti-vazamento verifica.
+   * SERVER-ONLY. Guarda o `MatchState` autoritativo (mãos completas + semente) num campo privado
+   * de classe — **fora** do `Schema`, portanto jamais sincronizado. A única saída de estado é
+   * `visaoDe(seat)`, que passa por `redactFor`.
    * NUNCA mover para dentro de um `Schema`.
    */
-  private match: MatchState | null = null;
+  private autoridade = new AutoridadeDaPartida();
 
-  /**
-   * Há partida em curso? Só expõe o BOOLEANO — nunca o estado. A Fase 3 usará isto para recusar
-   * ação de gameplay antes do início da partida.
-   */
+  /** Há partida em curso? Só o BOOLEANO — nunca o estado. */
   partidaIniciada(): boolean {
-    return this.match !== null;
+    return this.autoridade.iniciada;
+  }
+
+  /** Acesso SERVER-ONLY para os testes e, adiante, para os bots. Nunca serializado. */
+  autoridadeDaPartida(): AutoridadeDaPartida {
+    return this.autoridade;
   }
 
   onCreate(): void {
@@ -101,6 +106,88 @@ export class KingRoom extends Room<{
       const dados = client.userData;
       if (!dados) return;
       this.state.seats[dados.seat].ready = !!msg?.ready;
+    });
+
+    // ── gameplay (Fase 3) ─────────────────────────────────────────────────────
+    // Todo handler segue o MESMO roteiro: o assento sai da SESSÃO (nunca do payload), a
+    // autoridade valida e aplica pelo motor, e o resultado vira ou fan-out de visões
+    // individuais, ou uma recusa endereçada a quem tentou.
+
+    this.onMessage("CLIENT_START_MATCH", (client: ClienteDoKing) => {
+      const dados = client.userData;
+      if (!dados) return;
+      if (dados.seat !== 0) return this.#recusar(client, "", "NOT_HOST", "Só o anfitrião inicia");
+      if (this.state.seats.some((a) => a.playerId === ASSENTO_VAZIO)) {
+        return this.#recusar(client, "", "ROOM_NOT_FULL", "A sala ainda não tem quatro jogadores");
+      }
+      const nomes = this.state.seats.map((a) => a.nick);
+      // A SEMENTE é do servidor. Nunca do cliente nem das opções da sala: quem escolhe a semente
+      // escolhe a distribuição.
+      const semente = Math.floor(Math.random() * 0xffffffff) >>> 0;
+      const r = this.autoridade.iniciar(nomes, generateId(), semente);
+      this.#responder(client, "", r, "MATCH_STARTED");
+    });
+
+    this.onMessage("CLIENT_PLAY_CARD", (client: ClienteDoKing, msg: JogarCarta) => {
+      const dados = client.userData;
+      if (!dados) return;
+      const r = this.autoridade.jogarCarta(dados.seat, dados.playerId, msg);
+      this.#responder(client, msg?.actionId ?? "", r, "CARD_PLAYED");
+    });
+
+    this.onMessage("CLIENT_SELECT_TRUMP", (client: ClienteDoKing, msg: EscolherTrunfo) => {
+      const dados = client.userData;
+      if (!dados) return;
+      const r = this.autoridade.escolherTrunfo(dados.seat, dados.playerId, msg);
+      this.#responder(client, msg?.actionId ?? "", r, "TRUMP_SELECTED");
+    });
+
+    this.onMessage("CLIENT_ADVANCE_HAND", (client: ClienteDoKing, msg: AvancarMao) => {
+      const dados = client.userData;
+      if (!dados) return;
+      const r = this.autoridade.avancarMao(dados.seat, dados.playerId, msg);
+      this.#responder(client, msg?.actionId ?? "", r, "HAND_ADVANCED");
+    });
+  }
+
+  /**
+   * Resultado de uma intenção.
+   *
+   * IDEMPOTÊNCIA — política adotada: uma `actionId` repetida **não reexecuta nada**, e o servidor
+   * reenvia o estado corrente SÓ para quem repetiu. Escolhi reenviar em vez de ignorar em silêncio
+   * porque a causa quase sempre é resposta perdida na rede: reenviar faz o cliente convergir; o
+   * silêncio o deixaria travado esperando.
+   */
+  #responder(client: ClienteDoKing, actionId: string, r: Resultado, causa: Causa): void {
+    if (!r.ok) return this.#recusar(client, actionId, r.code, r.message);
+    if (r.duplicada) return this.#publicarPara(client, "RESYNC");
+    this.#publicar(causa);
+  }
+
+  #recusar(client: ClienteDoKing, actionId: string, code: string, message: string): void {
+    enviar(client, "ACTION_REJECTED", {
+      actionId,
+      code,
+      message, // humano e curto: NUNCA stack trace, nunca informação de outro assento
+      stateVersion: this.autoridade.stateVersion,
+    });
+  }
+
+  /** Fan-out: cada cliente recebe a SUA visão redigida. Nunca uma visão comum difundida. */
+  #publicar(causa: Causa): void {
+    for (const c of this.clients) this.#publicarPara(c as ClienteDoKing, causa);
+  }
+
+  #publicarPara(client: ClienteDoKing, causa: Causa): void {
+    const dados = client.userData;
+    if (!dados) return;
+    const view = this.autoridade.visaoDe(dados.seat);
+    if (view === null) return;
+    enviar(client, "STATE_UPDATE", {
+      matchId: this.autoridade.matchId,
+      stateVersion: this.autoridade.stateVersion,
+      view,
+      cause: causa,
     });
   }
 
@@ -168,7 +255,8 @@ export class KingRoom extends Room<{
   }
 
   onDispose(): void {
-    this.match = null; // a sala morreu: nada de estado autoritativo sobrevivendo ao processo
+    // a sala morreu: nada de estado autoritativo sobrevivendo ao processo
+    this.autoridade = new AutoridadeDaPartida();
   }
 
   /** Menor índice livre, ou `null` se os quatro estiverem ocupados. */

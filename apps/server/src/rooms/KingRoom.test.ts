@@ -4,8 +4,7 @@
 // teste) e conecta clientes reais por WebSocket. Nada de mock do framework.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { boot, type ColyseusTestServer } from "@colyseus/testing";
-import type { Card, MatchState, Rank, Suit } from "@king/engine";
-import { createMatch, startNextHand } from "@king/engine";
+import type { Card, Rank, Suit } from "@king/engine";
 import { SALA_KING, servidor } from "../app.js";
 import { CODIGO, PROTOCOL_VERSION, type BoasVindas, type EventoDeJogador } from "../protocol/index.js";
 import { ASSENTOS, type KingRoom } from "./KingRoom.js";
@@ -250,10 +249,9 @@ describe("J · nenhum estado privado chega ao cliente", () => {
       clientes.push(c);
     }
 
-    // Injeta no campo privado uma partida real, já distribuída — o cenário da Fase 3.
-    const partida: MatchState = createMatch(["P0", "P1", "P2", "P3"], SEMENTE);
-    startNextHand(partida);
-    (room as unknown as { match: MatchState }).match = partida;
+    // Inicia uma partida REAL pela autoridade — mãos distribuídas, semente do servidor.
+    room.autoridadeDaPartida().iniciar(["P0", "P1", "P2", "P3"], "m-teste", SEMENTE);
+    const partida = room.autoridadeDaPartida().estadoAutoritativo()!;
     expect(room.partidaIniciada()).toBe(true); // o SERVIDOR tem a partida...
 
     await room.waitForNextPatch();
@@ -283,7 +281,7 @@ describe("J · nenhum estado privado chega ao cliente", () => {
   it("o estado sincronizado contém SOMENTE campos de lobby", async () => {
     const room = await colyseus.createRoom<KingRoom>(SALA_KING);
     const c0 = await colyseus.connectTo(room, entrada("P0"));
-    (room as unknown as { match: MatchState }).match = createMatch(["a", "b", "c", "d"], SEMENTE);
+    room.autoridadeDaPartida().iniciar(["a", "b", "c", "d"], "m-teste", SEMENTE);
     await room.waitForNextPatch();
 
     const estado = c0.state.toJSON() as Record<string, unknown>;
