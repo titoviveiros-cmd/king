@@ -27,12 +27,27 @@ import { TEMPOS } from "../match/tempos.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
   type Causa, type DefinirPronto, type EscolherTrunfo,
-  type FaseDoRelogio, type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao,
+  type FaseDoRelogio, type GerirBot, type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao,
   type StatusDaSala, type TipoDeDecisao,
 } from "../protocol/index.js";
 
 /** KING é sempre 4 assentos. Não é configurável — é regra do jogo. */
 export const ASSENTOS = 4;
+
+/**
+ * Mínimo de HUMANOS numa mesa multiplayer privada.
+ *
+ * A mesa tem sempre 4 assentos, mas não exige 4 pessoas: bots completam. O piso é DOIS — com um
+ * humano só, a sala privada não seria multiplayer, seria o modo local com passos extras. Quem
+ * quer jogar sozinho contra bots usa "Jogar agora", que não passa por servidor nenhum.
+ */
+export const MIN_HUMANOS = 2;
+
+/** Prefixo do identificador sintético de um assento de bot. Nunca colide com `generateId()`. */
+const PREFIXO_BOT = "bot:";
+
+/** Como o BOT NORMAL se apresenta na mesa. */
+const NICK_BOT = "BOT NORMAL";
 
 /**
  * Um assento, do ponto de vista PÚBLICO. Nada aqui é secreto: quem está sentado, com que apelido,
@@ -46,6 +61,10 @@ export const AssentoPublico = schema({
   ready: "boolean",
   /** O servidor está agindo por este assento? Informação pública — a Mesa precisa mostrar. */
   assisted: "boolean",
+  /** Assento ocupado por BOT NORMAL. Público: o lobby e a Mesa mostram quem é bot. */
+  bot: "boolean",
+  /** Anfitrião da sala — o único que adiciona e remove bots. */
+  host: "boolean",
 }, "AssentoPublico");
 export type AssentoPublico = InstanceType<typeof AssentoPublico>;
 
@@ -129,6 +148,15 @@ export class KingRoom extends Room<{
   /** Sala sem nenhuma conexão viva: se ninguém voltar, ela morre. */
   #timerOrfa: { clear(): void } | null = null;
 
+  /**
+   * ANFITRIÃO — o `playerId` de quem manda nos bots. É o primeiro humano a entrar.
+   *
+   * Ele NÃO tem autoridade sobre a partida: não inicia, não decide regra, não escolhe semente.
+   * A única coisa que lhe pertence é a composição da mesa antes do começo, e mesmo isso o
+   * servidor confere a cada pedido.
+   */
+  #host: string | null = null;
+
   /** Há partida em curso? Só o BOOLEANO — nunca o estado. */
   partidaIniciada(): boolean {
     return this.autoridade.iniciada;
@@ -168,6 +196,42 @@ export class KingRoom extends Room<{
       this.#iniciarSePronto();
     });
 
+    // ── composição da mesa: só o ANFITRIÃO, e só antes de começar ────────────────────────────
+    // A verificação é do servidor. Esconder o botão de quem não é anfitrião é apresentação;
+    // recusar a mensagem é autorização. Um cliente modificado manda a mensagem do mesmo jeito.
+
+    this.onMessage("CLIENT_ADD_BOT", (client: ClienteDoKing, msg: GerirBot) => {
+      const erro = this.#autorizarGestaoDeBot(client, msg);
+      if (erro) return;
+      const seat = msg.seat as Seat;
+      const a = this.state.seats[seat];
+      if (a.playerId !== ASSENTO_VAZIO) {
+        return this.#recusar(client, "", "SEAT_TAKEN", "Esse lugar já está ocupado");
+      }
+      a.playerId = PREFIXO_BOT + seat;
+      a.nick = NICK_BOT;
+      a.connected = true;
+      a.bot = true;
+      // Bot não clica em "estou pronto": ele já nasce pronto. Ver a regra de início.
+      a.ready = true;
+      a.assisted = false;
+      difundir(this, "PLAYER_JOINED", { seat, playerId: a.playerId, nick: a.nick });
+      this.#iniciarSePronto();
+    });
+
+    this.onMessage("CLIENT_REMOVE_BOT", (client: ClienteDoKing, msg: GerirBot) => {
+      const erro = this.#autorizarGestaoDeBot(client, msg);
+      if (erro) return;
+      const seat = msg.seat as Seat;
+      const a = this.state.seats[seat];
+      if (!a.bot) {
+        return this.#recusar(client, "", "NOT_A_BOT", "Esse lugar não é de um bot");
+      }
+      const evento = { seat, playerId: a.playerId, nick: a.nick };
+      this.#esvaziarAssento(a);
+      difundir(this, "PLAYER_LEFT", evento);
+    });
+
     // ── gameplay (Fase 3) ─────────────────────────────────────────────────────
     // Todo handler segue o MESMO roteiro: o assento sai da SESSÃO (nunca do payload), a
     // autoridade valida e aplica pelo motor, e o resultado vira ou fan-out de visões
@@ -201,13 +265,48 @@ export class KingRoom extends Room<{
     });
   }
 
+/**
+   * Autorização da gestão de bots. Devolve `true` se RECUSOU (e já respondeu ao cliente).
+   */
+  #autorizarGestaoDeBot(client: ClienteDoKing, msg: GerirBot): boolean {
+    const dados = client.userData;
+    if (!dados) { this.#recusar(client, "", "NOT_IN_ROOM", "Você não está sentado"); return true; }
+    if (this.state.status !== "lobby") {
+      this.#recusar(client, "", "WRONG_PHASE", "A partida já começou");
+      return true;
+    }
+    if (dados.playerId !== this.#host) {
+      this.#recusar(client, "", "NOT_HOST", "Só quem criou a sala pode mexer nos bots");
+      return true;
+    }
+    const seat = msg?.seat;
+    if (typeof seat !== "number" || !Number.isInteger(seat) || seat < 0 || seat >= ASSENTOS) {
+      this.#recusar(client, "", "INVALID_PAYLOAD", "Assento inválido");
+      return true;
+    }
+    return false;
+  }
+
+  /** Quantos assentos são de gente de verdade. */
+  #humanos(): number {
+    return this.state.seats.filter((a) => a.playerId !== ASSENTO_VAZIO && !a.bot).length;
+  }
+
   /**
-   * Início automático: quatro assentos ocupados E quatro prontos. Idempotente por construção —
-   * `autoridade.iniciar` recusa a segunda chamada, e o `status` deixa de ser "lobby" na primeira.
+   * Início automático. A regra oficial da mesa:
+   *
+   *   • os QUATRO assentos ocupados (por humano ou bot);
+   *   • pelo menos DOIS humanos;
+   *   • todos os HUMANOS prontos — bots não marcam nada, já nascem prontos.
+   *
+   * Idempotente por construção: `autoridade.iniciar` recusa a segunda chamada, e o `status`
+   * deixa de ser "lobby" na primeira.
    */
   #iniciarSePronto(): void {
     if (this.state.status !== "lobby") return;
-    if (this.state.seats.some((a) => a.playerId === ASSENTO_VAZIO || !a.ready)) return;
+    if (this.state.seats.some((a) => a.playerId === ASSENTO_VAZIO)) return;
+    if (this.#humanos() < MIN_HUMANOS) return;
+    if (this.state.seats.some((a) => !a.bot && !a.ready)) return;
 
     const nomes = this.state.seats.map((a) => a.nick);
     // A SEMENTE é do servidor. Nunca do cliente nem das opções da sala: quem escolhe a semente
@@ -224,10 +323,20 @@ export class KingRoom extends Room<{
 
   // ══════════════════ RELÓGIO AUTORITATIVO E ASSISTÊNCIA ══════════════════
 
-  /** Assistência contínua: assento sem ninguém do outro lado e já assistido ao menos uma vez. */
+  /**
+   * O servidor decide por este assento AGORA?
+   *
+   * Dois casos, com naturezas diferentes e o mesmo tratamento no relógio:
+   *   • BOT — decide sempre, por definição;
+   *   • humano ausente em assistência contínua — decide enquanto ele não voltar.
+   *
+   * Nos dois, o prazo é a cortesia curta em vez do prazo humano: ninguém precisa esperar 25s
+   * por quem não vai pensar. E os dois passam pelo MESMO caminho de uma jogada humana, com a
+   * mesma visão redigida — não existe bot privilegiado.
+   */
   #assistido(seat: Seat): boolean {
     const a = this.state.seats[seat];
-    return a.assisted && !a.connected;
+    return a.bot || (a.assisted && !a.connected);
   }
 
   /** Qual decisão a partida espera agora, e por quanto tempo. */
@@ -433,6 +542,8 @@ export class KingRoom extends Room<{
     }
     for (const c of this.clients) this.#publicarPara(c as ClienteDoKing, causa);
     this.#reagendar();
+    // A mão pode ter acabado agora: os bots entram no consenso na hora, sem esperar prazo.
+    if (this.#prontosDosBots()) this.#tentarAvancar();
   }
 
   #publicarPara(client: ClienteDoKing, causa: Causa): void {
@@ -481,12 +592,18 @@ export class KingRoom extends Room<{
     this.#timerOrfa?.clear();
     this.#timerOrfa = null;
 
+    // O PRIMEIRO humano a entrar é o anfitrião. Se o anfitrião anterior saiu, o assento fica
+    // órfão de dono e o próximo a chegar assume — senão ninguém poderia mexer nos bots.
+    if (this.#host === null) this.#host = dados.playerId;
+
     const nick = options?.nick?.trim() || `Jogador ${seat + 1}`;
     const assento = this.state.seats[seat];
     assento.playerId = dados.playerId;
     assento.nick = nick;
     assento.connected = true;
     assento.ready = false;
+    assento.bot = false;
+    assento.host = dados.playerId === this.#host;
 
     enviar(client, "SERVER_WELCOME", {
       protocolVersion: PROTOCOL_VERSION,
@@ -615,14 +732,56 @@ export class KingRoom extends Room<{
     const assento = this.state.seats[dados.seat];
     if (assento.playerId !== dados.playerId) return; // o assento já é de outra pessoa
     const evento = { seat: dados.seat, playerId: dados.playerId, nick: assento.nick };
-    // Campo a campo, NUNCA `Object.assign` de outra instância de Schema.
+    this.#esvaziarAssento(assento);
+    for (const [sid, d] of this.#sessoes) if (d.playerId === dados.playerId) this.#sessoes.delete(sid);
+    this.#conexaoAtiva.delete(dados.playerId);
+    if (this.#host === dados.playerId) this.#passarAnfitriao();
+    difundir(this, "PLAYER_LEFT", evento);
+  }
+
+  /** Zera um assento. Campo a campo, NUNCA `Object.assign` de outra instância de Schema. */
+  #esvaziarAssento(assento: AssentoPublico): void {
     assento.playerId = ASSENTO_VAZIO;
     assento.nick = "";
     assento.connected = false;
     assento.ready = false;
-    for (const [sid, d] of this.#sessoes) if (d.playerId === dados.playerId) this.#sessoes.delete(sid);
-    this.#conexaoAtiva.delete(dados.playerId);
-    difundir(this, "PLAYER_LEFT", evento);
+    assento.assisted = false;
+    assento.bot = false;
+    assento.host = false;
+  }
+
+  /**
+   * O anfitrião saiu. Passa o posto ao próximo HUMANO sentado — sem isso, uma sala com bots
+   * ficaria sem ninguém autorizado a mexer na composição, e travada para sempre no lobby.
+   */
+  #passarAnfitriao(): void {
+    this.#host = null;
+    for (const a of this.state.seats) a.host = false;
+    const proximo = this.state.seats.find((a) => a.playerId !== ASSENTO_VAZIO && !a.bot);
+    if (!proximo) return;
+    this.#host = proximo.playerId;
+    proximo.host = true;
+  }
+
+  /**
+   * Bots não pedem a próxima mão — eles já estão prontos assim que a mão acaba.
+   * Devolve `true` se marcou alguém, para quem chamou saber se vale tentar avançar.
+   */
+  #prontosDosBots(): boolean {
+    const m = this.autoridade.estadoAutoritativo();
+    if (!m?.hand || m.hand.handScores === null) return false;
+    let mudou = false;
+    for (const a of this.state.seats) {
+      if (!a.bot || a.ready) continue;
+      const r = this.autoridade.marcarPronto(a.seat as Seat, a.playerId, {
+        actionId: "bot:ready:" + a.seat + ":" + m.hand.handNumber,
+      });
+      if (r.ok) mudou = true;
+    }
+    if (!mudou) return false;
+    this.#refletirProntos(this.autoridade.prontos);
+    difundir(this, "READY_STATE", { handNumber: m.hand.handNumber, ready: this.autoridade.prontos });
+    return true;
   }
 
   /** `roomCode:token` — o formato que o SDK espera em `reconnect()`. */
@@ -653,5 +812,7 @@ function assentoVazio(seat: number): AssentoPublico {
   a.connected = false;
   a.ready = false;
   a.assisted = false;
+  a.bot = false;
+  a.host = false;
   return a;
 }

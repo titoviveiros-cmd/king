@@ -260,6 +260,21 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     sessao.current?.enviar("CLIENT_SET_READY", { ready: pronto });
   }, []);
 
+  /**
+   * Composição da mesa — só o anfitrião, e só antes de começar.
+   *
+   * A interface esconde os botões de quem não é anfitrião, mas isso é apresentação: quem
+   * autoriza é o servidor, que recusa a mensagem de qualquer outro. Ver `#autorizarGestaoDeBot`.
+   */
+  const adicionarBot = useCallback((seat: Seat) => {
+    sfxTap();
+    sessao.current?.enviar("CLIENT_ADD_BOT", { seat });
+  }, []);
+  const removerBot = useCallback((seat: Seat) => {
+    sfxTap();
+    sessao.current?.enviar("CLIENT_REMOVE_BOT", { seat });
+  }, []);
+
   const playCard = useCallback((card: Card) => {
     partida.current?.playHuman(card);
     bump();
@@ -301,7 +316,9 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     humanSeat: assento.current,
     servidor,
     podeVoltar: lerRecuperacao() !== null,
-    criarSala, entrarNaSala, voltarParaSala, sairDaSala, definirPronto,
+    /** Sou o anfitrião desta sala? Vem do estado sincronizado, não de suposição do cliente. */
+    souAnfitriao: assento.current !== null && !!sala?.seats[assento.current]?.host,
+    criarSala, entrarNaSala, voltarParaSala, sairDaSala, definirPronto, adicionarBot, removerBot,
   };
 }
 

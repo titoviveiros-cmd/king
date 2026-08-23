@@ -12,7 +12,7 @@ export type {
   // handshake e identidade
   OpcoesDeEntrada, BoasVindas, EventoDeJogador, ConexaoDeJogador, Falha, Codigo,
   // gameplay
-  IntencaoBase, JogarCarta, EscolherTrunfo, ProntoParaProximaMao, DefinirPronto,
+  IntencaoBase, JogarCarta, EscolherTrunfo, ProntoParaProximaMao, DefinirPronto, GerirBot,
   AtualizacaoDeEstado, AcaoRecusada, EstadoDeConsenso, Causa, StatusDaSala,
   // relógio e assistência
   RelogioDaDecisao, AcaoAutomatica, TipoDeDecisao, FaseDoRelogio,

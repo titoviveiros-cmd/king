@@ -40,11 +40,23 @@ export interface DefinirPronto {
   ready: boolean;
 }
 
+/**
+ * O ANFITRIÃO pede um BOT NORMAL num assento vazio, ou o remove antes de começar.
+ *
+ * Só carrega o assento — nunca "qual bot" nem "que dificuldade". Quem valida que quem pediu é o
+ * anfitrião é o SERVIDOR: esconder o botão na interface não é autorização, é decoração.
+ */
+export interface GerirBot {
+  seat: Seat;
+}
+
 export interface ClienteParaServidor {
   CLIENT_SET_READY: DefinirPronto;
   CLIENT_PLAY_CARD: JogarCarta;
   CLIENT_SELECT_TRUMP: EscolherTrunfo;
   CLIENT_READY_NEXT_HAND: ProntoParaProximaMao;
+  CLIENT_ADD_BOT: GerirBot;
+  CLIENT_REMOVE_BOT: GerirBot;
 }
 
 // ───────────────────────── SERVIDOR → CLIENTE ─────────────────────────

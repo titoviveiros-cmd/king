@@ -669,6 +669,19 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .sl-estado{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.72);
   letter-spacing:.08em;text-transform:uppercase;color:var(--faint);flex:none;}
 .sl-lugar.pronto .sl-estado{color:var(--gold);}
+/* Assento de BOT NORMAL no lobby: presente, mas visualmente mais quieto que uma pessoa. */
+.sl-lugar.robo{border-style:dashed;border-color:rgba(146,132,184,.55);background:rgba(255,255,255,.03);}
+.sl-lugar.robo .sl-av{background:linear-gradient(135deg,#3a3357,#26203d);color:var(--muted);font-size:calc(var(--ui)*1.1);}
+.sl-lugar.robo .sl-nome{color:var(--muted);}
+
+/* Botoes de composicao — so aparecem para o anfitriao, e so antes de comecar. */
+.sl-bot{flex:none;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.74);
+  letter-spacing:.06em;text-transform:uppercase;border-radius:999px;cursor:pointer;
+  padding:.32em .7em;line-height:1;border:1.5px solid transparent;}
+.sl-bot.add{color:var(--turq);background:rgba(45,212,191,.12);border-color:rgba(45,212,191,.5);}
+.sl-bot.rem{color:var(--muted);background:rgba(255,255,255,.05);border-color:rgba(146,132,184,.4);}
+.sl-bot:active{transform:translateY(1px);}
+
 .sl-erro{margin-top:10px;font-size:clamp(.72rem,1.8vh,.88rem);color:#ff9ecb;max-width:min(86vw,360px);}
 
 @media (prefers-reduced-motion:reduce){

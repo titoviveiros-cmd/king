@@ -43,7 +43,10 @@ export default function ModoOnline({
         conexao={g.conexao}
         erro={g.erro}
         eu={g.humanSeat}
+        souAnfitriao={g.souAnfitriao}
         onPronto={g.definirPronto}
+        onAdicionarBot={g.adicionarBot}
+        onRemoverBot={g.removerBot}
         onSair={sair}
         onOpenAudio={onOpenAudio}
       />

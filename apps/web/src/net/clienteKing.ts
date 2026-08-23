@@ -22,6 +22,10 @@ export interface AssentoLido {
   ready: boolean;
   /** O servidor está jogando por este assento agora? */
   assisted: boolean;
+  /** Assento de BOT NORMAL — o servidor joga por ele o tempo todo, por definição. */
+  bot: boolean;
+  /** Anfitrião da sala: o único que adiciona e remove bots. */
+  host: boolean;
 }
 
 /** Estado PÚBLICO da sala. Nunca contém mão, baralho nem semente — isso é lei do servidor. */
@@ -96,6 +100,8 @@ export function lerEstadoDaSala(bruto: unknown): EstadoDaSalaLido | null {
         connected: booleano(a.connected),
         ready: booleano(a.ready),
         assisted: booleano(a.assisted),
+        bot: booleano(a.bot),
+        host: booleano(a.host),
       };
     }),
   };

@@ -22,7 +22,7 @@ function salaFalsa(estadoInicial: unknown = null) {
   const enviadas: { tipo: string; payload: unknown }[] = [];
   let saiuConsentido: boolean | null = null;
   const sala = {
-    roomId: "ABCDE",
+    roomId: "0315",
     state: estadoInicial,
     onStateChange: (cb: (s: unknown) => void) => { ouvintes.estado.push(cb); },
     onMessage: (tipo: string, cb: (p: unknown) => void) => {
@@ -46,7 +46,7 @@ function salaFalsa(estadoInicial: unknown = null) {
 }
 
 const ESTADO = {
-  protocolVersion: 1, roomCode: "ABCDE", roomId: "ABCDE", status: "lobby",
+  protocolVersion: 1, roomCode: "0315", roomId: "0315", status: "lobby",
   seats: [
     { seat: 0, playerId: "p0", nick: "Tito", connected: true, ready: true, assisted: false },
     { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false },
@@ -58,7 +58,7 @@ const ESTADO = {
 describe("lerEstadoDaSala", () => {
   it("lê o estado normal", () => {
     const e = lerEstadoDaSala(ESTADO)!;
-    expect(e.roomCode).toBe("ABCDE");
+    expect(e.roomCode).toBe("0315");
     expect(e.status).toBe("lobby");
     expect(e.seats).toHaveLength(4);
     expect(e.seats[0]).toMatchObject({ nick: "Tito", ready: true, connected: true });
@@ -81,8 +81,8 @@ describe("lerEstadoDaSala", () => {
     const torto = lerEstadoDaSala({ status: 7, seats: [{}, null] })!;
     expect(torto.status).toBe("lobby"); // status desconhecido cai no seguro
     expect(torto.seats).toEqual([
-      { seat: 0, playerId: "", nick: "", connected: false, ready: false, assisted: false },
-      { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false },
+      { seat: 0, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false },
+      { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false },
     ]);
   });
 
@@ -96,7 +96,7 @@ describe("envelope da sessão", () => {
   it("expõe o código da sala e envia mensagens tipadas", () => {
     const f = salaFalsa(ESTADO);
     const s = envolverSala(f.sala);
-    expect(s.roomCode).toBe("ABCDE");
+    expect(s.roomCode).toBe("0315");
     s.enviar("CLIENT_SET_READY", { ready: true });
     expect(f.enviadas).toEqual([{ tipo: "CLIENT_SET_READY", payload: { ready: true } }]);
   });

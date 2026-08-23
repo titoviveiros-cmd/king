@@ -81,15 +81,31 @@ Mensagem "Reconectando à partida…" (nunca `WebSocket disconnected`).
 ## Lobby / Ready (sala privada) — regra oficial
 Fonte única de verdade UI × multiplayer:
 - A sala tem **exatamente 4 assentos**.
+- **Código da sala: exatamente 4 dígitos numéricos** (`0000`–`9999`), **string do começo ao
+  fim**. Zeros à esquerda são significativos: `0315` ≠ `315`. Nenhum ponto da cadeia — código,
+  `roomId`, `recoveryToken`, input do frontend — pode convertê-lo para número. O código **é** o
+  `roomId` do Colyseus, e a colisão é resolvida verificando as salas **vivas** (10.000
+  combinações; o retry é o mecanismo, não uma formalidade).
+- **Composição oficial da mesa:** 4 assentos, **de 2 a 4 humanos**, bots completando o resto.
+  As combinações válidas são **4 humanos**, **3 + 1 bot** e **2 + 2 bots**.
+  **1 humano + 3 bots NÃO inicia** — sala privada com uma pessoa só é o modo local com passos a
+  mais, e esse já existe sem servidor nenhum.
 - Cada **jogador humano** precisa marcar **PRONTO**.
-- **Bots** são **automaticamente prontos** ao entrar.
+- **Bots** são **automaticamente prontos** — ao entrar no lobby e a cada fim de mão. Bot não
+  marca nada e nunca segura o consenso.
+- **Quem manda nos bots é o ANFITRIÃO** (o primeiro humano a entrar; se ele sai no lobby, o posto
+  passa ao próximo humano sentado). Só ele adiciona e remove bots, e só **antes** de a partida
+  começar. **A verificação é do servidor** (`#autorizarGestaoDeBot`): esconder o botão de quem
+  não é anfitrião é apresentação, recusar a mensagem é autorização.
 - **O início é AUTORITATIVO e por consenso:** o servidor inicia a partida — exatamente uma vez —
-  quando **os 4 assentos estão ocupados E todos os humanos estão prontos**. **O anfitrião NÃO tem
-  autoridade especial para iniciar o gameplay**; ele participa da regra como qualquer um.
+  quando **os 4 assentos estão ocupados, há pelo menos 2 humanos E todos os humanos estão
+  prontos**. **O anfitrião NÃO tem autoridade especial para iniciar o gameplay**; sua autoridade
+  se limita à composição da mesa.
 - Na UI, o botão do anfitrião pode continuar rotulado **COMEÇAR** em vez de **PRONTO** — é decisão
   de apresentação, e o efeito no servidor é o mesmo READY de todo mundo.
 - Assento vazio comunica disponibilidade com **ação principal "Convidar"** + ação secundária
-  discreta **"Adicionar bot"** (convidar pessoa ≠ adicionar IA).
+  discreta **"Adicionar bot"** (convidar pessoa ≠ adicionar IA). Assento de bot oferece
+  **"Remover"** ao anfitrião, para dar o lugar a uma pessoa que chegou depois.
 - Status contextual abaixo do CTA é **dinâmico e não técnico** (ex.: "2 vagas disponíveis",
   "Aguardando Bia ficar pronta…", "Todos prontos!").
 - Entrada/saída de jogador preserva o motion: entra → card com pop/stagger + som social curto;
