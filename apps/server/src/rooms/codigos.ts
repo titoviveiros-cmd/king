@@ -7,15 +7,24 @@
 //
 // O código é sempre gerado pelo SERVIDOR. Um cliente que pudesse escolhê-lo poderia sequestrar
 // um código ainda não usado e esperar que alguém entrasse por engano.
+//
+// ═══════════════ POR QUE QUATRO DÍGITOS, E POR QUE STRING ═══════════════
+//
+// Quatro dígitos é o padrão da família Verbete: cabe num teclado numérico, se dita em voz alta
+// sem soletrar, e se digita com o polegar. São 10.000 combinações — muito menos que o alfabeto
+// anterior, e mais que suficiente para o número de salas simultâneas deste estágio, desde que a
+// colisão seja verificada contra as salas VIVAS (é o que `reservarCodigo` faz).
+//
+// O código é **string em toda a cadeia**, nunca número. `0315` convertido para `Number` vira
+// `315`, e o zero à esquerda some — o jogador digitaria o código que está na tela do amigo e
+// receberia "sala não encontrada". É por isso que não existe nenhum `Number()` neste caminho,
+// nem aqui, nem no `recoveryToken`, nem no input do frontend.
 
-/**
- * Alfabeto sem glifos que se confundem quando alguém lê um código em voz alta ou digita do
- * outro lado da mesa: fora `I`, `L`, `O`, `0` e `1`. Sobram 31 símbolos.
- */
-export const ALFABETO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-export const TAMANHO_CODIGO = 5;
+/** Só dígitos. O código é lido em voz alta e digitado em teclado numérico. */
+export const ALFABETO = "0123456789";
+export const TAMANHO_CODIGO = 4;
 
-/** 31^5 ≈ 28,6 milhões de combinações — folga enorme para o número de salas simultâneas. */
+/** 10^4 = 10.000 combinações. A colisão é resolvida por verificação, não por tamanho. */
 export const ESPACO_DE_CODIGOS = Math.pow(ALFABETO.length, TAMANHO_CODIGO);
 
 /** Códigos ocupados por salas vivas neste processo. */
@@ -31,25 +40,27 @@ export function gerarCodigo(rnd: () => number = Math.random): string {
 }
 
 /**
- * Normaliza o que o jogador digitou: maiúsculas e sem separadores. É o que torna o código
- * insensível a caixa — "k7f2m" e "K7-F2M" chegam ao mesmo lugar.
- * Glifos ambíguos não precisam de tradução porque **não existem** no alfabeto.
+ * Normaliza o que o jogador digitou: descarta tudo que não for dígito. Assim "03 15", "0315" e
+ * "0-3-1-5" chegam ao mesmo lugar. **Não** converte para número em momento algum.
  */
 export function normalizarCodigo(bruto: string): string {
-  return (bruto ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return (bruto ?? "").replace(/\D/g, "");
 }
 
-/** Um código só é válido se tiver o tamanho certo e usar apenas o alfabeto. */
+/** Um código só é válido se tiver exatamente 4 dígitos. */
 export function codigoValido(codigo: string): boolean {
+  if (typeof codigo !== "string") return false;
   if (codigo.length !== TAMANHO_CODIGO) return false;
   for (const c of codigo) if (!ALFABETO.includes(c)) return false;
   return true;
 }
 
 /**
- * Reserva um código livre. Em colisão, tenta de novo — com 28,6 milhões de combinações e um
- * punhado de salas vivas, a probabilidade de precisar de uma segunda tentativa é desprezível,
- * mas o retry existe porque "desprezível" não é "impossível".
+ * Reserva um código livre. Em colisão, tenta de novo.
+ *
+ * Com 10.000 combinações a colisão deixa de ser desprezível como era antes: com 30 salas vivas a
+ * chance de esbarrar numa já usada é de 0,3% por tentativa. Por isso o retry não é decorativo —
+ * é o mecanismo. Cem tentativas cobrem folgadamente qualquer cenário deste estágio.
  */
 export function reservarCodigo(rnd: () => number = Math.random, tentativas = 100): string {
   for (let i = 0; i < tentativas; i++) {

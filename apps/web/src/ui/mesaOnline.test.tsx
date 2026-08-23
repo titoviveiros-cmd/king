@@ -41,7 +41,7 @@ function render(game: KingGame | PartidaRemota, mp?: MesaMultiplayer, reviewing 
 
 function sala(over: Partial<EstadoDaSalaLido> = {}, assentos: Partial<{ assisted: boolean; connected: boolean; ready: boolean }>[] = []): EstadoDaSalaLido {
   return {
-    protocolVersion: 1, roomCode: "ABCDE", roomId: "ABCDE", status: "playing",
+    protocolVersion: 1, roomCode: "0315", roomId: "0315", status: "playing",
     seats: SEATS.map((s) => ({
       seat: s, playerId: "p" + s, nick: JOGADORES[s],
       connected: true, ready: false, assisted: false, ...(assentos[s] ?? {}),
@@ -211,7 +211,7 @@ describe("indicações que só existem no multiplayer", () => {
     const root = render(remota(m, 0), contexto(0, { conexao: "reconectando" }));
     const faixa = root.querySelector(".mpconexao")!;
     expect(faixa.text).toContain("Reconectando");
-    expect(faixa.text).toContain("ABCDE");
+    expect(faixa.text).toContain("0315");
   });
 
   it("em jogo normal a faixa de conexão não ocupa nada", () => {

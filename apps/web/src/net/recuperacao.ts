@@ -7,7 +7,7 @@
 // Por isso `guardar` é chamado sempre que um `SERVER_WELCOME` chega, e não só no primeiro.
 //
 // Nível de segurança: credencial *bearer* de MVP. Quem tiver a string, tem o assento. É coerente
-// com o estágio do produto (sala privada entre amigos, código de 5 caracteres) e está registrado
+// com o estágio do produto (sala privada entre amigos, código de 4 dígitos) e está registrado
 // como dívida — não como descuido.
 import { CHAVE_RECUPERACAO } from "./constantes.js";
 
@@ -37,7 +37,10 @@ export function esquecerRecuperacao(): void {
   try { cofre()?.removeItem(CHAVE_RECUPERACAO); } catch { /* idem */ }
 }
 
-/** O código da sala embutido na credencial — usado para oferecer "voltar para a sala ABCDE". */
+/**
+ * O código da sala embutido na credencial — usado para oferecer "voltar para a sala 0315".
+ * Corta no PRIMEIRO ":" e devolve string: o zero à esquerda tem de sobreviver ao caminho todo.
+ */
 export function codigoDaRecuperacao(token: string): string {
   return token.split(":")[0] ?? "";
 }

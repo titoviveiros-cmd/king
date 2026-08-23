@@ -107,7 +107,7 @@ try {
   });
 
   if (boasVindas.protocolVersion !== PROTOCOL_VERSION) falhar(`protocolo inesperado: ${boasVindas.protocolVersion}`);
-  if (!/^[A-Z0-9]{5}$/.test(boasVindas.roomCode)) falhar(`roomCode fora do formato: ${boasVindas.roomCode}`);
+  if (!/^\d{4}$/.test(boasVindas.roomCode)) falhar(`roomCode fora do formato (esperado 4 digitos): ${boasVindas.roomCode}`);
   if (boasVindas.roomCode !== sala.roomId) falhar("o roomCode deveria ser o próprio roomId");
   if (boasVindas.you.seat !== 0) falhar(`o primeiro a entrar deveria receber o assento 0, recebeu ${boasVindas.you.seat}`);
   if (!boasVindas.you.recoveryToken.startsWith(boasVindas.roomCode + ":")) falhar("recoveryToken fora do formato roomCode:token");

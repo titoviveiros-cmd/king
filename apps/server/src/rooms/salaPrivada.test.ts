@@ -85,26 +85,28 @@ const entrar = async (codigo: string, nick: string): Promise<Cliente> =>
 // ═══════════════════ o código ═══════════════════
 
 describe("1/2/3 · roomCode", () => {
-  it("tem o formato certo e evita glifos ambíguos", () => {
-    for (const proibido of ["I", "L", "O", "0", "1"]) {
-      expect(ALFABETO.includes(proibido), `alfabeto não deve conter ${proibido}`).toBe(false);
-    }
+  it("tem o formato certo: quatro digitos, nada de letra", () => {
+    expect(ALFABETO).toBe("0123456789");
+    expect(TAMANHO_CODIGO).toBe(4);
     for (let i = 0; i < 500; i++) {
       const c = gerarCodigo();
+      expect(c).toMatch(/^\d{4}$/);
       expect(c).toHaveLength(TAMANHO_CODIGO);
       expect(codigoValido(c)).toBe(true);
     }
   });
 
-  it("é insensível a caixa e tolera separadores digitados", () => {
-    expect(normalizarCodigo("k7f2m")).toBe("K7F2M");
-    expect(normalizarCodigo("K7-F2 M")).toBe("K7F2M");
-    expect(normalizarCodigo(" k7f2m ")).toBe("K7F2M");
-    expect(codigoValido(normalizarCodigo("k7f2m"))).toBe(true);
+  it("tolera separadores digitados e PRESERVA o zero a esquerda", () => {
+    expect(normalizarCodigo("0315")).toBe("0315");
+    expect(normalizarCodigo("03-15")).toBe("0315");
+    expect(normalizarCodigo(" 03 15 ")).toBe("0315");
+    expect(codigoValido(normalizarCodigo("0315"))).toBe(true);
+    // o defeito que isto impede: tratar o codigo como numero
+    expect(normalizarCodigo("0315")).not.toBe(String(Number("0315")));
   });
 
   it("recusa códigos inválidos", () => {
-    for (const ruim of ["", "ABC", "ABCDEF", "ABCDI", "ABCD0", "abcd!"]) {
+    for (const ruim of ["", "315", "03150", "ABCD", "03A5", "abcd!", "  "]) {
       expect(codigoValido(normalizarCodigo(ruim)), ruim).toBe(false);
     }
   });

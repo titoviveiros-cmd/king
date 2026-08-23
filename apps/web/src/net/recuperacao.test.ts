@@ -31,16 +31,16 @@ afterEach(() => instalarCofre(original));
 describe("recoveryToken", () => {
   it("guarda, lê e esquece", () => {
     expect(lerRecuperacao()).toBeNull();
-    guardarRecuperacao("ABCDE:tok-1");
-    expect(lerRecuperacao()).toBe("ABCDE:tok-1");
+    guardarRecuperacao("0315:tok-1");
+    expect(lerRecuperacao()).toBe("0315:tok-1");
     esquecerRecuperacao();
     expect(lerRecuperacao()).toBeNull();
   });
 
   it("a credencial nova SUBSTITUI a antiga — ela rotaciona a cada retorno", () => {
-    guardarRecuperacao("ABCDE:tok-1");
-    guardarRecuperacao("ABCDE:tok-2");
-    expect(lerRecuperacao()).toBe("ABCDE:tok-2");
+    guardarRecuperacao("0315:tok-1");
+    guardarRecuperacao("0315:tok-2");
+    expect(lerRecuperacao()).toBe("0315:tok-2");
   });
 
   it("valor sem o formato `roomCode:token` é ignorado", () => {
@@ -49,12 +49,28 @@ describe("recoveryToken", () => {
   });
 
   it("extrai o código da sala embutido na credencial", () => {
-    expect(codigoDaRecuperacao("ABCDE:tok-1")).toBe("ABCDE");
+    expect(codigoDaRecuperacao("0315:tok-1")).toBe("0315");
+  });
+
+  it("o ZERO À ESQUERDA sobrevive à ida e à volta — o defeito clássico do código numérico", () => {
+    // `0315` tratado como número em qualquer ponto vira `315`, e o jogador não consegue voltar
+    // para a própria sala usando o código que está na tela do amigo.
+    for (const codigo of ["0315", "0001", "0000", "0007"]) {
+      const credencial = `${codigo}:abc-123`;
+      guardarRecuperacao(credencial);
+      expect(lerRecuperacao()).toBe(credencial);
+      expect(codigoDaRecuperacao(lerRecuperacao()!)).toBe(codigo);
+      expect(codigoDaRecuperacao(lerRecuperacao()!)).toHaveLength(4);
+    }
+  });
+
+  it("um token com ':' no meio não confunde a extração do código", () => {
+    expect(codigoDaRecuperacao("0315:abc:def")).toBe("0315");
   });
 
   it("armazenamento indisponível não derruba o jogo", () => {
     instalarCofre(undefined);
-    expect(() => guardarRecuperacao("ABCDE:tok")).not.toThrow();
+    expect(() => guardarRecuperacao("0315:tok")).not.toThrow();
     expect(lerRecuperacao()).toBeNull();
     expect(() => esquecerRecuperacao()).not.toThrow();
   });
@@ -62,7 +78,7 @@ describe("recoveryToken", () => {
   it("armazenamento que LANÇA (Safari privado, cota cheia) também não derruba", () => {
     const explode = () => { throw new Error("QuotaExceededError"); };
     instalarCofre({ getItem: explode, setItem: explode, removeItem: explode });
-    expect(() => guardarRecuperacao("ABCDE:tok")).not.toThrow();
+    expect(() => guardarRecuperacao("0315:tok")).not.toThrow();
     expect(lerRecuperacao()).toBeNull();
     expect(() => esquecerRecuperacao()).not.toThrow();
   });

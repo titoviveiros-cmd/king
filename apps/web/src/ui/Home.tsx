@@ -3,9 +3,16 @@ import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
 
-/** Só letras/números do alfabeto do servidor, e no máximo o tamanho do código. */
-const LIMPAR_CODIGO = /[^A-Za-z0-9]/g;
-const TAMANHO_CODIGO = 5;
+/**
+ * O código da sala tem QUATRO DÍGITOS e é sempre string.
+ *
+ * Descartamos tudo que não é dígito em vez de traduzir: quem colar "03 15" ou "0-3-1-5" entra,
+ * e quem digitar letra simplesmente não vê o caractere aparecer. Em nenhum momento o valor passa
+ * por `Number` — `0315` viraria `315` e o jogador receberia "sala não encontrada" digitando
+ * exatamente o código que está na tela do amigo.
+ */
+const SOMENTE_DIGITOS = /\D/g;
+const TAMANHO_CODIGO = 4;
 
 export interface OnlineDaHome {
   /** `null` quando o multiplayer está disponível; texto explicativo quando não está. */
@@ -72,11 +79,10 @@ export function Home({
               <span>Código da sala</span>
               <input
                 value={codigo}
-                onChange={(e) => setCodigo(e.target.value.replace(LIMPAR_CODIGO, "").toUpperCase().slice(0, TAMANHO_CODIGO))}
-                placeholder="ABCDE"
-                inputMode="text"
-                autoCapitalize="characters"
-                autoComplete="off"
+                onChange={(e) => setCodigo(e.target.value.replace(SOMENTE_DIGITOS, "").slice(0, TAMANHO_CODIGO))}
+                placeholder="0000"
+                inputMode="numeric"
+                autoComplete="one-time-code"
                 spellCheck={false}
               />
             </label>
