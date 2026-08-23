@@ -103,6 +103,29 @@ function exigirRestantesNaoJogadas(a: AutoridadeDaPartida): void {
   for (const mao of h.hands) for (const c of mao) expect(jogadas.has(cardId(c))).toBe(false);
 }
 
+/** Larga o K♥ na primeira oportunidade legal — leva o encerramento para o começo da mão. */
+const soltaKing: Estrategia = (legais, puxado) => {
+  const king = legais.find(isKingOfHearts);
+  // ao ABRIR a vaza não força naipe; seguindo, só descarta quando copas não é o naipe puxado
+  if (king && (puxado === undefined || puxado !== "hearts")) return king;
+  return legais[0];
+};
+
+/** Segura o K♥ até não ter alternativa — empurra o encerramento para o fim da mão. */
+const seguraKing: Estrategia = (legais) => {
+  const semKing = legais.filter((c) => !isKingOfHearts(c));
+  return semKing.length ? semKing[0] : legais[0];
+};
+
+/** Procura uma semente em que o K♥ caia EXATAMENTE na vaza pedida, com `soltaKing`. */
+function acharKingNaVaza(vaza: number, ateSeed = 300): { seed: number; vazas: number } {
+  for (let seed = 1; seed <= ateSeed; seed++) {
+    const fim = jogarAMao(seed, 5, soltaKing);
+    if (fim.vazas === vaza) return { seed, vazas: fim.vazas };
+  }
+  throw new Error(`nenhuma semente até ${ateSeed} colocou o K♥ na vaza ${vaza}`);
+}
+
 /** Procura uma semente em que a mão `alvo` encerre antes da 13ª. */
 function acharEncerramentoAntecipado(alvo: number, escolher: Estrategia, ateSeed = 60): { seed: number; fim: Fim } {
   for (let seed = 1; seed <= ateSeed; seed++) {
@@ -238,6 +261,62 @@ describe("M5 · Não fazer o King — encerra na vaza do K♥", () => {
     for (const s of SEATS) if (s !== ultima.winner) expect(h.handScores![s]).toBe(0);
 
     exigirRestantesNaoJogadas(a);
+  });
+
+  it("K♥ na 1ª vaza: a mão encerra ali, e NENHUMA 2ª vaza é criada", () => {
+    const { seed, vazas } = acharKingNaVaza(1);
+    expect(vazas).toBe(1);
+
+    const a = nova(seed);
+    irAteMao(a, 5);
+    jogarMao(a, soltaKing);
+    const h = estado(a).hand!;
+
+    expect(h.completedTricks).toHaveLength(1);
+    expect(h.trickNumber).toBe(1);          // não avançou para a 2ª
+    expect(h.currentTrick).toHaveLength(0); // nenhuma vaza nova foi aberta
+    expect(h.turn).toBeNull();              // ninguém tem a vez: a mão acabou
+    expect(h.handScores).not.toBeNull();
+    expect(soma(h.handScores!)).toBe(-160);
+    // 12 cartas de cada um ficaram na mão, sem serem jogadas
+    expect(h.hands.reduce((x, mao) => x + mao.length, 0)).toBe(48);
+    exigirRestantesNaoJogadas(a);
+  });
+
+  it("K♥ na 3ª vaza: a mão encerra ali, e NENHUMA 4ª vaza é criada", () => {
+    const { seed, vazas } = acharKingNaVaza(3);
+    expect(vazas).toBe(3);
+
+    const a = nova(seed);
+    irAteMao(a, 5);
+    jogarMao(a, soltaKing);
+    const h = estado(a).hand!;
+
+    expect(h.completedTricks).toHaveLength(3);
+    expect(h.trickNumber).toBe(3);
+    expect(h.currentTrick).toHaveLength(0);
+    expect(h.turn).toBeNull();
+    expect(h.completedTricks.reduce((x, t) => x + t.cards.length, 0)).toBe(12);
+    expect(soma(h.handScores!)).toBe(-160);
+    exigirRestantesNaoJogadas(a);
+  });
+
+  it("K♥ na 13ª vaza: funcionamento normal, sem encerramento antecipado", () => {
+    // `seguraKing` só larga o K♥ quando é a única saída — assim ele tende à última vaza.
+    let achou = false;
+    for (let seed = 1; seed <= 200 && !achou; seed++) {
+      const fim = jogarAMao(seed, 5, seguraKing);
+      if (fim.vazas !== 13) continue;
+      achou = true;
+      expect(fim.vazas).toBe(13);
+      expect(fim.cartas).toBe(52);
+      expect(fim.restantes).toBe(0);        // ninguém sobrou com carta na mão
+      expect(fim.total).toBe(-160);
+      expect(fim.total).toBe(fim.handTotal);
+      // o K♥ saiu mesmo na última vaza
+      expect(fim.ultima.some(isKingOfHearts)).toBe(true);
+    }
+    expect(achou, "nenhuma semente levou o K♥ até a 13ª vaza").toBe(true);
   });
 
   it("as cartas abandonadas continuam privadas: nenhuma aparece na visão dos adversários", () => {

@@ -18,6 +18,10 @@
 | Deal: 4×13 = 52, sem duplicata | `cards.test.ts`, `match.test.ts` |
 | Servir: não baldar tendo o naipe | `rules.test.ts` |
 | Vaza = 4 cartas; mão = **até** 13 vazas | `encerramento.test.ts` (contrato a contrato) |
+| Partida = **10 mãos**; mão ≠ vaza | `match.test.ts`, `mesaMista.test.ts` (partida completa) |
+| Código da sala = **4 dígitos**, string, zero à esquerda preservado | `codigos.test.ts` (18 casos) |
+| Mesa = 4 assentos, **2 a 4 humanos** + bots | `mesaMista.test.ts` (composição e autorização) |
+| Só o **anfitrião** mexe nos bots — verificado no servidor | `mesaMista.test.ts` (não-host é recusado) |
 | M1, M6 e M7–M10 sempre chegam à 13ª vaza | `encerramento.test.ts` |
 | M2–M5 encerram quando o contrato se resolve | `encerramento.test.ts` |
 | Cartas abandonadas nunca contam como jogadas | `encerramento.test.ts` |

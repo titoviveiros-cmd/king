@@ -8,7 +8,8 @@
 - **4 jogadores**, todos contra todos (sem parcerias).
 - Baralho **padrão de 52 cartas**; **13 cartas** por jogador. As 52 são **DISTRIBUÍDAS** no
   início de cada mão; só são todas **efetivamente jogadas** quando a mão chega à 13ª vaza.
-- Uma **partida = 10 mãos**. Cada mão tem **até 13 vazas**: as mãos **1, 6 e 7–10** chegam
+- Uma **partida = 10 mãos**. "Mão" e "vaza" não são a mesma coisa: a partida tem
+  **exatamente 10 mãos**, e cada mão tem **até 13 vazas**: as mãos **1, 6 e 7–10** chegam
   obrigatoriamente à 13ª; as mãos **2–5** podem terminar antes, quando todos os eventos
   pontuáveis do contrato já tiverem sido resolvidos (ver §6, *Encerramento antecipado*).
 - Daí decorrem **máximos teóricos**, nunca invariantes: **130 vazas** e **520 cartas jogadas**
