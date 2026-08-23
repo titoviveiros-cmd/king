@@ -58,12 +58,24 @@ interface Cliente {
   view: AtualizacaoDeEstado["view"] | null; rejeicoes: AcaoRecusada[];
   /** Versão do último STATE_UPDATE recebido. É o que impede mandar duas jogadas pelo mesmo estado. */
   versao: number;
+  /**
+   * Reage ao STATE_UPDATE assim que ele chega, em vez de esperar o próximo giro de um laço.
+   *
+   * Uma partida completa são ~520 idas e voltas. Dirigir isso por polling custa pelo menos 1ms
+   * de espera por passo mesmo quando a resposta já chegou — meio segundo de latência inventada,
+   * que numa máquina lenta (o runner do CI tem 2 vCPU e roda servidor e clientes no MESMO
+   * processo) vira a diferença entre passar e estourar o prazo.
+   */
+  aoAtualizar?: (c: Cliente) => void;
 }
 
 function escutar(sdk: SdkRoom): Cliente {
   const c: Cliente = { sdk, boasVindas: null, view: null, rejeicoes: [], versao: -1 };
   sdk.onMessage("SERVER_WELCOME", (m: BoasVindas) => { c.boasVindas = m; });
-  sdk.onMessage("STATE_UPDATE", (m: AtualizacaoDeEstado) => { c.view = m.view; c.versao = m.stateVersion; });
+  sdk.onMessage("STATE_UPDATE", (m: AtualizacaoDeEstado) => {
+    c.view = m.view; c.versao = m.stateVersion;
+    c.aoAtualizar?.(c);
+  });
   sdk.onMessage("ACTION_REJECTED", (m: AcaoRecusada) => c.rejeicoes.push(m));
   for (const t of ["PLAYER_JOINED", "PLAYER_LEFT", "PLAYER_CONNECTION", "SERVER_ERROR",
     "READY_STATE", "TURN_CLOCK", "AUTO_ACTION"]) sdk.onMessage(t, () => {});
@@ -403,45 +415,52 @@ describe("5 · o posto de anfitrião não fica órfão", () => {
 
 // ═══════════════════ 6 · PARTIDA COMPLETA EM MESA MISTA ═══════════════════
 
-/** Toca a partida até o fim: humanos jogam quando é a vez; bots são do servidor. */
+/**
+ * Toca a partida até o fim: humanos respondem NO INSTANTE em que o estado muda, bots são do
+ * servidor. Dirigido por evento e não por laço — ver o comentário de `aoAtualizar`.
+ */
 async function jogarPartidaCompleta(
   humanos: { c: Cliente; seat: Seat }[],
   limiteMs: number,
 ): Promise<AtualizacaoDeEstado["view"]> {
-  const primeiro = humanos[0].c;
   let acao = 0;
-  const ultima = new Map<Cliente, number>();
-  const fim = Date.now() + limiteMs;
+  const maoPedida = new Map<Cliente, number>();
 
-  while (Date.now() < fim) {
-    const v = primeiro.view;
-    if (v?.finished) return v;
-
-    for (const { c, seat } of humanos) {
-      const w = c.view;
-      if (!w?.hand) continue;
-      if (ultima.get(c) === c.versao) continue;
+  for (const { c, seat } of humanos) {
+    c.aoAtualizar = (cli) => {
+      const w = cli.view;
+      if (!w?.hand || w.finished) return;
       const h = w.hand;
 
-      if (h.handScores !== null) {                       // entre-mãos: pedir a próxima
-        ultima.set(c, c.versao);
-        c.sdk.send("CLIENT_READY_NEXT_HAND", { actionId: "r" + (++acao) });
-      } else if (h.awaitingTrumpFrom === seat) {         // trunfo da positiva
-        ultima.set(c, c.versao);
-        c.sdk.send("CLIENT_SELECT_TRUMP", { actionId: "t" + (++acao), trump: "no-trump" });
-      } else if (h.turn === seat) {                      // jogada normal
-        ultima.set(c, c.versao);
+      if (h.handScores !== null) {
+        // uma vez por mão: repetir o pedido só gera mensagem à toa
+        if (maoPedida.get(cli) === h.handNumber) return;
+        maoPedida.set(cli, h.handNumber);
+        cli.sdk.send("CLIENT_READY_NEXT_HAND", { actionId: "r" + (++acao) });
+      } else if (h.awaitingTrumpFrom === seat) {
+        cli.sdk.send("CLIENT_SELECT_TRUMP", { actionId: "t" + (++acao), trump: "no-trump" });
+      } else if (h.turn === seat) {
         const legais = legalCardsFor(w, seat);
         if (legais.length) {
-          c.sdk.send("CLIENT_PLAY_CARD", {
-            actionId: "p" + (++acao), cardId: cardId(legais[0]), expectedStateVersion: c.versao,
+          cli.sdk.send("CLIENT_PLAY_CARD", {
+            actionId: "p" + (++acao), cardId: cardId(legais[0]), expectedStateVersion: cli.versao,
           });
         }
       }
-    }
-    await new Promise((r) => setTimeout(r, 0));
+    };
   }
-  throw new Error("a partida nao terminou dentro do limite");
+
+  // PARTIDA A FRIO: o handler acabou de ser registrado, mas o primeiro STATE_UPDATE já chegou
+  // antes disso. Sem este empurrão inicial ninguém joga a primeira carta, e a espera abaixo
+  // aguardaria para sempre por uma atualização que só viria depois de alguém jogar.
+  for (const { c } of humanos) c.aoAtualizar?.(c);
+
+  try {
+    await ate(() => !!humanos[0].c.view?.finished, limiteMs, "partida completa");
+  } finally {
+    for (const { c } of humanos) c.aoAtualizar = undefined;
+  }
+  return humanos[0].c.view!;
 }
 
 describe("6 · partida completa com bots na mesa", () => {
@@ -456,7 +475,7 @@ describe("6 · partida completa com bots na mesa", () => {
     await ate(() => sala(dono).status === "playing", 10_000, "iniciou");
     await ate(() => dono.view !== null && raiza.view !== null, 8000, "primeiras visoes");
 
-    const v = await jogarPartidaCompleta([{ c: dono, seat: 0 }, { c: raiza, seat: 1 }], 90_000);
+    const v = await jogarPartidaCompleta([{ c: dono, seat: 0 }, { c: raiza, seat: 1 }], 150_000);
 
     expect(v.finished).toBe(true);
     expect(v.handNumber).toBe(10);
@@ -490,7 +509,7 @@ describe("6 · partida completa com bots na mesa", () => {
     // leu a mensagem passa quando a máquina está ociosa e falha na suíte inteira — foi o que
     // aconteceu aqui. Espera-se o estado observável em vez de presumir sincronia.
     await ate(() => sala(dono).status === "finished", 10_000, "status finished no schema");
-  }, 120_000);
+  }, 180_000);
 
   it("3 humanos + 1 bot joga as primeiras mãos com o bot respondendo em todas as vazas", async () => {
     const { dono, codigo } = await criarSala("Tito");
