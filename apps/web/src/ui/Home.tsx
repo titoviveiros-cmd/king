@@ -1,16 +1,96 @@
+import { useState } from "react";
 import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
+import { sfxTap } from "../audio/sounds.js";
 
-export function Home({ onStart, onOpenAudio }: { onStart: () => void; onOpenAudio: () => void }) {
+/** Só letras/números do alfabeto do servidor, e no máximo o tamanho do código. */
+const LIMPAR_CODIGO = /[^A-Za-z0-9]/g;
+const TAMANHO_CODIGO = 5;
+
+export interface OnlineDaHome {
+  /** `null` quando o multiplayer está disponível; texto explicativo quando não está. */
+  indisponivel: string | null;
+  podeVoltar: boolean;
+  onCriar: (nick: string) => void;
+  onEntrar: (codigo: string, nick: string) => void;
+  onVoltar: () => void;
+}
+
+export function Home({
+  onStart, onOpenAudio, online,
+}: {
+  onStart: () => void;
+  onOpenAudio: () => void;
+  /** Ausente = build sem multiplayer. A Home continua a de sempre. */
+  online?: OnlineDaHome;
+}) {
+  const [painel, setPainel] = useState(false);
+  const [nick, setNick] = useState("");
+  const [codigo, setCodigo] = useState("");
+
+  const nome = nick.trim() || "Jogador";
+
   return (
     <div className="home">
       <div className="kw">KING</div>
       <div className="tg">Fuja do <b>King</b>. Domine a mesa.</div>
       <div className="row">
         <button className="btn gold" autoFocus onClick={onStart}>▶ Jogar agora</button>
+        {online && (
+          <button className="btn violet" onClick={() => { sfxTap(); setPainel((v) => !v); }}>
+            Jogar com amigos
+          </button>
+        )}
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
       </div>
+
+      {online && painel && (
+        online.indisponivel ? (
+          <div className="hm-online"><p className="hm-aviso" role="status">{online.indisponivel}</p></div>
+        ) : (
+          <div className="hm-online">
+            {online.podeVoltar && (
+              <button className="btn gold wide" onClick={() => { sfxTap(); online.onVoltar(); }}>
+                ↩ Voltar para a minha sala
+              </button>
+            )}
+            <label className="hm-campo">
+              <span>Seu apelido</span>
+              <input
+                value={nick}
+                onChange={(e) => setNick(e.target.value.slice(0, 14))}
+                placeholder="Como aparecer na mesa"
+                maxLength={14}
+              />
+            </label>
+            <button className="btn violet wide" onClick={() => { sfxTap(); online.onCriar(nome); }}>
+              Criar uma sala
+            </button>
+            <div className="hm-ou">ou</div>
+            <label className="hm-campo">
+              <span>Código da sala</span>
+              <input
+                value={codigo}
+                onChange={(e) => setCodigo(e.target.value.replace(LIMPAR_CODIGO, "").toUpperCase().slice(0, TAMANHO_CODIGO))}
+                placeholder="ABCDE"
+                inputMode="text"
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <button
+              className="btn gold wide"
+              disabled={codigo.length < TAMANHO_CODIGO}
+              onClick={() => { sfxTap(); online.onEntrar(codigo, nome); }}
+            >
+              Entrar na sala
+            </button>
+          </div>
+        )
+      )}
+
       <div className="foot">1 jogador + 3 bots · 4 jogadores · 10 mãos · base jogável (motor real)</div>
     </div>
   );

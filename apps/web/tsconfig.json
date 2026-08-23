@@ -16,7 +16,8 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@king/engine": ["../../packages/engine/src/index.ts"]
+      "@king/engine": ["../../packages/engine/src/index.ts"],
+      "@king/protocol": ["../server/src/protocol/index.ts"]
     }
   },
   "include": ["src"],

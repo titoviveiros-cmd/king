@@ -1,19 +1,22 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Card, Trump, Seat } from "@king/engine";
-import { RANK_ORDER } from "@king/engine";
+import { RANK_ORDER, cardId } from "@king/engine";
 import { contractTitle, penaltyText, trumpLabel } from "./contractText.js";
 import { Placar } from "./Placar.js";
 import { PlacarFinal } from "./PlacarFinal.js";
 import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxCardSelect, sfxTap } from "../audio/sounds.js";
-import type { KingGame } from "../game/kingGame.js";
-import type { Castigo } from "../game/useKingGame.js";
+import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
+import type { Castigo } from "../game/anuncio.js";
 import { CardView } from "./CardView.js";
 import { TEMPOS } from "../game/timings.js";
+import { adversariosDe, slotDe } from "./assentos.js";
+import { ChipDoRelogio, FaixaDaConexao, SeloDeAssistencia, AvisoDeRecusa, type MesaMultiplayer } from "./MesaOnline.js";
+
+export type { MesaMultiplayer } from "./MesaOnline.js";
 
 const SUIT_ORDER: Record<string, number> = { spades: 0, hearts: 1, clubs: 2, diamonds: 3 };
-const NAMES_SLOT: Record<Seat, "b" | "l" | "t" | "r"> = { 0: "b", 1: "l", 2: "t", 3: "r" };
 const TRUMPS: { t: Trump; sym: string; label: string; red?: boolean }[] = [
   { t: "hearts", sym: "♥", label: "Copas", red: true },
   { t: "diamonds", sym: "♦", label: "Ouros", red: true },
@@ -45,9 +48,9 @@ function useCoarsePointer(): boolean {
 }
 
 export function Mesa({
-  game, reviewing, shake, castigo, onPlay, onChooseTrump, onAdvance, onHome, onRestart, onOpenAudio,
+  game, reviewing, shake, castigo, onPlay, onChooseTrump, onAdvance, onHome, onRestart, onOpenAudio, mp,
 }: {
-  game: KingGame;
+  game: LeituraDaPartida;
   reviewing: boolean;
   shake: number;
   castigo: Castigo | null;
@@ -57,7 +60,11 @@ export function Mesa({
   onHome: () => void;
   onRestart: () => void;
   onOpenAudio: () => void;
+  /** Presente SÓ no multiplayer. Ausente = modo local, e a Mesa se comporta exatamente como antes. */
+  mp?: MesaMultiplayer;
 }) {
+  // Você sempre embaixo. No modo local `eu` é 0 e a rotação devolve o mapa antigo intacto.
+  const eu = game.humanSeat;
   const players = game.players();
   const contract = game.contract();
   const phase = game.phase();
@@ -69,6 +76,10 @@ export function Mesa({
   const trump = game.trump();
   const humanTurn = game.isHumanTurn();
   const legal = humanTurn ? game.legalCards() : [];
+  // Otimismo visual limitado: a carta tocada continua na mão, elevada, até o servidor confirmar.
+  // Enquanto isso o leque não aceita um segundo toque — é o que impede jogar duas cartas.
+  const emVoo = mp?.emVoo ?? null;
+  const travado = !!mp?.aguardando;
   const hand = sortDisplay(game.view().yourHand);
 
   const coarse = useCoarsePointer();
@@ -170,7 +181,7 @@ export function Mesa({
   const shownTrick = cur.length > 0 ? cur : (reviewing && last ? last.cards : []);
   const winnerSeat = cur.length === 0 && reviewing && last ? last.winner : null;
 
-  const oppSeats: Seat[] = [1, 2, 3];
+  const oppSeats: Seat[] = adversariosDe(eu);
   const oppName = (s: Seat) => players[s];
 
   return (
@@ -201,6 +212,9 @@ export function Mesa({
           )}
         </div>
       )}
+      {mp && <ChipDoRelogio relogio={mp.relogio} eu={eu} />}
+      {mp && <FaixaDaConexao conexao={mp.conexao} codigo={mp.sala?.roomCode ?? ""} />}
+      {mp && <AvisoDeRecusa recusa={mp.recusa} />}
       <div className="topbtn">
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
@@ -208,20 +222,27 @@ export function Mesa({
       </div>
 
       {/* adversários */}
-      {oppSeats.map((s) => (
-        <div key={s} className={`opp ${NAMES_SLOT[s] === "l" ? "left" : NAMES_SLOT[s] === "t" ? "top" : "right"} ${turn === s && phase === "play" ? "active" : ""}`}>
-          <div className="av">{oppName(s)[0]}</div>
-          <div>
-            <div className="n">{oppName(s)}</div>
-            <div className="m"><span className="cc">🂠 {counts[s]}</span><span className="pt">{scores[s]} pts</span></div>
+      {oppSeats.map((s) => {
+        const pos = slotDe(s, eu);
+        const assento = mp?.sala?.seats[s];
+        return (
+          <div
+            key={s}
+            className={`opp ${pos === "l" ? "left" : pos === "t" ? "top" : "right"}${turn === s && phase === "play" ? " active" : ""}${assento && !assento.connected ? " ausente" : ""}`}
+          >
+            <div className="av">{oppName(s)[0]}</div>
+            <div>
+              <div className="n">{oppName(s)}<SeloDeAssistencia assento={assento} /></div>
+              <div className="m"><span className="cc">🂠 {counts[s]}</span><span className="pt">{scores[s]} pts</span></div>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* vaza central */}
       <div className="trick">
         {shownTrick.map((pc) => (
-          <div key={pc.seat} className={`slot ${NAMES_SLOT[pc.seat]} ${winnerSeat === pc.seat ? "win" : ""}`}>
+          <div key={pc.seat} className={`slot ${slotDe(pc.seat, eu)} ${winnerSeat === pc.seat ? "win" : ""}`}>
             <CardView card={pc.card} />
           </div>
         ))}
@@ -229,10 +250,10 @@ export function Mesa({
 
       {/* jogador local */}
       <div className={`youtag ${humanTurn ? "active" : ""}`}>
-        <div className="av">{players[0][0]}</div>
+        <div className="av">{players[eu][0]}</div>
         <div>
-          <div className="n">{players[0]}</div>
-          <div className="m">🂠 {counts[0]} · {scores[0]} pts</div>
+          <div className="n">{players[eu]}<SeloDeAssistencia assento={mp?.sala?.seats[eu]} /></div>
+          <div className="m">🂠 {counts[eu]} · {scores[eu]} pts</div>
         </div>
       </div>
       {/* Selo do castigo: a mesa para e todos veem QUEM pegou a bucha e QUANTO custou.
@@ -280,9 +301,9 @@ export function Mesa({
               key={cardKey(c)}
               card={c}
               state={state as "legal" | "illegal" | ""}
-              selected={selected === cardKey(c)}
+              selected={selected === cardKey(c) || emVoo === cardId(c)}
               style={fanVars(i, Math.abs(i - mid))}
-              onClick={humanTurn && isLegal ? () => pickCard(c) : undefined}
+              onClick={humanTurn && isLegal && !travado ? () => pickCard(c) : undefined}
             />
           );
         })}
@@ -300,7 +321,7 @@ export function Mesa({
       {/* Os placares esperam a pausa de leitura terminar. Antes entravam no mesmo instante em
           que a última vaza fechava e cobriam o selo do castigo — justo o momento decisivo. */}
       {phase === "handEnd" && !reviewing && (
-        <Placar game={game} onAdvance={onAdvance} onHome={onHome} onRestart={onRestart} />
+        <Placar game={game} onAdvance={onAdvance} onHome={onHome} onRestart={onRestart} mp={mp} />
       )}
       {phase === "matchEnd" && !reviewing && (
         <PlacarFinal game={game} onRestart={onRestart} onHome={onHome} />

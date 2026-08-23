@@ -11,6 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@colyseus/sdk": "^0.17.43",
     "@fontsource/gabarito": "^5.0.0",
     "@fontsource/nunito": "^5.0.0",
     "@king/engine": "*",

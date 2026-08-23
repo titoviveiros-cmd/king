@@ -14,6 +14,9 @@ export default defineConfig({
       "@king/engine": fileURLToPath(
         new URL("../../packages/engine/src/index.ts", import.meta.url),
       ),
+      "@king/protocol": fileURLToPath(
+        new URL("../server/src/protocol/index.ts", import.meta.url),
+      ),
     },
   },
   test: {

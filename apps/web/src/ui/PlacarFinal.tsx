@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RankRow, Seat } from "@king/engine";
-import type { KingGame } from "../game/kingGame.js";
+import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
 import { Crown } from "./Crown.js";
 import { contractTitle, trumpLabel, fmtSigned, ordinal } from "./contractText.js";
 import { audio } from "../audio/engine.js";
@@ -28,7 +28,7 @@ const DUR_CONTAGEM = TEMPOS.fim.duracaoContagem;
 export function PlacarFinal({
   game, onRestart, onHome,
 }: {
-  game: KingGame;
+  game: LeituraDaPartida;
   onRestart: () => void;
   onHome: () => void;
 }) {
@@ -228,7 +228,7 @@ export function PlacarFinal({
 function Compartilhar({
   game, finais, campeoes, empate,
 }: {
-  game: KingGame;
+  game: LeituraDaPartida;
   finais: RankRow[];
   campeoes: RankRow[];
   empate: boolean;
@@ -331,8 +331,8 @@ function usePrefersReducedMotion(): boolean {
  * Ordem de preferência: o que for mais raro/expressivo primeiro.
  */
 function construirDestaques(
-  game: KingGame,
-  stats: ReturnType<KingGame["stats"]>,
+  game: LeituraDaPartida,
+  stats: ReturnType<LeituraDaPartida["stats"]>,
   finais: RankRow[],
   eu: Seat,
   empate: boolean,

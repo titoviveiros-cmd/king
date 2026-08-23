@@ -1,7 +1,8 @@
-import type { KingGame } from "../game/kingGame.js";
+import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
 import {
   contractTitle, penaltyTextLong, trumpLabel, earlyEndText, unitsText, fmtSigned, ordinal,
 } from "./contractText.js";
+import { ConsensoDaProximaMao, type MesaMultiplayer } from "./MesaOnline.js";
 
 /**
  * PLACAR ENTRE-MÃOS — o que aconteceu na mão que acabou, quanto cada um somou,
@@ -10,12 +11,14 @@ import {
  * Na 10ª mão a mesma tela vira o placar final da partida.
  */
 export function Placar({
-  game, onAdvance, onHome, onRestart,
+  game, onAdvance, onHome, onRestart, mp,
 }: {
-  game: KingGame;
+  game: LeituraDaPartida;
   onAdvance: () => void;
   onHome: () => void;
   onRestart: () => void;
+  /** Presente só no multiplayer: "Continuar" vira voto e o Placar mostra quem já confirmou. */
+  mp?: MesaMultiplayer;
 }) {
   const s = game.summary();
   if (!s) return null;
@@ -67,7 +70,7 @@ export function Placar({
             const b = bd.rows[r.seat];
             const move = (posBefore.get(r.seat) ?? r.position) - r.position;
             return (
-              <div key={r.seat} className={`pl-row${r.seat === 0 ? " you" : ""}${r.position === 1 ? " lead" : ""}`}>
+              <div key={r.seat} className={`pl-row${r.seat === game.humanSeat ? " you" : ""}${r.position === 1 ? " lead" : ""}`}>
                 <span className="pl-pos">{ordinal(r.position)}{r.tied && <i>=</i>}</span>
                 <span className={`pl-mov ${move > 0 ? "up" : move < 0 ? "down" : "flat"}`}>
                   {move > 0 ? `▲${move}` : move < 0 ? `▼${-move}` : "–"}
@@ -103,8 +106,12 @@ export function Placar({
             {s.finished ? (
               <>
                 <button className="btn violet" onClick={onHome}>Home</button>
-                <button className="btn gold" autoFocus onClick={onRestart}>Nova partida</button>
+                {mp
+                  ? <button className="btn gold" autoFocus onClick={onHome}>Sair da sala</button>
+                  : <button className="btn gold" autoFocus onClick={onRestart}>Nova partida</button>}
               </>
+            ) : mp ? (
+              <ConsensoDaProximaMao mp={mp} players={game.players()} onAdvance={onAdvance} />
             ) : (
               <button className="btn gold" autoFocus onClick={onAdvance}>Próxima mão ▸</button>
             )}
