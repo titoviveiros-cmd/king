@@ -9,11 +9,13 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace apps/web",
-    "dev:server": "npm run dev --workspace apps/server",
+    "dev:server": "npm run build:server && npm start --workspace apps/server",
+    "build:server": "npm run build --workspace packages/engine && npm run build --workspace apps/server",
+    "smoke:server": "node scripts/smoke-server.mjs",
     "test": "npm run test --workspace packages/engine && npm run test --workspace apps/server && npm run test --workspace apps/web",
     "build": "npm run build --workspace packages/engine && npm run build --workspace apps/server && npm run build --workspace apps/web",
     "test:e2e": "npm run test:e2e --workspace apps/web",
-    "ci": "npm test && npm run build && npm run test:e2e"
+    "ci": "npm test && npm run build && npm run smoke:server && npm run test:e2e"
   },
   "engines": {
     "node": ">=22"

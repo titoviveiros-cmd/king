@@ -36,6 +36,13 @@ jobs:
       - name: Build completo (engine + web)
         run: npm run build
 
+      # Guarda contra a classe de defeito que a suíte NÃO pega: testes verdes, TypeScript
+      # compilando e `node dist/index.js` quebrado. Executa o servidor compilado de verdade,
+      # conecta um cliente e encerra o processo. Sem isto, um erro de resolução de pacote só
+      # apareceria no deploy.
+      - name: Servidor compilado sobe e responde (smoke test)
+        run: npm run smoke:server
+
       - name: Navegador do Playwright (Chromium)
         run: npx playwright install --with-deps chromium
 
