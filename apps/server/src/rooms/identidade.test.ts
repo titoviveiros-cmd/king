@@ -14,7 +14,7 @@ describe("avatar: conjunto fechado", () => {
 
   it("qualquer coisa fora da lista vira o padrão — o cliente não injeta texto no estado público", () => {
     for (const lixo of [
-      "", "  ", "coroaX", "CORoA", "rei ", "<img src=x onerror=alert(1)>",
+      "", "  ", "leaoX", "LEAO", "sapo ", "tigre", "<img src=x onerror=alert(1)>",
       "https://exemplo.com/foto.png", "../../etc/passwd", "a".repeat(5000),
       undefined, null, 7, true, {}, [], { toString: () => "coroa" },
     ]) {
@@ -29,6 +29,15 @@ describe("avatar: conjunto fechado", () => {
 
   it("a lista não tem repetidos", () => {
     expect(new Set(AVATARES).size).toBe(AVATARES.length);
+  });
+
+  it("a coleção oficial tem os oito bichos aprovados — com Sapo, sem Tigre", () => {
+    expect([...AVATARES]).toEqual(
+      ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "capivara", "sapo"],
+    );
+    expect(AVATARES).toHaveLength(8);
+    expect(AVATARES as readonly string[]).toContain("sapo");
+    expect(AVATARES as readonly string[]).not.toContain("tigre");
   });
 
   it("o avatar do bot é DETERMINÍSTICO pelo assento e sempre válido", () => {

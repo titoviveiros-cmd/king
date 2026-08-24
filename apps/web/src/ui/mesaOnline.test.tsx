@@ -42,7 +42,7 @@ function render(game: KingGame | PartidaRemota, mp?: MesaMultiplayer, reviewing 
 }
 
 /** Os avatares do fixture: um por assento, para ninguém passar por engano num teste de igualdade. */
-const AVATARES_DA_MESA = ["coroa", "copas", "espadas", "ouros"];
+const AVATARES_DA_MESA = ["leao", "sapo", "coruja", "capivara"];
 
 type AssentoDoFixture = Partial<{
   assisted: boolean; connected: boolean; ready: boolean; bot: boolean; host: boolean; avatar: string;

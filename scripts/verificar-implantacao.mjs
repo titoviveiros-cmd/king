@@ -17,7 +17,7 @@ const SALA = "king";
 const PROTOCOL_VERSION = 1;
 
 /** Precisa bater com apps/server/src/rooms/identidade.ts. */
-const AVATARES = ["coroa", "rei", "dama", "valete", "espadas", "copas", "ouros", "paus"];
+const AVATARES = ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "capivara", "sapo"];
 /** Uma amostra de apps/server/src/rooms/social.ts — basta uma etiqueta válida e uma inválida. */
 const MENSAGEM_VALIDA = "boa";
 
@@ -44,7 +44,7 @@ try {
   // ── 1. handshake ──────────────────────────────────────────────────────────────────────────
   let boasVindas = null;
   const recusas = [];
-  sala = await cliente.create(SALA, { protocolVersion: PROTOCOL_VERSION, nick: "Verificador", avatar: "espadas" });
+  sala = await cliente.create(SALA, { protocolVersion: PROTOCOL_VERSION, nick: "Verificador", avatar: "raposa" });
   sala.onMessage("SERVER_WELCOME", (m) => { boasVindas = m; });
   sala.onMessage("ACTION_REJECTED", (m) => recusas.push(m));
   for (const t of ["PLAYER_JOINED", "PLAYER_LEFT", "PLAYER_CONNECTION", "SERVER_ERROR",
@@ -70,8 +70,8 @@ try {
   const meu = sala.state?.seats?.[0];
   if (meu?.avatar === undefined) {
     falhar("campo `avatar` AUSENTE no assento — o servidor é anterior à identidade sincronizada");
-  } else if (meu.avatar !== "espadas") {
-    falhar(`avatar devolvido "${meu.avatar}" — enviamos "espadas"`);
+  } else if (meu.avatar !== "raposa") {
+    falhar(`avatar devolvido "${meu.avatar}" — enviamos "raposa"`);
   } else ok("avatar presente e preservado no estado autoritativo");
 
   // ── 4. NOME DE BOT vindo do servidor ──────────────────────────────────────────────────────

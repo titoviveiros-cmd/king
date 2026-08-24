@@ -139,7 +139,7 @@ function Insignia({ vazio, bot, avatar }: { vazio: boolean; bot: boolean; avatar
   if (vazio) return <span className="sl-av" aria-label="lugar vago">+</span>;
   if (bot) return <span className="sl-av" aria-label="bot">🤖</span>;
   const d = desenhoDoAvatar(avatar);
-  return <span className={`sl-av${d.vermelho ? " vermelho" : ""}`} aria-label={d.rotulo}>{d.glifo}</span>;
+  return <span className="sl-av" aria-label={d.rotulo}>{d.glifo}</span>;
 }
 
 /**

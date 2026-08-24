@@ -12,23 +12,26 @@
 // que todos os outros vão renderizar. O que o cliente manda é uma etiqueta; o que o servidor
 // aceita é só o que está nesta lista.
 //
-// ⚠ A ARTE AINDA NÃO EXISTE. Estes oito são a arquitetura e a DIREÇÃO proposta, com um glifo
-// provisório cada um. A coleção definitiva depende de validação — ver a entrega da Fase Social.
+// A COLEÇÃO OFICIAL — oito rostos de bicho, aprovada em 24/08/2026. Mesmo princípio do Verbete,
+// personagens próprios do KING: irmãos, não gêmeos.
+//
+// ⚠ A ARTE FINAL AINDA NÃO EXISTE. Estas são as ETIQUETAS, que é o que o servidor precisa saber;
+// o desenho vive no cliente e hoje é provisório. Trocar o desenho depois não toca aqui.
 export const AVATARES = [
-  "coroa",     // a coroa do KING — o avatar padrão da casa
-  "rei",       // o rei que ninguém quer
-  "dama",      // a dama, bucha das negativas
-  "valete",    // o valete
-  "espadas",
-  "copas",
-  "ouros",
-  "paus",
+  "leao",     // O Soberano — a juba é a coroa; o padrão da casa
+  "coruja",   // A Paciente — espera doze vazas para dar o bote
+  "raposa",   // A Calculista — conta cartas e sorri quando você erra
+  "macaco",   // O Bagunceiro — manda "Essa doeu" antes de todo mundo
+  "panda",    // O Tranquilo — leva -160 e ri
+  "tucano",   // O Anunciador — fala primeiro, pensa depois
+  "capivara", // A Imperturbável — ganha sem levantar a sobrancelha
+  "sapo",     // O Malandro — a ponte com o Verbete, em interpretação própria
 ] as const;
 
 export type Avatar = (typeof AVATARES)[number];
 
-/** Quem entra sem escolher fica com a coroa. Nunca `""` — o estado público não tem buraco. */
-export const AVATAR_PADRAO: Avatar = "coroa";
+/** Quem entra sem escolher fica com o Leão. Nunca `""` — o estado público não tem buraco. */
+export const AVATAR_PADRAO: Avatar = "leao";
 
 /**
  * Aceita só o que está no conjunto. Qualquer outra coisa — texto livre, número, objeto, HTML —

@@ -17,7 +17,7 @@ const noop = () => {};
 function assento(seat: Seat, over: Partial<AssentoLido> = {}): AssentoLido {
   return {
     seat, playerId: "p" + seat, nick: "J" + seat, connected: true, ready: false,
-    assisted: false, bot: false, host: seat === 0, avatar: "coroa", ...over,
+    assisted: false, bot: false, host: seat === 0, avatar: "leao", ...over,
   };
 }
 
@@ -37,14 +37,14 @@ const circulos = (root: HTMLElement) => root.querySelectorAll(".sl-av").map((n) 
 
 describe("avatar no lobby", () => {
   it("cada pessoa aparece com o desenho do seu avatar", () => {
-    const escolhas = ["espadas", "copas", "ouros", "paus"];
+    const escolhas = ["leao", "sapo", "tucano", "panda"];
     const root = render(escolhas.map((a, i) => assento(i as Seat, { avatar: a })));
     expect(circulos(root)).toEqual(escolhas.map((a) => desenhoDoAvatar(a).glifo));
   });
 
   it("o desenho é o MESMO que a Mesa usa — a identidade não muda de tela", () => {
-    const root = render([assento(0, { avatar: "dama" }), assento(1), assento(2), assento(3)]);
-    expect(circulos(root)[0]).toBe(desenhoDoAvatar("dama").glifo);
+    const root = render([assento(0, { avatar: "raposa" }), assento(1), assento(2), assento(3)]);
+    expect(circulos(root)[0]).toBe(desenhoDoAvatar("raposa").glifo);
   });
 
   it("avatar desconhecido cai no padrão em vez de deixar o círculo vazio", () => {
@@ -53,8 +53,8 @@ describe("avatar no lobby", () => {
   });
 
   it("cada círculo tem rótulo legível — quem usa leitor de tela também sabe quem é quem", () => {
-    const root = render([assento(0, { avatar: "ouros" }), assento(1), assento(2), assento(3)]);
-    expect(root.querySelectorAll(".sl-av")[0].getAttribute("aria-label")).toBe(desenhoDoAvatar("ouros").rotulo);
+    const root = render([assento(0, { avatar: "tucano" }), assento(1), assento(2), assento(3)]);
+    expect(root.querySelectorAll(".sl-av")[0].getAttribute("aria-label")).toBe(desenhoDoAvatar("tucano").rotulo);
   });
 
   it("lugar vago continua sendo um convite, não um jogador sem cara", () => {

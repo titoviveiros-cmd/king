@@ -617,14 +617,14 @@ describe("7 · reconnect com bots na mesa", () => {
 
 describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
   it("o avatar escolhido entra no estado autoritativo e o OUTRO cliente vê o mesmo", async () => {
-    const { dono, codigo } = await criarSala("Tito", "espadas");
-    const raiza = await entrar(codigo, "Raiza", "copas");
+    const { dono, codigo } = await criarSala("Tito", "raposa");
+    const raiza = await entrar(codigo, "Raiza", "sapo");
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
 
     // cada um vê os DOIS avatares, iguais nos dois aparelhos
     for (const c of [dono, raiza]) {
-      expect(assentosDe(c)[0].avatar).toBe("espadas");
-      expect(assentosDe(c)[1].avatar).toBe("copas");
+      expect(assentosDe(c)[0].avatar).toBe("raposa");
+      expect(assentosDe(c)[1].avatar).toBe("sapo");
     }
   });
 
@@ -653,8 +653,8 @@ describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
   });
 
   it("o avatar SOBREVIVE ao reconnect, e continua igual para quem ficou", async () => {
-    const { dono, codigo } = await criarSala("Tito", "ouros");
-    const raiza = await entrar(codigo, "Raiza", "valete");
+    const { dono, codigo } = await criarSala("Tito", "capivara");
+    const raiza = await entrar(codigo, "Raiza", "coruja");
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
     await addBot(dono, 2);
     await addBot(dono, 3);
@@ -667,19 +667,19 @@ describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
     await raiza.sdk.leave(false);
     await ate(() => !assentosDe(dono)[dela].connected, 8000, "queda registrada");
     // caída, ela continua sendo ela na tela do Tito
-    expect(assentosDe(dono)[dela].avatar).toBe("valete");
+    expect(assentosDe(dono)[dela].avatar).toBe("coruja");
 
     const volta = escutar((await colyseus.sdk.reconnect(credencial)) as unknown as SdkRoom);
     await ate(() => volta.boasVindas !== null, 8000, "SERVER_WELCOME do retorno");
     await ate(() => assentosDe(dono)[dela].connected, 8000, "reconectada");
-    expect(assentosDe(dono)[dela].avatar).toBe("valete");
-    expect(assentosDe(volta)[dela].avatar).toBe("valete");
-    expect(assentosDe(volta)[0].avatar).toBe("ouros");
+    expect(assentosDe(dono)[dela].avatar).toBe("coruja");
+    expect(assentosDe(volta)[dela].avatar).toBe("coruja");
+    expect(assentosDe(volta)[0].avatar).toBe("capivara");
   }, 30_000);
 
   it("o assento liberado volta ao padrão — o avatar não fica de herança para o próximo", async () => {
-    const { dono, codigo } = await criarSala("Tito", "paus");
-    const raiza = await entrar(codigo, "Raiza", "dama");
+    const { dono, codigo } = await criarSala("Tito", "panda");
+    const raiza = await entrar(codigo, "Raiza", "macaco");
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
     const dela = raiza.boasVindas!.you.seat;
 
@@ -836,9 +836,9 @@ describe("9 · mensagem social chega igual para todos", () => {
 
 describe("9 · o bot não copia o avatar de quem já está na mesa", () => {
   it("humano escolhe a dama; o bot do assento 2 pega outra coisa", async () => {
-    // O assento 2 preferiria "dama" — é o determinismo. Mas a Raiza chegou primeiro.
-    const { dono, codigo } = await criarSala("Tito", "coroa");
-    await entrar(codigo, "Raiza", "dama");
+    // O assento 2 preferiria "raposa" — é o determinismo. Mas a Raiza chegou primeiro.
+    const { dono, codigo } = await criarSala("Tito", "leao");
+    await entrar(codigo, "Raiza", "raposa");
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
     await addBot(dono, 2);
 
@@ -848,8 +848,8 @@ describe("9 · o bot não copia o avatar de quem já está na mesa", () => {
   });
 
   it("mesa cheia: quatro identidades, quatro desenhos diferentes", async () => {
-    const { dono, codigo } = await criarSala("Tito", "espadas");
-    await entrar(codigo, "Raiza", "copas");
+    const { dono, codigo } = await criarSala("Tito", "tucano");
+    await entrar(codigo, "Raiza", "sapo");
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
     await addBot(dono, 2);
     await addBot(dono, 3);

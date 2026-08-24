@@ -83,10 +83,10 @@ export function Home({
                   <button
                     key={id}
                     type="button"
-                    className={`hm-av${d.vermelho ? " vermelho" : ""}${id === avatar ? " escolhido" : ""}`}
+                    className={`hm-av${id === avatar ? " escolhido" : ""}`}
                     aria-pressed={id === avatar}
                     aria-label={d.rotulo}
-                    title={d.rotulo}
+                    title={`${d.rotulo} — ${d.persona}`}
                     onClick={() => { sfxTap(); setAvatar(id); lembrarAvatar(id); }}
                   >
                     {d.glifo}

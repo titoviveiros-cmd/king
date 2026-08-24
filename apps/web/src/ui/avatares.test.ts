@@ -34,23 +34,44 @@ describe("desenho", () => {
     expect(new Set(AVATARES.map((a) => desenhoDoAvatar(a).rotulo)).size).toBe(AVATARES.length);
   });
 
+  it("a coleção oficial: oito bichos, com Sapo e sem Tigre", () => {
+    expect([...AVATARES]).toEqual(
+      ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "capivara", "sapo"],
+    );
+    expect(AVATARES as readonly string[]).toContain("sapo");
+    expect(AVATARES as readonly string[]).not.toContain("tigre");
+  });
+
+  it("cada bicho tem PERSONA — é o que orienta o brief de arte", () => {
+    for (const a of AVATARES) expect(desenhoDoAvatar(a).persona).toMatch(/\S/);
+    expect(new Set(AVATARES.map((a) => desenhoDoAvatar(a).persona)).size).toBe(AVATARES.length);
+    expect(desenhoDoAvatar("sapo").persona).toBe("O Malandro");
+  });
+
+  it("o desenho provisório se declara provisório onde o emoji não é o bicho", () => {
+    // tucano e capivara não existem em Unicode: ficam com o substituto mais próximo, marcado.
+    expect(desenhoDoAvatar("tucano").aproximado).toBe(true);
+    expect(desenhoDoAvatar("capivara").aproximado).toBe(true);
+    expect(desenhoDoAvatar("sapo").aproximado).toBeUndefined();
+  });
+
   it("etiqueta desconhecida cai no padrão em vez de desenhar buraco", () => {
-    for (const lixo of ["", "coroaX", "<script>", undefined]) {
+    for (const lixo of ["", "tigre", "leaoX", "<script>", undefined]) {
       expect(desenhoDoAvatar(lixo)).toEqual(desenhoDoAvatar(AVATAR_PADRAO));
     }
   });
 
   it("avatarValido espelha a regra do servidor", () => {
     for (const a of AVATARES) expect(avatarValido(a)).toBe(a);
-    for (const lixo of ["", "REI", 3, null, undefined, {}]) expect(avatarValido(lixo)).toBe(AVATAR_PADRAO);
+    for (const lixo of ["", "LEAO", "tigre", 3, null, undefined, {}]) expect(avatarValido(lixo)).toBe(AVATAR_PADRAO);
   });
 });
 
 describe("memória local da última escolha", () => {
   it("lembra o que foi escolhido", () => {
     comArmazenamento();
-    lembrarAvatar("espadas");
-    expect(avatarLembrado()).toBe("espadas");
+    lembrarAvatar("sapo");
+    expect(avatarLembrado()).toBe("sapo");
   });
 
   it("sem nada guardado, começa no padrão", () => {
@@ -59,12 +80,12 @@ describe("memória local da última escolha", () => {
   });
 
   it("valor adulterado à mão no navegador NÃO vira avatar", () => {
-    comArmazenamento({ "king:avatar": "coroa-de-ouro-gigante" });
+    comArmazenamento({ "king:avatar": "tigre-que-foi-removido" });
     expect(avatarLembrado()).toBe(AVATAR_PADRAO);
   });
 
   it("sem armazenamento nenhum (aba anônima travada) não explode: só não lembra", () => {
-    expect(() => lembrarAvatar("copas")).not.toThrow();
+    expect(() => lembrarAvatar("panda")).not.toThrow();
     expect(avatarLembrado()).toBe(AVATAR_PADRAO);
   });
 });

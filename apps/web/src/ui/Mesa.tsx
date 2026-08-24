@@ -362,7 +362,7 @@ function Insignia({ seat, avatar, nome, selo }: {
   selo?: boolean;
 }) {
   const d = avatar ? desenhoDoAvatar(avatar) : null;
-  const classe = `av s${seat}${d?.vermelho ? " vermelho" : ""}`;
+  const classe = `av s${seat}`;
   const conteudo = d ? d.glifo : nome[0];
   return selo
     ? <i className={classe} aria-label={d?.rotulo}>{conteudo}</i>

@@ -170,9 +170,6 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .s2{--ident:linear-gradient(135deg,#c3a6ff,var(--violet)); --ident-tinta:#ffffff;}
 .s3{--ident:linear-gradient(135deg,#ff9ecb,var(--magenta));--ident-tinta:#ffffff;}
 .opp .av, .youtag .av, .castigo .av, .pl-av, .sl-av{background:var(--ident);color:var(--ident-tinta);}
-/* Avatar de naipe vermelho sobre o círculo do assento. O tom escuro seria ilegível em cima do
-   dourado e o claro sumiria no magenta: o vermelho é o único que funciona nos quatro. */
-.av.vermelho, .sl-av.vermelho{color:#c2183c;}
 .opp .n{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.08);color:#fff;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;}
 .opp .m{font-size:calc(var(--ui)*.9);font-weight:800;margin-top:3px;display:flex;gap:calc(var(--ui)*.62);}
@@ -538,12 +535,6 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .fimultima .deltas{display:flex;gap:clamp(5px,1vw,9px);font-family:var(--disp);font-weight:800;}
 .fimultima .deltas i{font-style:normal;color:var(--faint);font-variant-numeric:tabular-nums;}
 .fimultima .deltas i.pos{color:var(--turq);} .fimultima .deltas i.neg{color:#ff7aa8;}
-.fimxp{display:flex;align-items:center;gap:clamp(6px,1.2vw,10px);opacity:.55;}
-.fimxp b{font-family:var(--disp);font-weight:800;color:var(--faint);font-size:calc(var(--ui)*.74);
-  letter-spacing:.16em;text-transform:uppercase;white-space:nowrap;}
-.fimxp .barra{flex:1;height:6px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid var(--line);overflow:hidden;}
-.fimxp .barra i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--turq),var(--violet));}
-.fimxp span{font-family:var(--body);font-weight:700;color:var(--faint);font-size:calc(var(--ui)*.8);white-space:nowrap;}
 
 .fimpular{position:absolute;bottom:calc(var(--pad) + var(--sb));left:50%;transform:translateX(-50%);z-index:3;
   font-family:var(--body);font-weight:700;font-size:clamp(.56rem,1.4vh,.66rem);color:var(--faint);letter-spacing:.06em;}
@@ -665,7 +656,6 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.15);color:var(--ink);
   background:rgba(255,255,255,.06);border:1.5px solid rgba(146,132,184,.45);border-radius:12px;
   padding:0;line-height:1;transition:all .18s ease;}
-.hm-av.vermelho{color:#ff7a96;}
 .hm-av.escolhido{border-color:var(--gold);background:rgba(244,197,66,.16);
   box-shadow:0 0 0 1.5px rgba(244,197,66,.4);}
 .hm-av:active{transform:translateY(1px);}

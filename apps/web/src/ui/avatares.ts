@@ -1,45 +1,56 @@
-// AVATARES — apresentação da identidade escolhida.
+// AVATARES — a coleção oficial do KING e como ela é desenhada hoje.
 //
-// ⚠ ARTE PROVISÓRIA, DE PROPÓSITO.
+// A COLEÇÃO está fechada e aprovada: oito rostos de bicho antropomorfizados, mesmo princípio do
+// Verbete, personagens próprios do KING. As etiquetas são o contrato com o servidor
+// (`apps/server/src/rooms/identidade.ts`) e não mudam quando a arte chegar.
 //
-// O projeto não tem nenhum asset de imagem hoje: até agora o "avatar" era a primeira letra do
-// apelido num círculo colorido. Esta camada implementa a ARQUITETURA — id de conjunto fechado,
-// validado no servidor, vivendo no estado sincronizado — e desenha cada um com um glifo do
-// universo do KING enquanto a coleção definitiva não é aprovada.
+// ⚠ O DESENHO ABAIXO É PROVISÓRIO E DELIBERADAMENTE NÃO É ARTE.
 //
-// Os glifos abaixo NÃO são a arte final e não pretendem ser. São reconhecíveis, custam zero
-// bytes de download e deixam a arquitetura testável e jogável hoje. Trocá-los por ilustração
-// depois é mudar este arquivo e nada mais: nem o protocolo, nem o servidor, nem os testes.
+// São emoji do sistema, escolhidos como marcador temporário para a arquitetura ficar jogável e
+// testável hoje. Eles têm dois defeitos conhecidos, e os dois são argumentos a favor da arte
+// própria, não contra o placeholder:
 //
-// A ordem aqui é a ordem do seletor na Home.
+//   1. RENDERIZAM DIFERENTE em cada sistema — o leão da Apple não é o leão do Android. Um sistema
+//      de IDENTIDADE que muda de cara conforme o aparelho é justamente o que não pode existir, e
+//      é por isso que a ilustração própria é obrigatória antes de publicar.
+//   2. DOIS NÃO TÊM EMOJI: tucano e capivara não existem no conjunto Unicode. Estão com o
+//      substituto mais próximo (papagaio e castor) e ficam visivelmente errados de propósito —
+//      é um lembrete de que isto é andaime.
+//
+// Quando a arte chegar, muda este arquivo e nada mais: nem o protocolo, nem o servidor, nem os
+// testes de contrato.
 
-/** Os oito do conjunto fechado. Espelha `AVATARES` de `apps/server/src/rooms/identidade.ts`. */
-export const AVATARES = ["coroa", "rei", "dama", "valete", "espadas", "copas", "ouros", "paus"] as const;
+/** As oito etiquetas. Espelha `AVATARES` de `apps/server/src/rooms/identidade.ts`. */
+export const AVATARES = [
+  "leao", "coruja", "raposa", "macaco", "panda", "tucano", "capivara", "sapo",
+] as const;
 export type Avatar = (typeof AVATARES)[number];
 
-export const AVATAR_PADRAO: Avatar = "coroa";
+export const AVATAR_PADRAO: Avatar = "leao";
 
-interface Desenho {
-  /** Glifo provisório. */
+export interface Desenho {
+  /** Marcador provisório. Ver o aviso no topo do arquivo. */
   glifo: string;
-  /** Nome legível — vai para `aria-label` e para o seletor. Acessibilidade, não decoração. */
+  /** Nome do bicho. Vai para `aria-label` — acessibilidade, não decoração. */
   rotulo: string;
-  /** Naipe vermelho pinta diferente sobre o círculo do assento. */
-  vermelho?: boolean;
+  /** O personagem. Aparece no seletor e é o norte do brief de arte. */
+  persona: string;
+  /** `true` enquanto o emoji não for o bicho certo. Some quando a ilustração entrar. */
+  aproximado?: boolean;
 }
 
 const DESENHOS: Record<Avatar, Desenho> = {
-  coroa:   { glifo: "♔", rotulo: "Coroa" },
-  rei:     { glifo: "K", rotulo: "Rei" },
-  dama:    { glifo: "Q", rotulo: "Dama" },
-  valete:  { glifo: "J", rotulo: "Valete" },
-  espadas: { glifo: "♠", rotulo: "Espadas" },
-  copas:   { glifo: "♥", rotulo: "Copas", vermelho: true },
-  ouros:   { glifo: "♦", rotulo: "Ouros", vermelho: true },
-  paus:    { glifo: "♣", rotulo: "Paus" },
+  leao:     { glifo: "🦁", rotulo: "Leão",     persona: "O Soberano" },
+  coruja:   { glifo: "🦉", rotulo: "Coruja",   persona: "A Paciente" },
+  raposa:   { glifo: "🦊", rotulo: "Raposa",   persona: "A Calculista" },
+  macaco:   { glifo: "🐵", rotulo: "Macaco",   persona: "O Bagunceiro" },
+  panda:    { glifo: "🐼", rotulo: "Panda",    persona: "O Tranquilo" },
+  tucano:   { glifo: "🦜", rotulo: "Tucano",   persona: "O Anunciador", aproximado: true },
+  capivara: { glifo: "🦫", rotulo: "Capivara", persona: "A Imperturbável", aproximado: true },
+  sapo:     { glifo: "🐸", rotulo: "Sapo",     persona: "O Malandro" },
 };
 
-/** Nunca falha: id desconhecido cai no padrão, do mesmo jeito que o servidor faz. */
+/** Nunca falha: etiqueta desconhecida cai no padrão, do mesmo jeito que o servidor faz. */
 export function desenhoDoAvatar(id: string | undefined): Desenho {
   return DESENHOS[(id ?? "") as Avatar] ?? DESENHOS[AVATAR_PADRAO];
 }
