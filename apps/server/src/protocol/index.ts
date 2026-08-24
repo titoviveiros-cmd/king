@@ -34,6 +34,12 @@ export type Codigo = (typeof CODIGO)[keyof typeof CODIGO];
 export interface OpcoesDeEntrada {
   protocolVersion: number;
   nick?: string;
+  /**
+   * Etiqueta do avatar escolhido. O servidor VALIDA contra um conjunto fechado — o cliente não
+   * injeta texto livre num campo que todos os outros vão renderizar. Ausente ou inválido vira o
+   * padrão. Ver rooms/identidade.ts.
+   */
+  avatar?: string;
 }
 
 export interface DefinirPronto {

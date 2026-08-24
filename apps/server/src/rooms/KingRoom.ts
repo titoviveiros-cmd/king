@@ -20,6 +20,7 @@
 // e a REGRA vive só em `@king/engine`. Nada de KING é reimplementado aqui.
 import { CloseCode, Room, ServerError, generateId, type Client } from "colyseus";
 import { liberarCodigo, reservarCodigo } from "./codigos.js";
+import { AVATAR_PADRAO, avatarDeBot, avatarValido, nomeDeBotLivre } from "./identidade.js";
 import { ArraySchema, schema } from "@colyseus/schema";
 import type { Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
@@ -46,8 +47,16 @@ export const MIN_HUMANOS = 2;
 /** Prefixo do identificador sintético de um assento de bot. Nunca colide com `generateId()`. */
 const PREFIXO_BOT = "bot:";
 
-/** Como o BOT NORMAL se apresenta na mesa. */
-const NICK_BOT = "BOT NORMAL";
+/**
+ * A dificuldade do bot. Só existe NORMAL, e é o que foi validado em partida humana completa.
+ *
+ * O tipo existe agora, com um valor só, porque acrescentar `"facil" | "dificil"` depois é
+ * mudar uma linha — enquanto trocar um campo booleano por um enum quando já há salas no ar é
+ * mudança de protocolo. Custa nada hoje e evita uma migração amanhã. **Nenhum algoritmo de
+ * dificuldade foi escrito**: o Bot Normal segue exatamente como estava.
+ */
+export type DificuldadeDoBot = "normal";
+export const DIFICULDADE_PADRAO: DificuldadeDoBot = "normal";
 
 /**
  * Um assento, do ponto de vista PÚBLICO. Nada aqui é secreto: quem está sentado, com que apelido,
@@ -65,6 +74,11 @@ export const AssentoPublico = schema({
   bot: "boolean",
   /** Anfitrião da sala — o único que adiciona e remove bots. */
   host: "boolean",
+  /**
+   * Avatar do participante. Público de propósito: é identidade, e identidade tem de ser a MESMA
+   * em todos os aparelhos. Sempre um valor do conjunto fechado, nunca texto livre do cliente.
+   */
+  avatar: "string",
 }, "AssentoPublico");
 export type AssentoPublico = InstanceType<typeof AssentoPublico>;
 
@@ -209,7 +223,10 @@ export class KingRoom extends Room<{
         return this.#recusar(client, "", "SEAT_TAKEN", "Esse lugar já está ocupado");
       }
       a.playerId = PREFIXO_BOT + seat;
-      a.nick = NICK_BOT;
+      // O NOME É DO SERVIDOR. Sorteado no frontend, cada cliente veria um nome diferente para o
+      // mesmo bot. Aqui ele entra no estado sincronizado e chega igual a todo mundo.
+      a.nick = nomeDeBotLivre(this.state.seats.map((x) => x.nick).filter(Boolean));
+      a.avatar = avatarDeBot(seat);
       a.connected = true;
       a.bot = true;
       // Bot não clica em "estou pronto": ele já nasce pronto. Ver a regra de início.
@@ -604,6 +621,7 @@ export class KingRoom extends Room<{
     assento.ready = false;
     assento.bot = false;
     assento.host = dados.playerId === this.#host;
+    assento.avatar = avatarValido(options?.avatar);
 
     enviar(client, "SERVER_WELCOME", {
       protocolVersion: PROTOCOL_VERSION,
@@ -748,6 +766,7 @@ export class KingRoom extends Room<{
     assento.assisted = false;
     assento.bot = false;
     assento.host = false;
+    assento.avatar = AVATAR_PADRAO;
   }
 
   /**
@@ -814,5 +833,6 @@ function assentoVazio(seat: number): AssentoPublico {
   a.assisted = false;
   a.bot = false;
   a.host = false;
+  a.avatar = AVATAR_PADRAO;
   return a;
 }

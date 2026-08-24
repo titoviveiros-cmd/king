@@ -18,6 +18,7 @@ import { configurarTempos, restaurarTempos } from "../match/tempos.js";
 import { SALA_KING, servidor } from "../app.js";
 import { PROTOCOL_VERSION, type AcaoRecusada, type AtualizacaoDeEstado, type BoasVindas } from "../protocol/index.js";
 import { ASSENTOS, MIN_HUMANOS } from "./KingRoom.js";
+import { AVATAR_PADRAO, AVATARES, NOMES_DE_BOT } from "./identidade.js";
 
 let colyseus: ColyseusTestServer;
 
@@ -44,7 +45,7 @@ async function ate(cond: () => boolean, ms = 10_000, rotulo = "?"): Promise<void
 
 interface AssentoView {
   seat: number; playerId: string; nick: string;
-  connected: boolean; ready: boolean; assisted: boolean; bot: boolean; host: boolean;
+  connected: boolean; ready: boolean; assisted: boolean; bot: boolean; host: boolean; avatar: string;
 }
 interface SalaView { roomCode: string; status: string; seats: AssentoView[] }
 interface SdkRoom {
@@ -82,17 +83,17 @@ function escutar(sdk: SdkRoom): Cliente {
   return c;
 }
 
-const opcoes = (nick: string) => ({ protocolVersion: PROTOCOL_VERSION, nick });
+const opcoes = (nick: string, avatar?: unknown) => ({ protocolVersion: PROTOCOL_VERSION, nick, avatar });
 
-async function criarSala(nick = "Anfitriao"): Promise<{ dono: Cliente; codigo: string }> {
-  const sdk = (await colyseus.sdk.create(SALA_KING, opcoes(nick))) as unknown as SdkRoom;
+async function criarSala(nick = "Anfitriao", avatar?: unknown): Promise<{ dono: Cliente; codigo: string }> {
+  const sdk = (await colyseus.sdk.create(SALA_KING, opcoes(nick, avatar))) as unknown as SdkRoom;
   const dono = escutar(sdk);
   await ate(() => dono.boasVindas !== null, 8000, "SERVER_WELCOME do anfitriao");
   return { dono, codigo: dono.boasVindas!.roomCode };
 }
 
-async function entrar(codigo: string, nick: string): Promise<Cliente> {
-  const sdk = (await colyseus.sdk.joinById(codigo, opcoes(nick))) as unknown as SdkRoom;
+async function entrar(codigo: string, nick: string, avatar?: unknown): Promise<Cliente> {
+  const sdk = (await colyseus.sdk.joinById(codigo, opcoes(nick, avatar))) as unknown as SdkRoom;
   const c = escutar(sdk);
   await ate(() => c.boasVindas !== null, 8000, "SERVER_WELCOME de " + nick);
   return c;
@@ -293,7 +294,8 @@ describe("3 · ready: bot nasce pronto, humano marca", () => {
     const bot = assentosDe(dono)[2];
     expect(bot.bot).toBe(true);
     expect(bot.ready).toBe(true);
-    expect(bot.nick).toBe("BOT NORMAL");
+    // O nome é de personagem, sorteado PELO SERVIDOR na lista fechada — não mais "BOT NORMAL".
+    expect(NOMES_DE_BOT as readonly string[]).toContain(bot.nick);
     expect(assentosDe(dono)[0].ready).toBe(false);
     expect(assentosDe(dono)[1].ready).toBe(false);
   });
@@ -598,4 +600,133 @@ describe("7 · reconnect com bots na mesa", () => {
     expect(volta.boasVindas!.you.recoveryToken).toMatch(/^\d{4}:/);
     expect(bots(dono)).toBe(2);
   }, 40_000);
+});
+
+// ═══════════════════ 8 · IDENTIDADE: AVATAR E NOME DE BOT ═══════════════════
+//
+// A regra que estes testes protegem cabe numa frase: **identidade é do servidor**. O que o
+// cliente manda é uma sugestão; o que aparece na tela de todo mundo é o que ficou no estado
+// sincronizado. Sem isso, a Raiza veria "Reizinho" no assento onde o Tito vê "Mão Fria".
+
+describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
+  it("o avatar escolhido entra no estado autoritativo e o OUTRO cliente vê o mesmo", async () => {
+    const { dono, codigo } = await criarSala("Tito", "espadas");
+    const raiza = await entrar(codigo, "Raiza", "copas");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+
+    // cada um vê os DOIS avatares, iguais nos dois aparelhos
+    for (const c of [dono, raiza]) {
+      expect(assentosDe(c)[0].avatar).toBe("espadas");
+      expect(assentosDe(c)[1].avatar).toBe("copas");
+    }
+  });
+
+  it("avatar inválido é SANITIZADO, não derruba a entrada", async () => {
+    // texto livre, HTML e URL são exatamente o que não pode chegar à tela dos outros
+    const { dono, codigo } = await criarSala("Tito", "<img src=x onerror=alert(1)>");
+    const raiza = await entrar(codigo, "Raiza", "https://exemplo.com/foto.png");
+    const vitor = await entrar(codigo, "Vitor", 42);
+    await ate(() => ocupados(dono) === 3, 8000, "tres sentados");
+
+    for (const a of assentosDe(dono).slice(0, 3)) {
+      expect(a.avatar).toBe(AVATAR_PADRAO);
+      expect(AVATARES as readonly string[]).toContain(a.avatar);
+    }
+    expect(raiza.boasVindas).not.toBeNull();
+    expect(vitor.boasVindas).not.toBeNull();
+  });
+
+  it("quem entra sem escolher fica com o padrão — nunca com o campo vazio", async () => {
+    const { dono, codigo } = await criarSala("Tito");
+    await entrar(codigo, "Raiza");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    for (const a of assentosDe(dono).slice(0, 2)) expect(a.avatar).toBe(AVATAR_PADRAO);
+    // assento vago também tem avatar válido: o lobby nunca lê `undefined`
+    expect(AVATARES as readonly string[]).toContain(assentosDe(dono)[3].avatar);
+  });
+
+  it("o avatar SOBREVIVE ao reconnect, e continua igual para quem ficou", async () => {
+    const { dono, codigo } = await criarSala("Tito", "ouros");
+    const raiza = await entrar(codigo, "Raiza", "valete");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    await addBot(dono, 2);
+    await addBot(dono, 3);
+    dono.sdk.send("CLIENT_SET_READY", { ready: true });
+    raiza.sdk.send("CLIENT_SET_READY", { ready: true });
+    await ate(() => sala(dono).status === "playing", 10_000, "iniciou");
+
+    const credencial = raiza.boasVindas!.you.recoveryToken;
+    const dela = raiza.boasVindas!.you.seat;
+    await raiza.sdk.leave(false);
+    await ate(() => !assentosDe(dono)[dela].connected, 8000, "queda registrada");
+    // caída, ela continua sendo ela na tela do Tito
+    expect(assentosDe(dono)[dela].avatar).toBe("valete");
+
+    const volta = escutar((await colyseus.sdk.reconnect(credencial)) as unknown as SdkRoom);
+    await ate(() => volta.boasVindas !== null, 8000, "SERVER_WELCOME do retorno");
+    await ate(() => assentosDe(dono)[dela].connected, 8000, "reconectada");
+    expect(assentosDe(dono)[dela].avatar).toBe("valete");
+    expect(assentosDe(volta)[dela].avatar).toBe("valete");
+    expect(assentosDe(volta)[0].avatar).toBe("ouros");
+  }, 30_000);
+
+  it("o assento liberado volta ao padrão — o avatar não fica de herança para o próximo", async () => {
+    const { dono, codigo } = await criarSala("Tito", "paus");
+    const raiza = await entrar(codigo, "Raiza", "dama");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    const dela = raiza.boasVindas!.you.seat;
+
+    await raiza.sdk.leave(true); // saída definitiva, ainda no lobby
+    await ate(() => ocupados(dono) === 1, 8000, "assento liberado");
+    expect(assentosDe(dono)[dela].avatar).toBe(AVATAR_PADRAO);
+  });
+});
+
+describe("8 · o nome do bot é do SERVIDOR", () => {
+  it("o servidor batiza o bot, e os dois clientes leem o MESMO nome", async () => {
+    const { dono, codigo } = await criarSala("Tito");
+    const raiza = await entrar(codigo, "Raiza");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    await addBot(dono, 2);
+    await ate(() => bots(raiza) === 1, 8000, "a Raiza tambem ve o bot");
+
+    const noDono = assentosDe(dono)[2];
+    const naRaiza = assentosDe(raiza)[2];
+    expect(NOMES_DE_BOT as readonly string[]).toContain(noDono.nick);
+    expect(naRaiza.nick).toBe(noDono.nick);
+    expect(naRaiza.avatar).toBe(noDono.avatar);
+    // e continua declarado como bot: nome próprio não disfarça a natureza do oponente
+    expect(noDono.bot).toBe(true);
+    expect(naRaiza.bot).toBe(true);
+  });
+
+  it("dois bots na mesma mesa não recebem o mesmo nome nem o mesmo avatar", async () => {
+    const { dono, codigo } = await criarSala("Tito");
+    await entrar(codigo, "Raiza");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    await addBot(dono, 2);
+    await addBot(dono, 3);
+
+    const [b2, b3] = [assentosDe(dono)[2], assentosDe(dono)[3]];
+    expect(b2.nick).not.toBe(b3.nick);
+    expect(b2.avatar).not.toBe(b3.avatar);
+    expect(new Set(assentosDe(dono).map((a) => a.nick)).size).toBe(ASSENTOS);
+  });
+
+  it("o bot removido e recolocado continua sendo um bot com nome da lista", async () => {
+    const { dono, codigo } = await criarSala("Tito");
+    await entrar(codigo, "Raiza");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    await addBot(dono, 2);
+
+    dono.sdk.send("CLIENT_REMOVE_BOT", { seat: 2 });
+    await ate(() => bots(dono) === 0, 8000, "bot removido");
+    expect(assentosDe(dono)[2].nick).toBe("");
+
+    await addBot(dono, 2);
+    const bot = assentosDe(dono)[2];
+    expect(bot.bot).toBe(true);
+    expect(bot.ready).toBe(true);
+    expect(NOMES_DE_BOT as readonly string[]).toContain(bot.nick);
+  });
 });
