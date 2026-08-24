@@ -24,11 +24,20 @@ const vpOf = (page: Page): Viewport => {
   return v;
 };
 
-/** Zera o progresso e o áudio ANTES de a página carregar. Primeira visita de verdade. */
+/**
+ * Primeira visita de verdade.
+ *
+ * NÃO limpa `king:tutorial` aqui, e a razão é uma armadilha que custou uma rodada de testes:
+ * `addInitScript` roda a CADA navegação, inclusive no `reload()`. Limpar o progresso ali fazia
+ * o tutorial reabrir depois do reload e reprovava os testes que checam justamente o contrário.
+ * Não é preciso limpar: o Playwright dá um contexto novo por teste, com armazenamento vazio.
+ *
+ * O áudio, sim, precisa ser desligado antes do primeiro load (evita nós de Web Audio no
+ * headless) — e desligado é como deve ficar durante toda a suíte.
+ */
 async function primeiraVisita(page: Page, extra?: () => void): Promise<void> {
   await page.addInitScript(() => {
     try {
-      window.localStorage.removeItem("king:tutorial");
       window.localStorage.setItem(
         "king.audio",
         JSON.stringify({ music: false, sfx: false, haptics: false, musicVol: 0, sfxVol: 0 }),

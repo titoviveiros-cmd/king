@@ -40,12 +40,22 @@ export const SEL = {
  * (13 no leque + 3 na vaza + é a vez do humano). Retorna quando o DOM está estável para medir.
  */
 export async function openMesaStress(page: Page, seed: number = SEED): Promise<void> {
-  // Silencia o áudio nos testes (evita nós de Web Audio no headless). Não muda geometria.
   await page.addInitScript(() => {
     try {
+      // Silencia o áudio (evita nós de Web Audio no headless). Não muda geometria.
       window.localStorage.setItem(
         "king.audio",
         JSON.stringify({ music: false, sfx: false, haptics: false, musicVol: 0, sfxVol: 0 }),
+      );
+      // E declara o tutorial como JÁ VISTO.
+      //
+      // Sem isto, o APRENDA KING abre sozinho na primeira visita — que é o comportamento certo
+      // do produto e foi o que reprovou esta suíte inteira quando ele entrou: não havia mais
+      // Home nem botão "Jogar agora" para clicar. Aqui se mede a geometria da MESA do jogo;
+      // a do tutorial tem suíte própria em tutorial.spec.ts.
+      window.localStorage.setItem(
+        "king:tutorial",
+        JSON.stringify({ iniciado: true, concluido: true, passo: 0 }),
       );
     } catch { /* headless sem storage: segue */ }
   });

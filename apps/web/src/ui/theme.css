@@ -799,9 +799,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .tut-guia{position:absolute;z-index:12;left:0;right:0;bottom:0;
   display:flex;flex-direction:column;align-items:flex-end;gap:calc(var(--ui)*.4);
   padding:calc(var(--ui)*.7) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb)) calc(var(--pad) + var(--sl));
-  background:linear-gradient(180deg,rgba(10,4,20,0),rgba(10,4,20,.88) 42%);
-  pointer-events:none;}
-.tut-guia > *{pointer-events:auto;}
+  background:linear-gradient(180deg,rgba(10,4,20,0),rgba(10,4,20,.88) 42%);}
+
+/* TUDO nesta camada é transparente ao toque, MENOS os botões.
+   Não é detalhe: a faixa atravessa a tela inteira por cima do leque, e o Playwright pegou a
+   consequência num clique real — a fala do Rei interceptava o toque na carta, e o jogador não
+   conseguia jogar. Texto não precisa ser clicável; botão precisa. */
+.tut-guia, .tut-guia *{pointer-events:none;}
+.tut-guia button{pointer-events:auto;}
 .tut-linha{display:flex;align-items:center;justify-content:flex-end;gap:clamp(8px,1.6vw,14px);
   width:100%;}
 .tut-ok{flex:none;}
