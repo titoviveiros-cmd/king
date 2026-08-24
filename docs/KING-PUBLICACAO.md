@@ -360,7 +360,37 @@ Nenhum foi produzido. Todos dependem da arte dos avatares
 
 ---
 
-## 11. Vulnerabilidades de dependência
+## 11. QA em aparelho físico — obrigatório e permanente
+
+**Emulação de viewport não é suficiente. Isto foi provado na prática.**
+
+Em 24/08/2026 a suíte estava verde em sete viewports — 115 testes de layout, colisões medidas por
+`DOMRect`, seis larguras de celular — e um teste em **iPhone real, em paisagem**, encontrou cinco
+defeitos que nenhum deles pegava:
+
+| Encontrado no aparelho | Por que a emulação não pegou |
+|---|---|
+| Home cortada em cima e embaixo | o painel só estoura com o formulário aberto, e nenhum teste o abria em altura baixa |
+| "ESTOU PRONTO" cortado no Lobby | o Lobby é tela de multiplayer — **não havia servidor no e2e**, então era inalcançável |
+| Mão do jogador cortada | `position:fixed; inset:0` mede a viewport de LAYOUT; **no Chromium headless não existe barra de navegador**, então a de layout e a útil são idênticas |
+| Botão social espremido | idem: só existe em tela de multiplayer |
+| Tutorial travando no meio | consequência do anterior — a carta que ele pede ficava sob a barra |
+
+**O que mudou por causa disso** (e fica como regra permanente):
+
+1. três viewports de **altura compacta** entraram na matriz — 852×330, 740×320 e 852×300;
+2. o Playwright passou a subir **também o servidor Colyseus**, para Lobby e Mesa multiplayer
+   deixarem de ser pontos cegos;
+3. o percurso do tutorial passou a exigir que cada alvo esteja **inteiro no viewport e não
+   coberto** antes de clicar — o `click()` do Playwright rola o elemento para dentro da tela e
+   por isso passava onde um dedo não alcançaria.
+
+**O que continua exigindo aparelho:** barra do navegador de verdade, gesto de home, teclado
+virtual, Dynamic Island, haptics, e o ciclo background→foreground do WebSocket.
+
+---
+
+## 12. Vulnerabilidades de dependência
 
 **12 alertas, nenhum explorável no KING.** Todos vivem em ferramenta de desenvolvimento (Vitest,
 Vite/esbuild) ou em submódulos do Colyseus (`@colyseus/auth`, `@colyseus/playground`) que são

@@ -12,7 +12,7 @@
  * podem se cruzar. Foi assim que se descobriu que a barra de progresso caía sobre o HUD do
  * contrato — justamente o HUD que o passo 3 manda o jogador olhar.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { intersects, insideViewport, fmt, type Box, type Viewport } from "./helpers/geometry.js";
 import { boxOf, SEL } from "./helpers/mesa.js";
 
@@ -52,6 +52,56 @@ async function primeiraVisita(page: Page, extra?: () => void): Promise<void> {
  * Percorre o tutorial inteiro clicando o que estiver disponível: Continuar, um naipe de trunfo
  * ou uma carta legal. Devolve a trilha para o erro dizer ONDE travou.
  */
+/**
+ * O alvo está REALMENTE ao alcance de um dedo?
+ *
+ * O Playwright rola o elemento para dentro da tela antes de clicar, então um clique dele passa
+ * mesmo quando um humano não conseguiria tocar. Numa tela que não rola — a Mesa — isso esconde
+ * exatamente o defeito que o teste deveria pegar. Por isso a checagem é explícita: o alvo tem de
+ * caber inteiro no viewport ANTES do clique, e o ponto central tem de pertencer a ele.
+ */
+async function exigirAoAlcance(
+  page: Page, alvo: Locator, oQue: string, passo: string, trilha: string[],
+): Promise<void> {
+  const caixa = await alvo.boundingBox();
+  const vp = page.viewportSize();
+  if (!caixa || !vp) throw new Error(`${oQue} sem caixa no passo ${passo}`);
+
+  const fora =
+    caixa.y < 0 ? "acima do topo"
+      : caixa.y + caixa.height > vp.height
+        ? `abaixo da base (termina em ${Math.round(caixa.y + caixa.height)} de ${vp.height})`
+        : caixa.x < 0 ? "à esquerda"
+          : caixa.x + caixa.width > vp.width ? "à direita" : null;
+
+  if (fora) {
+    throw new Error(
+      `DEADLOCK no passo ${passo}: ${oQue} está ${fora} — um dedo não alcança.\n` +
+      `   caixa: x=${Math.round(caixa.x)} y=${Math.round(caixa.y)} ` +
+      `${Math.round(caixa.width)}x${Math.round(caixa.height)} - viewport ${vp.width}x${vp.height}\n` +
+      `   trilha: ${trilha.join(" -> ")}`,
+    );
+  }
+
+  // E o toque precisa CHEGAR nele. O critério certo é conter, não ser igual: `elementFromPoint`
+  // devolve o elemento mais interno, que num card é um filho (o pip do naipe) — e o evento sobe
+  // até o card do mesmo jeito. Comparar por classe dava falso positivo exatamente aí.
+  const alcanca = await alvo.evaluate((el, [x, y]) => {
+    const noPonto = document.elementFromPoint(x, y);
+    return {
+      chega: !!noPonto && el.contains(noPonto),
+      quem: noPonto ? (noPonto.className || noPonto.tagName).toString().slice(0, 40) : "nada",
+    };
+  }, [caixa.x + caixa.width / 2, caixa.y + caixa.height / 2] as [number, number]);
+
+  if (!alcanca.chega) {
+    throw new Error(
+      `DEADLOCK no passo ${passo}: ${oQue} está COBERTO por "${alcanca.quem}" no seu ponto central.\n` +
+      `   trilha: ${trilha.join(" -> ")}`,
+    );
+  }
+}
+
 async function percorrer(page: Page, limite = 60): Promise<string[]> {
   const trilha: string[] = [];
   for (let i = 0; i < limite; i++) {
@@ -61,17 +111,26 @@ async function percorrer(page: Page, limite = 60): Promise<string[]> {
     const trunfo = page.locator(".trumpbtn").first();
     const carta = page.locator(SEL.handCardLegal).first();
 
-    if (await ok.count()) { trilha.push(`${rotulo}:continuar`); await ok.click(); }
-    else if (await trunfo.count()) { trilha.push(`${rotulo}:trunfo`); await trunfo.click(); }
-    else if (await carta.count()) { trilha.push(`${rotulo}:carta`); await carta.click(); }
-    else {
+    if (await ok.count()) {
+      await exigirAoAlcance(page, ok, "o botao Continuar", rotulo, trilha);
+      trilha.push(`${rotulo}:continuar`);
+      await ok.click();
+    } else if (await trunfo.count()) {
+      await exigirAoAlcance(page, trunfo, "o botao de trunfo", rotulo, trilha);
+      trilha.push(`${rotulo}:trunfo`);
+      await trunfo.click();
+    } else if (await carta.count()) {
+      await exigirAoAlcance(page, carta, "a carta legal", rotulo, trilha);
+      trilha.push(`${rotulo}:carta`);
+      await carta.click();
+    } else {
       throw new Error(
-        `TUTORIAL TRAVOU no passo ${rotulo} — nada clicável.\n   trilha: ${trilha.join(" → ")}`,
+        `TUTORIAL TRAVOU no passo ${rotulo} — nada clicável.\n   trilha: ${trilha.join(" -> ")}`,
       );
     }
     await page.waitForTimeout(120);
   }
-  throw new Error(`tutorial não terminou em ${limite} passos: ${trilha.join(" → ")}`);
+  throw new Error(`tutorial não terminou em ${limite} passos: ${trilha.join(" -> ")}`);
 }
 
 test("primeira visita: o tutorial se apresenta sozinho, na mesa de verdade", async ({ page }) => {
