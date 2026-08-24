@@ -293,14 +293,20 @@ export class KingRoom extends Room<{
     this.onMessage("CLIENT_SOCIAL_MESSAGE", (client: ClienteDoKing, msg: EnviarMensagemSocial) => {
       const dados = client.userData;
       if (!dados) return this.#recusar(client, "", "NOT_IN_ROOM", "Você não está sentado");
-      if (this.state.status === "lobby") {
-        return this.#recusar(client, "", "WRONG_PHASE", "A partida ainda não começou");
-      }
-      // Etiqueta desconhecida é RECUSADA, não substituída por um padrão. Avatar tem padrão porque
-      // todo assento precisa de um; mensagem não: quem mandou lixo simplesmente não falou.
+
+      // A ORDEM importa: "isto é uma mensagem?" antes de "é hora de falar?".
+      //
+      // Etiqueta desconhecida é RECUSADA, não substituída por um padrão — avatar tem padrão
+      // porque todo assento precisa de um; mensagem não: quem mandou lixo simplesmente não
+      // falou. E validar primeiro dá o diagnóstico certo em qualquer fase, o que é justamente
+      // o que permite ao verificador de implantação provar, do lobby, que o conjunto fechado
+      // existe naquele servidor.
       const id = msg?.messageId;
       if (!mensagemValida(id)) {
         return this.#recusar(client, "", "INVALID_PAYLOAD", "Mensagem desconhecida");
+      }
+      if (this.state.status === "lobby") {
+        return this.#recusar(client, "", "WRONG_PHASE", "A partida ainda não começou");
       }
       const veredicto = this.#ritmoSocial.permitir(dados.seat, Date.now());
       if (!veredicto.ok) return this.#recusar(client, "", veredicto.code, veredicto.message);
