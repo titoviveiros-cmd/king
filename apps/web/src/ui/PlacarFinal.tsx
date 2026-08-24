@@ -7,6 +7,7 @@ import { audio } from "../audio/engine.js";
 import { TEMPOS } from "../game/timings.js";
 import { interpolar, saldosAntes, scoresPorAssento } from "./placarFinalDados.js";
 import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVictory } from "../audio/sounds.js";
+import { analytics } from "../analytics/analytics.js";
 
 /**
  * PLACAR FINAL — o encerramento da partida. Não é "o Placar entre-mãos sem o botão":
@@ -45,6 +46,15 @@ export function PlacarFinal({
   const [etapa, setEtapa] = useState<Etapa>("entrada");
   const [pontos, setPontos] = useState<number[]>(() => saldosAntes(finais, resumo?.scores));
   const reduzido = usePrefersReducedMotion();
+
+  // A partida acabou de verdade quando esta tela monta — é o único ponto do app em que isso é
+  // certo nos dois modos. `useRef` porque a tela remonta a cada tique da animação de pontos.
+  const fimAnunciado = useRef(false);
+  useEffect(() => {
+    if (fimAnunciado.current) return;
+    fimAnunciado.current = true;
+    analytics.track("match_finished", { venci, empate, maos: 10 });
+  }, [venci, empate]);
 
   // ---- encenação ----
   const pular = () => setEtapa("completo");
@@ -145,7 +155,11 @@ export function PlacarFinal({
           )}
           {completo && (
             <div className="fimacoes">
-              <button className="btn gold" autoFocus onClick={() => { sfxTap(); onRestart(); }}>
+              <button
+                className="btn gold"
+                autoFocus
+                onClick={() => { sfxTap(); analytics.track("rematch_clicked", { venci }); onRestart(); }}
+              >
                 {venci ? "Jogar novamente" : "Revanche"}
               </button>
               <Compartilhar game={game} finais={finais} campeoes={campeoes} empate={empate} />

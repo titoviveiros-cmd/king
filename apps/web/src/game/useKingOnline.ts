@@ -27,6 +27,7 @@ import { useSonsDeTransicao } from "./useSonsDeTransicao.js";
 import { TEMPOS } from "./timings.js";
 import { audio } from "../audio/engine.js";
 import { sfxSocial, sfxTap, sfxTrump } from "../audio/sounds.js";
+import { analytics } from "../analytics/analytics.js";
 import { abridorColyseus, type AbridorDeSessao, type EstadoDaSalaLido, type SessaoKing } from "../net/clienteKing.js";
 import { servidorConfigurado } from "../net/servidor.js";
 import { esquecerRecuperacao, guardarRecuperacao, lerRecuperacao } from "../net/recuperacao.js";
@@ -154,6 +155,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       const eu = assento.current;
       if (eu === null) return;
       if (!partida.current) {
+        analytics.track("match_started", { modo: "online" });
         partida.current = new PartidaRemota(u, eu, (tipo, payload) => s.enviar(tipo, payload));
         setScreen("mesa");
         // A mesa não pode nascer no meio de uma animação: a primeira visão é sempre um salto.
@@ -205,8 +207,8 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     s.ao("PLAYER_LEFT", () => { setSala(s.estado()); bump(); });
     s.ao("SERVER_ERROR", (f) => { setErro(f.message); setConexao("erro"); });
 
-    s.aoCair(() => setConexao("reconectando"));
-    s.aoVoltar(() => setConexao("conectado"));
+    s.aoCair(() => { setConexao("reconectando"); analytics.track("disconnect", { modo: "online" }); });
+    s.aoVoltar(() => { setConexao("conectado"); analytics.track("reconnect", { modo: "online" }); });
     s.aoSair(() => { setConexao("encerrada"); sessao.current = null; });
     s.aoErro((_codigo, motivo) => { setErro(motivo ?? "Erro de conexão"); setConexao("erro"); });
   }, [bump, limpar, saltarPara]);
@@ -253,9 +255,15 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
   }, [abrir, assinar, bump, servidor]);
 
   const criarSala = useCallback((nick: string, avatar: string) => {
+    // Nem o apelido nem o avatar viajam para a medição: um identifica pessoa, o outro é escolha
+    // estética que não muda o funil. O que se quer saber é quantas salas nascem.
+    analytics.track("room_created", {});
     void conectar({ tipo: "criar", nick, avatar });
   }, [conectar]);
   const entrarNaSala = useCallback((codigo: string, nick: string, avatar: string) => {
+    // O CÓDIGO NÃO É EVENTO: quatro dígitos são a chave de entrar na partida privada de outras
+    // pessoas. Só o fato de alguém ter entrado é métrica.
+    analytics.track("room_joined", {});
     void conectar({ tipo: "entrar", codigo: codigo.trim().toUpperCase(), nick, avatar });
   }, [conectar]);
   const voltarParaSala = useCallback(() => {
@@ -268,6 +276,8 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
    * o limitador. O cliente não decide se pode: pede.
    */
   const enviarMensagem = useCallback((id: string) => {
+    // A etiqueta pode ir: é de conjunto fechado e não é texto de ninguém.
+    analytics.track("social_message_sent", { mensagem: id });
     sessao.current?.enviar("CLIENT_SOCIAL_MESSAGE", { messageId: id });
   }, []);
 

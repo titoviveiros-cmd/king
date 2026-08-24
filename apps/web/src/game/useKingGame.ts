@@ -5,6 +5,7 @@ import { useApresentacao } from "./useApresentacao.js";
 import { useSonsDeTransicao } from "./useSonsDeTransicao.js";
 import { TEMPOS } from "./timings.js";
 import { audio } from "../audio/engine.js";
+import { analytics } from "../analytics/analytics.js";
 import { sfxTrump } from "../audio/sounds.js";
 
 export type { Castigo } from "./anuncio.js";
@@ -36,6 +37,9 @@ export function useKingGame() {
   const { bump, afterPlay, emLeitura, limpar } = ap;
 
   const start = useCallback(() => {
+    // "Jogar de novo" na tela de fim é o mesmo `start`: para a medição, o que interessa é que
+    // uma partida COMEÇOU. O botão que a pediu é dado da própria tela, não deste hook.
+    analytics.track("match_started", { modo: "local", bots: 3 });
     audio.unlock(); // 1º gesto real do usuário: iOS só libera áudio aqui
     ref.current = new KingGame(["Você", "Bia", "Léo", "Nara"], seedDaUrl() ?? Math.floor(Math.random() * 1e9));
     limpar();
