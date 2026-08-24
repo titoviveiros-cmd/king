@@ -31,7 +31,7 @@ quem o tem), celebração, acolhimento na derrota. **Pendente:** folha de expres
 ## 4. Contratos e ritual das 10 mãos
 As 10 mãos são uma jornada, não "Rodada 1, 2, 3". Ver totais e regras em KING-RULES.md.
 - **Fase Negativa (mãos 1–6):** "evite perder pontos". Cada contrato tem identidade visual
-  (vaza, Copas, Damas, Homens, King, duas últimas). Tensão sobe nas vazas 10→11→12→13 da mão 6.
+  (vaza, Copas, Damas, Reis e Valetes, King, duas últimas). Tensão sobe nas vazas 10→11→12→13 da mão 6.
 - **Grande transição (após a 6ª):** segundo ato. "É hora de atacar." Iluminação muda,
   partículas, coroa aparece, trilha evolui, HUD ganha energia. Apresenta a **Fase Positiva**.
 - **Fase Positiva (mãos 7–10):** cada vaza vale +25; o beneficiado escolhe o trunfo (rotação
@@ -72,9 +72,9 @@ Placar final (pódio, rematch, compartilhar) · Perfil · Conquistas · Configur
   host; expectativa antes de entrar na mesa.
 
 ## 9. Onboarding — "Aprenda KING"
-Tutorial interativo com 3 bots; ensina **jogando** em 10 passos (vaza → servir → baldar →
+Tutorial interativo com 3 bots; ensina **jogando** em 16 passos (vaza → servir → negar →
 vencedor → contratos → King → duas últimas → trunfo → positiva → pontuação). Termos como
-"baldar" ganham explicação didática. Sem manual gigante.
+"negar" ganham explicação didática. Sem manual gigante.
 
 ## 10. Placares
 - **Entre-mãos:** resultado da mão, mudança individual, ranking atualizado, próximo contrato.

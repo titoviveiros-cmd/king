@@ -87,15 +87,15 @@ describe("cena SERVIR — obrigado a seguir o naipe, com escolha que importa", (
   });
 });
 
-describe("cena BALDAR — sem o naipe puxado, o leque inteiro acende", () => {
+describe("cena NEGAR — sem o naipe puxado, o leque inteiro acende", () => {
   it("o aluno NÃO tem o naipe puxado", () => {
-    const m = montarCena("baldar");
+    const m = montarCena("negar");
     const puxado = naipePuxado(m)!;
     expect(m.hand!.hands[ALUNO].some((c) => c.suit === puxado)).toBe(false);
   });
 
-  it("por isso toda a mão é legal — a definição de baldar", () => {
-    const m = montarCena("baldar");
+  it("por isso toda a mão é legal — a definição de negar", () => {
+    const m = montarCena("negar");
     expect(ids(legaisDoAluno(m))).toEqual(ids(m.hand!.hands[ALUNO]));
   });
 });

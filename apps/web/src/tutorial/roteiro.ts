@@ -15,8 +15,8 @@ import { legaisDoAluno, legaisQueEscapam, legaisQueGanham, type CenaId } from ".
 
 /** Os dezesseis conceitos que o tutorial promete ensinar. A lista é o contrato com o produto. */
 export const CONCEITOS = [
-  "objetivo", "vaza", "fase-negativa", "servir", "vencer-vaza", "baldar",
-  "copas", "damas", "homens", "duas-ultimas", "king",
+  "objetivo", "vaza", "fase-negativa", "servir", "vencer-vaza", "negar",
+  "copas", "damas", "reis-valetes", "duas-ultimas", "king",
   "fase-positiva", "trunfo", "sem-trunfo", "mais-25", "maior-vence",
 ] as const;
 export type Conceito = (typeof CONCEITOS)[number];
@@ -62,11 +62,11 @@ export const ROTEIRO: readonly Passo[] = [
   },
   {
     id: "servir",
-    fala: "Puxaram OUROS e você tem ouros — então é obrigado a servir. Só as cartas válidas acendem no leque.",
+    fala: "Puxaram ouros e você tem ouros: é obrigado a servir. Só as válidas acendem no leque.",
     acao: "jogar",
     // A menor entre as legais: a que não leva a vaza.
     alvo: (m) => legaisQueEscapam(m),
-    acerto: "Isso. Carta baixa, vaza dos outros — e nenhum ponto negativo para você.",
+    acerto: "Isso. Carta baixa, a vaza é de outro — e você não perde nada.",
     erro: "Essa levou a vaza, e a vaza custa −20. Numa mão negativa, ganhar é perder.",
   },
   {
@@ -75,21 +75,21 @@ export const ROTEIRO: readonly Passo[] = [
     acao: "toque",
   },
 
-  // ───────── CENA 2 · baldar ─────────
+  // ───────── CENA 2 · negar ─────────
   {
-    id: "baldar",
-    cena: "baldar",
-    fala: "Agora puxaram COPAS e você não tem nenhuma. Sem o naipe, você BALDA: joga o que quiser.",
+    id: "negar",
+    cena: "negar",
+    fala: "Agora puxaram copas e você não tem nenhuma. Sem o naipe, você NEGA: joga qualquer carta.",
     acao: "jogar",
     alvo: (m) => legaisDoAluno(m),
-    acerto: "Exato. Baldar é a chance de se livrar de uma carta perigosa sem levar a vaza.",
+    acerto: "Isso. Negar é a hora de se livrar de uma carta perigosa sem levar a vaza.",
   },
 
   // ───────── CENA 3 · as mãos negativas e o Rei de Copas ─────────
   {
     id: "copas",
     cena: "king",
-    fala: "São cinco perigos diferentes. Na mão 2, cada COPAS que você pegar custa −20.",
+    fala: "São cinco perigos diferentes. Na mão 2, cada copas que você pegar custa −20.",
     acao: "toque",
   },
   {
@@ -98,8 +98,8 @@ export const ROTEIRO: readonly Passo[] = [
     acao: "toque",
   },
   {
-    id: "homens",
-    fala: "Na mão 4, os HOMENS: cada Rei e cada Valete, −30.",
+    id: "reis-valetes",
+    fala: "Na mão 4, cada REI e cada VALETE custam −30. São oito no baralho.",
     acao: "toque",
   },
   {
@@ -120,20 +120,20 @@ export const ROTEIRO: readonly Passo[] = [
   {
     id: "fase-positiva",
     cena: "positiva",
-    fala: "Da mão 7 em diante o jogo vira: agora cada vaza que você pegar VALE +25.",
+    fala: "Da mão 7 em diante o jogo vira: cada vaza que você pegar vale +25.",
     acao: "toque",
   },
   {
     id: "trunfo",
-    fala: "E é você quem escolhe o TRUNFO — o naipe que ganha de todos os outros. Olhe sua mão e escolha.",
+    fala: "E é você quem escolhe o TRUNFO: o naipe que ganha de todos os outros. Olhe sua mão.",
     acao: "trunfo",
     trunfoAlvo: "clubs",
     acerto: "Boa escolha: paus é seu naipe mais longo, e você tem o Ás.",
-    erro: "Vale. Só repare que você tinha cinco paus com o Ás — trunfo costuma ser o naipe mais longo.",
+    erro: "Vale. Mas você tinha cinco paus com o Ás — trunfo costuma ser o naipe mais longo.",
   },
   {
     id: "sem-trunfo",
-    fala: "Dava para escolher SEM TRUNFO. Aí nenhum naipe manda, e vence sempre a maior do naipe puxado.",
+    fala: "Dava para escolher SEM TRUNFO. Aí nenhum naipe manda: vence a maior do naipe puxado.",
     acao: "toque",
   },
   {
@@ -142,7 +142,7 @@ export const ROTEIRO: readonly Passo[] = [
     acao: "jogar",
     alvo: (m) => legaisQueGanham(m),
     acerto: "É isso. +25 no seu placar.",
-    erro: "Essa não levou a vaza. Na fase positiva, vaza perdida é ponto que não veio.",
+    erro: "Essa não levou a vaza. Na fase positiva, vaza perdida é ponto que não vem.",
   },
   {
     id: "maior-vence",

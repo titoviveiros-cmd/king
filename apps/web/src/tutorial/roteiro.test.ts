@@ -51,7 +51,7 @@ describe("ensina JOGANDO, não lendo", () => {
     // A régua certa não é a proporção de passos — é ESTA lista. Servir, baldar, escapar do Rei,
     // escolher trunfo e ganhar vaza são as cinco coisas que a pessoa vai FAZER a partida inteira,
     // e nenhuma delas pode ser ensinada com um botão "próximo".
-    const mecanicas = ["servir", "baldar", "king", "trunfo", "mais-25"];
+    const mecanicas = ["servir", "negar", "king", "trunfo", "mais-25"];
     for (const id of mecanicas) {
       const p = ROTEIRO.find((x) => x.id === id)!;
       expect(p.acao, id).not.toBe("toque");
@@ -109,8 +109,8 @@ describe("ninguém fica preso", () => {
   });
 
   it("todo passo com alvo tem resposta para o ERRO — errar explica, não trava", () => {
-    // O passo "baldar" é a exceção declarada: qualquer carta é uma lição válida ali.
-    for (const p of ROTEIRO.filter((x) => x.acao !== "toque" && x.id !== "baldar")) {
+    // O passo "negar" é a exceção declarada: qualquer carta é uma lição válida ali.
+    for (const p of ROTEIRO.filter((x) => x.acao !== "toque" && x.id !== "negar")) {
       expect(p.erro, p.id).toBeTruthy();
     }
   });

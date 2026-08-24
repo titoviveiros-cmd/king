@@ -21,7 +21,7 @@ export const ALUNO: Seat = 0;
 
 export const JOGADORES_DO_TREINO = ["Você", "Bia", "Léo", "Nara"];
 
-export type CenaId = "servir" | "baldar" | "king" | "positiva";
+export type CenaId = "servir" | "negar" | "king" | "positiva";
 
 export interface DefinicaoDeCena {
   seed: number;
@@ -36,8 +36,8 @@ export const CENAS: Record<CenaId, DefinicaoDeCena> = {
   // o Rei ganha a vaza (péssimo numa mão negativa), o 6 escapa.
   servir: { seed: 1, mao: 1, porque: "servir o naipe, e a menor carta como escolha certa" },
 
-  // Copas puxadas, o aluno não tem nenhuma: o leque inteiro acende. É o que "baldar" significa.
-  baldar: { seed: 26, mao: 1, porque: "baldar quando falta o naipe puxado" },
+  // Copas puxadas, o aluno não tem nenhuma: o leque inteiro acende. É o que NEGAR significa.
+  negar: { seed: 26, mao: 1, porque: "negar quando falta o naipe puxado" },
 
   // 2♠ 10♠ K♥ na mesa. Sete espadas na mão: quatro comem o Rei de Copas, três escapam.
   // Decisão de verdade, com −160 em jogo e saída fácil para quem entendeu.

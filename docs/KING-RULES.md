@@ -27,15 +27,16 @@
 - Vazas seguintes: abre **quem venceu a vaza anterior**.
 - Ordem de jogo dentro da vaza: o abridor e depois em sentido horário (`+1 mod 4`).
 
-## 4. Servir e baldar
+## 4. Servir e negar
 - Uma vaza começa quando o abridor joga uma carta, que define o **naipe puxado**.
 - **Servir (obrigatório):** se o jogador tem o naipe puxado, só pode jogar cartas desse naipe.
-- **Baldar:** se não tem o naipe puxado, pode jogar qualquer carta (respeitando o contrato).
+- **Negar:** se não tem o naipe puxado, pode jogar qualquer carta (respeitando o contrato).
+  *(O termo antigo era "baldar"; a terminologia oficial do KING é NEGAR.)*
 - A UI deve tornar cartas ilegais **indisponíveis**; o servidor **revalida** sempre.
 
 ## 5. Vencedor da vaza
 - **Sem trunfo** (todas as negativas e "Sem Trunfo"): vence a **maior carta do naipe puxado**.
-  Cartas baldadas de outros naipes **não** vencem.
+  Cartas negadas de outros naipes **não** vencem.
 - **Com trunfo** (positivas com trunfo): se houve trunfo na vaza, vence o **maior trunfo**;
   senão, a maior do naipe puxado. Trunfo **não** dispensa de servir.
 
@@ -59,7 +60,7 @@
   - Nenhuma animação pode revelar antecipadamente quem tem o K♥.
 - **Encerramento antecipado (regra geral das negativas):** uma mão negativa **termina assim que
   TODAS as suas cartas penalizadas já foram capturadas** — pois não há mais pontos em disputa.
-  Aplica-se a: **Mão 2** (as 13 Copas), **Mão 3** (as 4 Damas), **Mão 4** (os 8 Homens) e **Mão 5**
+  Aplica-se a: **Mão 2** (as 13 Copas), **Mão 3** (as 4 Damas), **Mão 4** (os 8 Reis e Valetes) e **Mão 5**
   (o K♥). As mãos **1** (não fazer vazas) e **6** (duas últimas) e as **positivas** sempre jogam as
   **13 vazas**. Ao encerrar, segue-se direto para a próxima mão.
 
