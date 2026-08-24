@@ -557,11 +557,17 @@ Dimensionada pelos tamanhos **reais** medidos na seção 4 (26–48 px CSS).
 | **Área segura** | tudo essencial dentro do círculo inscrito (raio 45% do lado); 6% de margem morta na borda | o recorte é circular, mas um uso quadrado futuro não pode cortar orelha ou bico |
 | **Fundo** | **transparente** (o assento fornece a cor) | a mesma arte serve os quatro assentos |
 | **Contorno** | 2–3 px no master de 256, `#140a24`, fechado | garante leitura nos quatro gradientes |
-| **Formato** | **WebP** com qualidade 90 | suportado em todos os alvos (Chrome, Safari 14+, WKWebView, Android WebView); ~8–15 KB por arquivo |
+| **Formato** | **WebP** transparente, compressão **visualmente lossless** para o contexto de uso | suportado em todos os alvos (Chrome, Safari 14+, WKWebView, Android WebView) |
 | **Fallback** | PNG-32 apenas se surgir alvo sem WebP | hoje não existe alvo assim |
-| **Peso total** | alvo **< 120 KB** para os 8 | são carregados na entrada da sala |
+| **Peso por avatar** | **~15–40 KB** | faixa de trabalho, não meta |
+| **Peso do conjunto** | preferir **< ~250 KB** para os 8; abaixo de 120 KB sem perda perceptível é excelente | são carregados na entrada da sala |
 | **Naming** | `avatar-<id>-<expressao>.webp` — ex.: `avatar-sapo-neutro.webp` | `<id>` é exatamente o ID técnico; casa com o conjunto fechado sem tabela de tradução |
 | **Local** | `apps/web/public/avatares/` | servido como estático; entra no `dist` e no `cap sync` sem configuração |
+
+> ⚠️ **Peso é orçamento, não meta.** Nunca degradar olhos, contorno, materiais, silhueta ou
+> gradientes para atingir um número. Se um personagem precisar de 40 KB para manter o brilho dos
+> olhos e a transição do contorno, ele vale 40 KB. A ordem de prioridade é: qualidade visual no
+> tamanho de uso → peso.
 
 **Estratégia por plataforma:** o mesmo arquivo serve Web, Capacitor, iOS e Android — o Capacitor
 empacota o `dist` do Vite, então não existe pipeline separado. Nenhum asset nativo adicional é
@@ -642,5 +648,7 @@ Aplicar a **todos** os oito, com atenção redobrada ao Sapo:
 4. **Cores naturais** por espécie; a identidade KING vem da luz e do acabamento.
 5. Dois conflitos de cor identificados e mitigados: **Leão** e **Tucano** sobre o assento dourado.
 6. **Um único tamanho de export (256 px)** — variantes de densidade seriam peso sem ganho.
+   Peso de trabalho: ~15–40 KB por avatar, conjunto preferencialmente abaixo de ~250 KB,
+   **nunca degradando qualidade para bater número**.
 7. Nesta fase produz-se **só a expressão neutra**, com o arquivo em camadas preparado para sete.
 8. **Sapo + Leão** para marketing, com a coroa da marca entre os dois.
