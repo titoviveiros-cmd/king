@@ -19,8 +19,18 @@
   /* 1% da altura REALMENTE visível: no Android o `vh` ignora a barra do Chrome e as
      cartas ficariam maiores que o espaço disponível. `dvh` corrige onde existe. */
   --vh:1vh;
+  /* ALTURA ÚTIL — a altura que o navegador REALMENTE deixa livre.
+     Existe porque `position:fixed; inset:0` NÃO mede isso: um elemento fixo é dimensionado
+     pela viewport de LAYOUT, que no iOS Safari continua sendo a tela inteira mesmo com a barra
+     desenhada por cima. O resultado, medido em iPhone real: a mão do jogador, o "Estou pronto"
+     e o rodapé da Home ficavam embaixo da barra do navegador — invisíveis e intocáveis.
+     Trocar a unidade não bastava; é preciso declarar ALTURA em cada tela cheia. */
+  --alturaUtil:100vh;
 }
-@supports (height:100dvh){ :root{--vh:1dvh;} }
+@supports (height:100dvh){ :root{--vh:1dvh;--alturaUtil:100dvh;} }
+/* Toda tela cheia declara a altura útil. Com `inset:0` + `height`, o `bottom` é ignorado —
+   que é exatamente o que se quer: a borda de baixo passa a ser a do navegador, não a do vidro. */
+.mesa,.home,.ov,.rotate,.fim,.tut,.tut-confirma,.socscrim{height:var(--alturaUtil);}
 *{box-sizing:border-box;}
 html,body,#root{height:100%;margin:0;}
 @supports (height:100dvh){ html,body,#root{height:100dvh;} }
@@ -319,7 +329,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   border-radius:999px;border:2px solid rgba(255,255,255,.7);white-space:nowrap;}
 
 /* ---- home ---- */
-.home{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;
+/* A Home CENTRALIZA o conteúdo, e centralizar o que não cabe corta dos DOIS lados: numa tela
+   de 393px com o painel de amigos aberto, o wordmark saía por cima (top -55) e o botão "Entrar
+   na sala" terminava em 416. `safe center` centraliza enquanto couber e passa a alinhar pelo
+   início quando não couber; a rolagem vertical resolve o resto. É melhor rolar do que esconder
+   uma ação necessária — e `overflow-x:hidden` garante que nunca haja rolagem horizontal. */
+.home{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:safe center;gap:8px;text-align:center;
+  overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;
   padding:calc(var(--pad) + var(--st)) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb)) calc(var(--pad) + var(--sl));
   background:radial-gradient(1000px 520px at 50% 6%,rgba(123,58,180,.3),transparent 60%),var(--night);}
 .home .kw{font-family:var(--disp);font-weight:800;font-size:clamp(2.4rem,min(10vw,14vh),5rem);letter-spacing:.06em;line-height:.9;
@@ -741,9 +758,20 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 @keyframes balaoEntraVoce{from{opacity:0;transform:translateY(6px) scale(.9);}}
 @media (prefers-reduced-motion:reduce){.balao{animation:none;}}
 
-/* O botão de falar: mesma família dos controles do topo, sem chamar mais atenção que eles. */
-.topbtn .soc{font-size:calc(var(--ui)*1.05);line-height:1;}
-.topbtn .soc.on{border-color:var(--gold);background:rgba(244,197,66,.16);}
+/* O BOTÃO DE FALAR — zona própria, canto inferior direito.
+   Ficava dentro de `.topbtn`, entre Sair/tela-cheia/áudio e o relógio da decisão: três funções
+   sem relação disputando o mesmo canto, e a única que é do jogo era a menor de todas. Agora tem
+   alvo de toque de 44px cheios (o piso de acessibilidade), fica na diagonal oposta ao card do
+   jogador e cai sob o polegar direito de quem segura o aparelho deitado. */
+.soc{position:absolute;z-index:12;
+  right:calc(var(--pad) + var(--sr));bottom:calc(var(--pad) + var(--sb));
+  width:max(44px,calc(var(--ui)*2.6));height:max(44px,calc(var(--ui)*2.6));
+  display:grid;place-items:center;border-radius:50%;cursor:pointer;
+  font-size:calc(var(--ui)*1.15);line-height:1;
+  color:var(--ink);background:rgba(18,9,32,.82);border:1.5px solid rgba(180,150,255,.34);
+  backdrop-filter:blur(6px);box-shadow:0 6px 18px -8px #000;transition:all .18s ease;}
+.soc.on{border-color:var(--gold);background:rgba(244,197,66,.18);}
+.soc:active{transform:translateY(1px);}
 
 /* O véu. O painel É modal — ver o comentário em BotaoSocial. Escurecer a mesa é o que torna
    honesto o fato de ele passar por cima do leque, e dá o alvo grande de "fechar" que um polegar
@@ -752,20 +780,33 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
 /* O painel. Ancorado abaixo dos controles do topo, largura contida, rolagem própria quando
    expandido — em landscape de celular a altura é o recurso escasso. */
-.socpanel{position:absolute;z-index:14;top:calc(var(--pad) + var(--st) + var(--ui)*2.6);
-  right:calc(var(--pad) + var(--sr));width:min(78vw,340px);max-height:64vh;overflow-y:auto;
+/* O painel sobe a partir do botão. `max-height` em altura ÚTIL (não em vh puro) e rolagem
+   interna: em 300px de altura as dezoito frases não cabem, e o certo é rolar dentro do painel
+   em vez de estourar a tela. */
+.socpanel{position:absolute;z-index:14;
+  bottom:calc(var(--pad) + var(--sb) + max(44px,var(--ui)*2.6) + 8px);
+  right:calc(var(--pad) + var(--sr));width:min(78vw,340px);
+  max-height:calc(var(--alturaUtil) - var(--pad)*2 - var(--st) - var(--sb) - max(44px,var(--ui)*2.6) - 16px);
+  overflow-y:auto;overscroll-behavior:contain;
   display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:16px;
   background:rgba(18,9,32,.96);border:1px solid rgba(180,150,255,.34);
   box-shadow:0 18px 40px -14px #000;backdrop-filter:blur(8px);}
 .socfrases{display:flex;flex-wrap:wrap;gap:6px;}
+/* Chip de frase. `min-height` de 34px porque 22px era alvo de mouse, não de polegar — e a
+   largura já é generosa, então o alvo real fica confortável sem inchar o painel. */
 .socbtn{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.8);color:var(--ink);
   background:rgba(255,255,255,.07);border:1.5px solid rgba(146,132,184,.42);border-radius:999px;
-  padding:.4em .8em;line-height:1.2;cursor:pointer;transition:all .16s ease;}
+  padding:.4em .85em;min-height:34px;display:inline-flex;align-items:center;
+  line-height:1.2;cursor:pointer;transition:all .16s ease;}
 .socbtn:active{transform:translateY(1px);background:rgba(244,197,66,.18);border-color:var(--gold);}
 .socgrupo{display:flex;flex-direction:column;gap:5px;}
 .soclb{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.66);letter-spacing:.14em;
   text-transform:uppercase;color:var(--faint);}
-.socpe{display:flex;justify-content:space-between;gap:8px;padding-top:2px;}
+/* O rodapé GRUDA na base do painel. Com as dezoito frases numa tela de 300px o painel rola
+   por dentro, e "fechar" rolava junto — saindo de vista justamente quando é mais necessário. */
+.socpe{position:sticky;bottom:calc(var(--ui)*-.7);z-index:1;
+  display:flex;justify-content:space-between;gap:8px;
+  padding:6px 0 0;margin-top:auto;background:rgba(18,9,32,.96);}
 .socmais{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.7);letter-spacing:.1em;
   text-transform:uppercase;color:var(--turq);background:none;border:none;cursor:pointer;padding:.2em;}
 
@@ -835,3 +876,57 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   font-size:calc(var(--ui)*.78);letter-spacing:.1em;color:var(--turq);background:none;border:none;
   cursor:pointer;padding:.3em .6em;text-decoration:underline;text-underline-offset:4px;}
 .hm-tutorial:active{color:var(--gold);}
+
+/* ══════════════════════ ALTURA COMPACTA ══════════════════════
+   A segunda dimensão da responsividade, que faltava.
+
+   Até aqui o layout cuidava de LARGURA e proporção. Um teste em iPhone real mostrou o outro
+   eixo: em paisagem, o navegador desenha a própria barra por cima e sobram ~300px de altura
+   ÚTIL. Nessa faixa o Lobby empurrava "ESTOU PRONTO" para fora da tela (medido: y 378–419 num
+   viewport de 300) e a Home cortava dos dois lados.
+
+   A regra de quem cede vem do Design System e é aplicada nesta ordem:
+   DECORAÇÃO → ESPAÇAMENTO → TEXTO AUXILIAR → nunca a ação, nunca as cartas. */
+@media (max-height: 360px) {
+  /* 1. DECORAÇÃO CEDE PRIMEIRO. O wordmark no Lobby é ornamento: quem está lá já sabe em que
+        jogo entrou, e ele sozinho custa ~40px de altura. */
+  .sala .kw { display: none; }
+  .sala .foot { display: none; }
+  .sl-hint { display: none; }
+
+  /* 2. ESPAÇAMENTO. O respiro do container cede antes de qualquer conteúdo — e o padding é
+        reduzido só na Home/Lobby, NUNCA no `--pad` global: o mesmo token afasta a mão da borda
+        inferior na Mesa, e encolhê-lo lá empurraria as cartas para o corte. */
+  .home { gap: 4px; padding-block: calc(5px + var(--st)) calc(5px + var(--sb)); }
+  .sl-lugares { gap: 4px; }
+  .sl-lugar { padding: .22em .55em; }
+  .sala .sl-codigo { margin-bottom: 4px; gap: 2px; }
+
+  /* 3. TEXTO AUXILIAR encolhe — o código continua o maior elemento da tela, porque é o que se
+        dita em voz alta para o amigo do outro lado. */
+  .sl-cod { font-size: clamp(1.5rem, 5vw, 2.1rem); letter-spacing: .16em; }
+  .sl-av { width: calc(var(--ui) * 1.8); height: calc(var(--ui) * 1.8); }
+
+  /* Home: mesma disciplina, para reduzir a rolagem em vez de depender dela. */
+  .home .kw { font-size: clamp(1.8rem, min(7vw, 11vh), 3rem); }
+  .home .tg { display: none; }
+  .hm-online { gap: 5px; }
+
+  /* MESA — quem cede é o JOGADOR, nunca a carta.
+     Medido a 852x300 e 740x320: o card do adversário do topo invadia as cartas da vaza em 9px.
+     A ordem de prioridade do espaço é carta > vaza > contrato > jogadores, então a correção sobe
+     o card e enxuga o respiro dele — a vaza não se mexe. */
+  .opp.top { top: calc(var(--pad) + var(--st) + clamp(18px, 5vh, 40px)); }
+  .opp { padding: calc(var(--ui) * .34) calc(var(--ui) * .6); }
+}
+
+/* ── LOBBY: o CTA é âncora, a lista de assentos é que cede ──
+   Perseguir breakpoint aqui não funciona: com `max-height:360px` o "ESTOU PRONTO" cabia a 300px
+   e voltava a ser cortado a 393px, porque o conteúdo também cresce com a altura. A solução é
+   estrutural — código, ações e rodapé têm tamanho fixo no fim da coluna, e a REGIÃO DOS ASSENTOS
+   absorve a sobra, rolando por dentro quando não couber. Assim o botão obrigatório está sempre
+   na tela, em qualquer altura, sem depender de adivinhar um limiar. */
+.home.sala{justify-content:flex-start;overflow:hidden;gap:clamp(4px,1.1vh,10px);}
+.sala .kw,.sala .sl-codigo,.sala .row,.sala .foot,.sala .sl-erro{flex:none;}
+.sala .sl-lugares{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  touch-action:pan-y;}
