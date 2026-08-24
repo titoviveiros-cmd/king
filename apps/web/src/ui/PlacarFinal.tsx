@@ -208,12 +208,11 @@ export function PlacarFinal({
                 </div>
               )}
 
-              {/* Reservado para progressão. Sem dado real, nada é simulado — regra do DS. */}
-              <div className="fimxp" aria-label="Progressão — em breve">
-                <b>Progressão</b>
-                <div className="barra"><i /></div>
-                <span>XP e conquistas entram na Fase 7</span>
-              </div>
+              {/* AQUI ficava um bloco "Progressão" com barra vazia e o texto "XP e conquistas
+                  entram na Fase 7". Saiu inteiro: "Fase 7" é nome de etapa interna do projeto,
+                  que ninguém fora dele entende, e uma barra que nunca enche promete algo que o
+                  jogo não entrega. Espaço reservado para funcionalidade inexistente é dívida
+                  visível — quando Perfil/XP existir de verdade, entra com dado real. */}
             </>
           )}
         </div>
