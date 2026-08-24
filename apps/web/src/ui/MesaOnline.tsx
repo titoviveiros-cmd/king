@@ -226,7 +226,7 @@ export function BotaoSocial({ status, onEnviar }: {
   return (
     <>
       <button
-        className={`topbtn soc${aberto ? " on" : ""}`}
+        className={`soc${aberto ? " on" : ""}`}
         aria-label="Mensagens rápidas"
         aria-expanded={aberto}
         onClick={() => { sfxTap(); setAberto((v) => !v); setTudo(false); }}

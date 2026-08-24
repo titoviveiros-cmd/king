@@ -219,13 +219,20 @@ export function Mesa({
       {mp && <ChipDoRelogio relogio={mp.relogio} eu={eu} />}
       {mp && <FaixaDaConexao conexao={mp.conexao} codigo={mp.sala?.roomCode ?? ""} />}
       {mp && <AvisoDeRecusa recusa={mp.recusa} />}
+      {/* ZONA SOCIAL — canto inferior direito, longe de tudo.
+          No topo direito ele ficava espremido entre Sair/tela-cheia/áudio (acima) e o relógio da
+          decisão (logo abaixo): três funções sem relação nenhuma disputando o mesmo canto, e a
+          única delas que é do JOGO era a menor. Aqui embaixo ele ganha zona própria, fica na
+          diagonal oposta ao card do jogador — que mora no canto inferior esquerdo — e cai debaixo
+          do polegar direito de quem segura o aparelho deitado. */}
+      {mp && (
+        <BotaoSocial
+          status={mp.sala?.status === "finished" ? "finished" : "playing"}
+          onEnviar={mp.onEnviarMensagem}
+        />
+      )}
+
       <div className="topbtn">
-        {mp && (
-          <BotaoSocial
-            status={mp.sala?.status === "finished" ? "finished" : "playing"}
-            onEnviar={mp.onEnviarMensagem}
-          />
-        )}
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
         <button className="btn ghost" onClick={() => { sfxTap(); onHome(); }}>Sair</button>
