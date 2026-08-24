@@ -84,19 +84,77 @@ describe("progresso e saída", () => {
   });
 });
 
-describe("o botão de avançar segue a natureza do passo", () => {
-  it("passo de leitura já mostra Continuar", () => {
-    const leitura = ROTEIRO.findIndex((p) => p.acao === "toque");
-    expect(render(leitura).querySelector(".tut-ok")?.text.trim()).toBe("Continuar");
+describe("dois estados: LEITURA e AÇÃO", () => {
+  const leitura = ROTEIRO.findIndex((p) => p.acao === "toque");
+  const acao = ROTEIRO.findIndex((p) => p.acao === "jogar");
+  const trunfo = ROTEIRO.findIndex((p) => p.acao === "trunfo");
+
+  it("LEITURA: Voltar e Avançar disponíveis", () => {
+    const root = render(leitura);
+    expect(root.querySelector(".tut-ok")?.text.trim()).toBe("Avançar");
+    expect(root.querySelector(".tut-voltar")?.text.trim()).toBe("Voltar");
+    expect(root.querySelectorAll(".tut-acao")).toHaveLength(0);
   });
 
-  it("passo de AÇÃO não mostra Continuar antes de agir — senão dava para pular a lição", () => {
-    const acao = ROTEIRO.findIndex((p) => p.acao === "jogar");
-    expect(render(acao).querySelectorAll(".tut-ok")).toHaveLength(0);
+  it("AÇÃO: Avançar some e o pedido toma o lugar dele", () => {
+    for (const i of [acao, trunfo]) {
+      const root = render(i);
+      expect(root.querySelectorAll(".tut-ok"), `passo ${i}`).toHaveLength(0);
+      expect(root.querySelectorAll(".tut-acao"), `passo ${i}`).toHaveLength(1);
+    }
   });
 
-  it("no último passo o botão convida a jogar, não a continuar", () => {
+  it("AÇÃO: o pedido diz SUA VEZ e o que fazer — é o que impede parecer travado", () => {
+    const root = render(acao);
+    const pedido = root.querySelector(".tut-acao")!;
+    expect(pedido.text).toContain("SUA VEZ");
+    expect(pedido.text.replace("SUA VEZ", "").trim().length).toBeGreaterThan(6);
+    expect(pedido.getAttribute("role")).toBe("status");
+    expect(pedido.getAttribute("aria-live")).toBe("assertive");
+  });
+
+  it("AÇÃO: a Mesa entra em modo de convite, para a carta legal pulsar", () => {
+    expect(render(acao).querySelector(".tut")?.getAttribute("class")).toContain("agindo");
+    expect(render(leitura).querySelector(".tut")?.getAttribute("class")).not.toContain("agindo");
+  });
+
+  it("no primeiro passo não há para onde voltar", () => {
+    expect(render(0).querySelector(".tut-voltar")?.getAttribute("disabled")).not.toBeNull();
+  });
+
+  it("do segundo passo em diante, Voltar está ativo", () => {
+    expect(render(1).querySelector(".tut-voltar")?.getAttribute("disabled")).toBeUndefined();
+  });
+
+  it("no último passo o botão convida a jogar, não a avançar", () => {
     expect(render(TOTAL_DE_PASSOS - 1).querySelector(".tut-ok")?.text.trim()).toBe("Jogar!");
+  });
+
+  it("Voltar e Avançar têm alvo de toque de verdade", () => {
+    // A geometria é do CSS; o que o render garante é que os dois existem como BOTÃO, com a
+    // classe que carrega `min-height:44px`. O tamanho real é medido no Playwright.
+    const root = render(leitura);
+    for (const sel of [".tut-voltar", ".tut-ok"]) {
+      expect(root.querySelector(sel)?.tagName, sel).toBe("BUTTON");
+    }
+  });
+});
+
+describe("terminologia oficial", () => {
+  it("nenhuma fala usa balda/baldar nem chama a mão 4 de Homens", () => {
+    for (const p of ROTEIRO) {
+      const textos = [p.fala, p.acerto ?? "", p.erro ?? ""].join(" ");
+      expect(textos, p.id).not.toMatch(/balda/i);
+      expect(textos, p.id).not.toMatch(/\bhomens\b/i);
+    }
+  });
+
+  it("o conceito é NEGAR, e a mão 4 são REIS E VALETES", () => {
+    const negar = ROTEIRO.find((p) => p.id === "negar")!;
+    expect(negar.fala).toMatch(/NEGA/);
+    const reis = ROTEIRO.find((p) => p.id === "homens" || p.id === "reis-valetes" || p.fala.includes("VALETE"))!;
+    expect(reis.fala).toMatch(/REI/);
+    expect(reis.fala).toMatch(/VALETE/);
   });
 });
 

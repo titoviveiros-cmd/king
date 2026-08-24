@@ -839,7 +839,13 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    um bloco opaco cobrindo a mesa, e `pointer-events` devolve o leque ao toque. */
 .tut-guia{position:absolute;z-index:12;left:0;right:0;bottom:0;
   display:flex;flex-direction:column;align-items:flex-end;gap:calc(var(--ui)*.4);
-  padding:calc(var(--ui)*.7) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb)) calc(var(--pad) + var(--sl));
+  /* O CORREDOR DA ESQUERDA É RESERVADO. É onde mora o card do jogador local, e a faixa do guia
+     não pode entrar nele: medido em 667x375, a coroa do Rei invadia o card em 9px — foi o que
+     apareceu como sobreposição no iPhone. Reservar o corredor resolve em QUALQUER largura, sem
+     depender de acertar um breakpoint. O valor é o mesmo `--corredor` que a Mesa usa para as
+     faixas laterais, repetido aqui porque o guia não é descendente de `.mesa`. */
+  padding:calc(var(--ui)*.7) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb))
+          calc(var(--pad) + var(--sl) + clamp(140px,18.5vw,220px));
   background:linear-gradient(180deg,rgba(10,4,20,0),rgba(10,4,20,.88) 42%);}
 
 /* TUDO nesta camada é transparente ao toque, MENOS os botões.
@@ -854,8 +860,11 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
 /* O Rei. Coroa + uma linha. Ele orienta, não domina: se a fala precisar de dois parágrafos,
    o problema é a fala. */
-.rei{display:flex;align-items:center;gap:clamp(6px,1.4vw,12px);max-width:min(52vw,470px);
-  margin-left:auto;}
+/* A fala ENCOLHE antes de empurrar: `flex:1 1 auto` com `min-width:0` faz o texto ceder
+   espaço para a navegação em vez de estourar a linha. A coroa é o último a sair. */
+.rei{display:flex;align-items:center;gap:clamp(6px,1.4vw,12px);
+  flex:1 1 auto;min-width:0;max-width:min(52vw,470px);margin-left:auto;}
+.rei-cara{flex:none;}
 .rei-cara{flex:none;display:grid;place-items:center;width:calc(var(--ui)*2.6);height:calc(var(--ui)*2.6);
   border-radius:50%;background:radial-gradient(circle at 40% 30%,#3a1f66,#1b0d33);
   border:1.5px solid rgba(244,197,66,.45);box-shadow:0 6px 18px -8px #000;}
@@ -930,3 +939,41 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .sala .kw,.sala .sl-codigo,.sala .row,.sala .foot,.sala .sl-erro{flex:none;}
 .sala .sl-lugares{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
   touch-action:pan-y;}
+
+/* ── Navegação do tutorial: VOLTAR · AVANÇAR · pedido de ação ──
+   Alvos de toque de verdade (44px de altura), lado a lado, com hierarquia clara: Voltar é
+   discreto, Avançar é a ação primária. Em altura compacta encolhe o GAP, nunca o alvo. */
+.tut-nav{display:flex;align-items:center;gap:clamp(6px,1.4vw,12px);flex:none;}
+.tut-voltar,.tut-ok{min-height:44px;}
+.tut-voltar:disabled{opacity:.4;cursor:default;}
+
+/* PEDIDO DE AÇÃO — o que impede o tutorial de parecer travado.
+   Ocupa o lugar do "Avançar" quando falta uma jogada, com pulso discreto: em menos de um segundo
+   a leitura é "está esperando eu jogar", e não "congelou". */
+.tut-acao{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;
+  gap:1px;flex:none;min-height:44px;padding:.3em .8em;border-radius:14px;
+  background:rgba(45,212,191,.14);border:1.5px solid rgba(45,212,191,.55);
+  animation:pedeAcao 1.9s ease-in-out infinite;}
+.tut-acao b{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.76);
+  letter-spacing:.14em;text-transform:uppercase;color:var(--turq);line-height:1.1;}
+.tut-acao i{font-style:normal;font-family:var(--body);font-weight:700;
+  font-size:calc(var(--ui)*.72);color:var(--ink);white-space:nowrap;line-height:1.2;}
+@keyframes pedeAcao{
+  0%,100%{box-shadow:0 0 0 0 rgba(45,212,191,0);}
+  50%{box-shadow:0 0 0 4px rgba(45,212,191,.18);}
+}
+@media (prefers-reduced-motion:reduce){ .tut-acao{animation:none;border-color:var(--turq);} }
+
+/* Enquanto o tutorial espera uma jogada, a carta legal chama mais que o normal — o destaque de
+   `.card.legal` já existe no jogo; aqui ele só ganha um pulso para virar convite. */
+.tut.agindo .hand .card.legal{animation:convidaCarta 1.9s ease-in-out infinite;}
+@keyframes convidaCarta{
+  0%,100%{filter:none;}
+  50%{filter:brightness(1.12);}
+}
+@media (prefers-reduced-motion:reduce){ .tut.agindo .hand .card.legal{animation:none;} }
+
+@media (max-height: 360px) {
+  .tut-nav{gap:6px;}
+  .tut-acao{padding:.24em .6em;}
+}

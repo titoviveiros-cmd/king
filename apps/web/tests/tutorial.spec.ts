@@ -262,3 +262,115 @@ test("com ÁUDIO E VIBRAÇÃO DESLIGADOS, nada depende do som", async ({ page })
   await expect(page.locator(".home")).toBeVisible();
   expect(erros, `erros de página: ${erros.join(" | ")}`).toEqual([]);
 });
+
+/**
+ * A COROA DO REI não pode cruzar nada do jogo.
+ *
+ * No iPhone real ela apareceu por cima do avatar do jogador local. A faixa do guia é alinhada à
+ * direita e o card do jogador mora na esquerda, então a colisão depende da largura da fala — o
+ * que muda com o viewport. Por isso a verificação é por `DOMRect`, em todos eles.
+ */
+test("a coroa do guia não cruza avatar, cartas nem HUD", async ({ page }, ti) => {
+  const vp = page.viewportSize()!;
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  const caixa = async (sel: string) => {
+    const b = await page.locator(sel).first().boundingBox();
+    if (!b) throw new Error(`${sel} sem caixa`);
+    return b;
+  };
+  const cruza = (a: { x: number; y: number; width: number; height: number },
+                 b: { x: number; y: number; width: number; height: number }) =>
+    !(a.x + a.width < b.x || a.x > b.x + b.width || a.y + a.height < b.y || a.y > b.y + b.height);
+
+  const coroa = await caixa(".rei-cara");
+  const alvos: [string, string][] = [
+    ["avatar do jogador local", `${SEL.youtag} .av`],
+    ["card do jogador local", SEL.youtag],
+    ["HUD do contrato", SEL.hud],
+    ["utilidades do topo", SEL.topbtn],
+  ];
+
+  for (const [nome, sel] of alvos) {
+    const alvo = await caixa(sel);
+    expect(
+      cruza(coroa, alvo),
+      `[${ti.project.name} · ${vp.width}x${vp.height}] a coroa cruza ${nome}\n` +
+      `   coroa: x ${Math.round(coroa.x)}..${Math.round(coroa.x + coroa.width)} ` +
+      `y ${Math.round(coroa.y)}..${Math.round(coroa.y + coroa.height)}\n` +
+      `   ${nome}: x ${Math.round(alvo.x)}..${Math.round(alvo.x + alvo.width)} ` +
+      `y ${Math.round(alvo.y)}..${Math.round(alvo.y + alvo.height)}`,
+    ).toBe(false);
+  }
+
+  // e a coroa tem de estar inteira na tela
+  expect(
+    coroa.x >= 0 && coroa.y >= 0 && coroa.x + coroa.width <= vp.width && coroa.y + coroa.height <= vp.height,
+    "a coroa saiu do viewport",
+  ).toBe(true);
+});
+
+test("passo de AÇÃO se anuncia — o tutorial nunca parece travado", async ({ page }, ti) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  // avança até o primeiro passo que pede uma carta
+  for (let i = 0; i < 10 && await page.locator(".tut-ok").count(); i++) {
+    await page.locator(".tut-ok").click();
+    await page.waitForTimeout(100);
+  }
+
+  const pedido = page.locator(".tut-acao");
+  await expect(pedido, `[${ti.project.name}] passo de ação sem indicador`).toBeVisible();
+  await expect(pedido).toContainText("SUA VEZ");
+  // AVANÇAR não pode estar lá oferecendo uma saída que não existe
+  await expect(page.locator(".tut-ok")).toHaveCount(0);
+  // e a carta pedida está acesa e ao alcance
+  await expect(page.locator(SEL.handCardLegal).first()).toBeVisible();
+  await expect(page.locator(".tut")).toHaveClass(/agindo/);
+});
+
+test("VOLTAR relê a instrução anterior sem desfazer jogada", async ({ page }) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  // no primeiro passo não há para onde voltar
+  await expect(page.locator(".tut-voltar")).toBeDisabled();
+
+  await page.locator(".tut-ok").click();
+  await expect(page.locator(".tut-passo")).toHaveText(/^2\//);
+  await expect(page.locator(".tut-voltar")).toBeEnabled();
+
+  const falaDoDois = await page.locator(".rei-fala").textContent();
+  await page.locator(".tut-voltar").click();
+  await expect(page.locator(".tut-passo")).toHaveText(/^1\//);
+  expect(await page.locator(".rei-fala").textContent()).not.toBe(falaDoDois);
+
+  // e avançar de novo volta para o mesmo lugar
+  await page.locator(".tut-ok").click();
+  await expect(page.locator(".tut-passo")).toHaveText(/^2\//);
+  expect(await page.locator(".rei-fala").textContent()).toBe(falaDoDois);
+});
+
+test("VOLTAR depois de jogar não pede a jogada de novo", async ({ page }) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  // chega ao passo de ação e cumpre
+  while (await page.locator(".tut-ok").count()) {
+    await page.locator(".tut-ok").click();
+    await page.waitForTimeout(100);
+  }
+  const rotuloDaAcao = (await page.locator(".tut-passo").textContent())?.trim();
+  await page.locator(SEL.handCardLegal).first().click();
+  await expect(page.locator(".tut-ok")).toBeVisible();
+  await page.locator(".tut-ok").click();
+
+  // volta para o passo da ação: ele já foi cumprido, então NÃO pode voltar a exigir a carta —
+  // a jogada é irreversível no motor, e pedir de novo seria pedir o impossível.
+  await page.locator(".tut-voltar").click();
+  await expect(page.locator(".tut-passo")).toHaveText(new RegExp(`^${rotuloDaAcao?.split("/")[0]}/`));
+  await expect(page.locator(".tut-acao")).toHaveCount(0);
+  await expect(page.locator(".tut-ok")).toBeVisible();
+});

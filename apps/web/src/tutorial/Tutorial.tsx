@@ -1,13 +1,18 @@
 // APRENDA KING — a tela.
 //
 // A Mesa é a MESMA do jogo: mesmos naipes, mesmo leque, mesmo HUD, mesmo Placar. O tutorial é uma
-// camada por cima — o Rei falando embaixo e um botão de avançar. Quem aprende aqui não precisa
-// reaprender nada depois, porque não existe "versão de treino" da tela.
+// camada por cima — o Rei falando embaixo e a navegação. Quem aprende aqui não precisa reaprender
+// nada depois, porque não existe "versão de treino" da tela.
 //
-// Duas garantias de produto, as duas visíveis no código abaixo:
+// TRÊS GARANTIAS DE PRODUTO, as três visíveis no código abaixo:
+//
 //   1. NINGUÉM FICA PRESO — jogada fora do alvo didático não repete o passo. O Rei explica o que
-//      aconteceu e o botão de avançar aparece do mesmo jeito.
+//      aconteceu e a navegação segue.
 //   2. NINGUÉM É OBRIGADO — "Pular" está sempre na tela, a uma confirmação curta de distância.
+//   3. NADA PARECE TRAVADO — e esta é a mais recente. Num teste em iPhone real a pessoa achou que
+//      o tutorial tinha congelado, quando ele só estava esperando uma carta. Passo de AÇÃO agora
+//      se anuncia: "SUA VEZ", com o que fazer, e o botão de avançar não fica lá parado fingindo
+//      que é a saída.
 import { useCallback, useMemo, useRef, useState } from "react";
 import { cardId, type Card, type Trump } from "@king/engine";
 import { Mesa } from "../ui/Mesa.js";
@@ -17,6 +22,12 @@ import { PartidaDeTreino } from "./partidaDeTreino.js";
 import { cenaEm, passoEm, TOTAL_DE_PASSOS, type Passo } from "./roteiro.js";
 import { armazenamentoLocal, type ArmazenamentoDoTutorial } from "./persistencia.js";
 import { analytics } from "../analytics/analytics.js";
+
+/** O que o passo pede agora, em uma linha. Curto porque divide a tela com a fala do Rei. */
+const PEDIDO: Record<Exclude<Passo["acao"], "toque">, string> = {
+  jogar: "Toque numa carta acesa",
+  trunfo: "Escolha um naipe",
+};
 
 export function Tutorial({
   onSair, onOpenAudio, armazenamento = armazenamentoLocal, passoInicial,
@@ -37,15 +48,29 @@ export function Tutorial({
   const [confirmandoSaida, setConfirmandoSaida] = useState(false);
   const [, forcarRedesenho] = useState(0);
 
+  /**
+   * Passos de AÇÃO já cumpridos.
+   *
+   * É o que permite VOLTAR sem mentir. Uma jogada é irreversível no motor — desfazê-la
+   * artificialmente duplicaria carta, repetiria penalidade e faria a cena divergir do Game
+   * Engine. Então voltar não desfaz nada: leva de volta à EXPLICAÇÃO, com a cena como está. E
+   * quando o passo revisitado é uma ação que já foi feita, ele deixa de pedir a ação e volta a
+   * ser leitura — porque pedir de novo o que já aconteceu seria justamente o pedido impossível.
+   */
+  const cumpridos = useRef<Set<number>>(new Set());
+
   const passo: Passo = passoEm(indice);
   const cena = cenaEm(indice);
 
-  // A partida é recriada quando — e só quando — o roteiro troca de cena.
+  // A partida é recriada quando — e só quando — o roteiro troca de cena. Voltar para uma cena
+  // anterior a remonta do zero: é uma cena determinística, não uma partida a preservar.
   const cenaMontada = useRef<string>("");
   const partida = useRef<PartidaDeTreino | null>(null);
   if (cenaMontada.current !== cena || partida.current === null) {
     partida.current = new PartidaDeTreino(cena);
     cenaMontada.current = cena;
+    // Cena remontada: o que foi cumprido dentro dela deixou de valer.
+    for (const i of [...cumpridos.current]) if (cenaEm(i) === cena) cumpridos.current.delete(i);
   }
   const jogo = partida.current;
 
@@ -75,6 +100,15 @@ export function Tutorial({
     salvar(proximo, false);
   }, [indice, onSair, salvar]);
 
+  const voltar = useCallback(() => {
+    if (indice === 0) return;
+    sfxTap();
+    setResposta(null);
+    const anterior = indice - 1;
+    setIndice(anterior);
+    salvar(anterior, false);
+  }, [indice, salvar]);
+
   const sair = useCallback(() => {
     // Pular NÃO é concluir. O progresso fica salvo para quem voltar depois.
     salvar(indice, false);
@@ -88,25 +122,29 @@ export function Tutorial({
     setResposta(texto ? { texto, humor: acertou ? "acerto" : "erro" } : null);
   }, [passo]);
 
+  // Um passo de ação só pede a ação UMA vez. Depois de cumprido, revisitá-lo é leitura.
+  const jaCumprido = cumpridos.current.has(indice);
+  const esperandoAcao = passo.acao !== "toque" && !jaCumprido && resposta === null;
+
   const aoJogar = useCallback((carta: Card) => {
-    if (passo.acao !== "jogar" || resposta) return;
+    if (passo.acao !== "jogar" || !esperandoAcao) return;
     const alvo = passo.alvo?.(jogo.estado()) ?? [];
     const acertou = alvo.length === 0 || alvo.some((c) => cardId(c) === cardId(carta));
     sfxCardPlay();
     jogo.jogar(carta);
+    cumpridos.current.add(indice);
     forcarRedesenho((n) => n + 1);
     responder(acertou);
-  }, [jogo, passo, resposta, responder]);
+  }, [esperandoAcao, indice, jogo, passo, responder]);
 
   const aoEscolherTrunfo = useCallback((trunfo: Trump) => {
-    if (passo.acao !== "trunfo" || resposta) return;
+    if (passo.acao !== "trunfo" || !esperandoAcao) return;
     jogo.escolherTrunfo(trunfo);
+    cumpridos.current.add(indice);
     forcarRedesenho((n) => n + 1);
     responder(trunfo === passo.trunfoAlvo);
-  }, [jogo, passo, resposta, responder]);
+  }, [esperandoAcao, indice, jogo, passo, responder]);
 
-  // O botão de avançar aparece quando o passo é de leitura, ou depois que a ação foi feita.
-  const podeAvancar = passo.acao === "toque" || resposta !== null;
   const fala = resposta?.texto ?? passo.fala;
   const humor = resposta?.humor ?? "fala";
   const ultimo = indice === TOTAL_DE_PASSOS - 1;
@@ -114,7 +152,7 @@ export function Tutorial({
   const nada = useMemo(() => () => {}, []);
 
   return (
-    <div className="tut">
+    <div className={`tut${esperandoAcao ? " agindo" : ""}`}>
       <Mesa
         game={jogo}
         reviewing={false}
@@ -144,13 +182,35 @@ export function Tutorial({
             Pular
           </button>
         </div>
+
         <div className="tut-linha">
           <Rei fala={fala} humor={humor} />
-          {podeAvancar && (
-            <button className="btn gold tut-ok" autoFocus onClick={avancar}>
-              {ultimo ? "Jogar!" : "Continuar"}
+
+          <div className="tut-nav">
+            <button
+              className="btn ghost tut-voltar"
+              onClick={voltar}
+              disabled={indice === 0}
+              aria-label="Voltar para a instrução anterior"
+            >
+              Voltar
             </button>
-          )}
+
+            {/* ESTADO DE AÇÃO × ESTADO DE LEITURA.
+                Quando falta uma ação, "Avançar" NÃO some — sumir deixaria a tela sem nenhuma
+                pista do que fazer, que é exatamente a queixa. Ele fica desabilitado e cede o
+                lugar visual para o pedido, que diz o que a pessoa precisa tocar. */}
+            {esperandoAcao ? (
+              <span className="tut-acao" role="status" aria-live="assertive">
+                <b>SUA VEZ</b>
+                <i>{PEDIDO[passo.acao as Exclude<Passo["acao"], "toque">]}</i>
+              </span>
+            ) : (
+              <button className="btn gold tut-ok" autoFocus onClick={avancar}>
+                {ultimo ? "Jogar!" : "Avançar"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
