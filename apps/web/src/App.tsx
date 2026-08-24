@@ -79,8 +79,8 @@ function ModoLocal({
   const online: OnlineDaHome = {
     indisponivel: servidor.ok ? null : servidor.motivo,
     podeVoltar: lerRecuperacao() !== null,
-    onCriar: (nick) => onIrParaOnline({ tipo: "criar", nick }),
-    onEntrar: (codigo, nick) => onIrParaOnline({ tipo: "entrar", codigo, nick }),
+    onCriar: (nick, avatar) => onIrParaOnline({ tipo: "criar", nick, avatar }),
+    onEntrar: (codigo, nick, avatar) => onIrParaOnline({ tipo: "entrar", codigo, nick, avatar }),
     onVoltar: () => onIrParaOnline({ tipo: "voltar" }),
   };
 

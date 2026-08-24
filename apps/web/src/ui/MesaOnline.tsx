@@ -9,7 +9,10 @@
 //   2. que a conexão caiu e está voltando;
 //   3. que o servidor está jogando por alguém que se ausentou;
 //   4. quem já confirmou a próxima mão.
+import { useEffect, useRef } from "react";
 import type { Seat } from "@king/engine";
+import { deveAlertar, lerRelogio } from "./relogio.js";
+import { sfxTempoAcabando } from "../audio/sounds.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao, RelogioRecebido } from "../game/useKingOnline.js";
 
@@ -41,20 +44,49 @@ export function SeloDeAssistencia({ assento }: { assento?: AssentoLido }) {
 }
 
 /**
+ * Selo de BOT. Enquanto o bot se chamava "BOT NORMAL" o próprio nome já avisava; com nome
+ * próprio, o aviso passa a ser este. Ninguém deve descobrir que jogou contra a máquina depois
+ * da partida.
+ */
+export function SeloDeBot({ assento }: { assento?: AssentoLido }) {
+  if (!assento?.bot) return null;
+  return <span className="robo" title="Jogador controlado pelo servidor">Bot</span>;
+}
+
+/**
  * Relógio da decisão. O servidor manda `restanteMs` no início e a cada mudança de fase; entre as
- * mensagens o cliente conta sozinho. Nunca há contador local próprio — dessincronizaria.
+ * mensagens o cliente conta sozinho. Nunca há contador local próprio — dessincronizaria. E o
+ * prazo continua sendo do servidor: quem age por estouro é ele, não esta tela.
  *
  * Só aparece em PLAY e TRUMP. O prazo do READY é assunto do Placar, que já mostra o consenso.
+ *
+ * ESTADO CRÍTICO — últimos 10 segundos. O aviso NÃO depende de um sentido só:
+ *   cor   (vermelho + pulso discreto)
+ *   TEXTO ("Seu tempo está acabando") — quem não distingue a cor, lê
+ *   som   (uma vez, na virada 11 → 10) — quem não olha a tela, ouve
+ * O som respeita o toggle de efeitos automaticamente, porque `audio.tone` sai cedo quando eles
+ * estão desligados. Quem joga sem áudio continua tendo cor e texto.
  */
 export function ChipDoRelogio({ relogio, eu }: { relogio: RelogioRecebido | null; eu: Seat }) {
-  if (!relogio || relogio.tipo === "READY" || relogio.seat === null) return null;
-  const restante = relogio.restanteMs - (Date.now() - relogio.recebidoEm);
-  if (restante <= 0) return null;
-  const seg = Math.ceil(restante / 1000);
-  const meu = relogio.seat === eu;
+  const leitura = lerRelogio(relogio, eu, Date.now());
+  const jaAvisado = useRef(0);
+
+  useEffect(() => {
+    if (!deveAlertar(leitura, jaAvisado.current)) return;
+    jaAvisado.current = leitura!.prazoEm;
+    sfxTempoAcabando();
+  });
+
+  if (!leitura?.visivel) return null;
+  const critico = leitura.estado === "critico";
   return (
-    <div className={`mprelogio ${relogio.fase.toLowerCase()}${meu ? " meu" : ""}`} role="timer" aria-live="off">
-      {seg}s
+    <div
+      className={`mprelogio ${leitura.estado}${leitura.meu ? " meu" : ""}`}
+      role="timer"
+      aria-live={critico && leitura.meu ? "assertive" : "off"}
+    >
+      <b>{leitura.segundos}s</b>
+      {critico && leitura.meu && <i>Seu tempo está acabando</i>}
     </div>
   );
 }

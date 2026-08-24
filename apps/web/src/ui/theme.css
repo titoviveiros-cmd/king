@@ -153,10 +153,26 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .opp.top{top:calc(var(--pad) + var(--st) + clamp(36px,7.5vh,62px));left:50%;transform:translateX(-50%);}
 .opp.right{right:calc(var(--pad) + var(--sr));top:52%;transform:translateY(-50%);}
 .opp .av{width:calc(var(--ui)*2.5);height:calc(var(--ui)*2.5);border-radius:50%;display:grid;place-items:center;
-  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.15);color:#0e0722;border:2px solid var(--night2);flex:none;}
-.opp.left .av{background:linear-gradient(135deg,#7ef0dd,var(--turq));}
-.opp.top .av{background:linear-gradient(135deg,#c3a6ff,var(--violet));}
-.opp.right .av{background:linear-gradient(135deg,#ff9ecb,var(--magenta));}
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.15);border:2px solid var(--night2);flex:none;}
+
+/* ═══════════ IDENTIDADE VISUAL POR ASSENTO — FONTE ÚNICA ═══════════
+   A cor pertence ao JOGADOR, nunca ao lugar dele na tela.
+
+   A Mesa gira em torno de quem está olhando (você sempre embaixo), então colorir por POSIÇÃO
+   fazia a mesma pessoa aparecer turquesa num aparelho e magenta no outro — e contradizia o
+   Placar, que sempre coloriu por assento. O Design System já mandava "avatar com a cor do
+   assento (a mesma da Mesa)"; isto passa a cumprir a especificação em vez de contrariá-la.
+
+   Definido UMA vez e consumido por Mesa, Placar, selo do castigo e lobby. Acrescentar um lugar
+   novo que mostre gente é usar var(--ident), não escolher uma cor de novo. */
+.s0{--ident:linear-gradient(135deg,#ffe27a,var(--gold));   --ident-tinta:#231206;}
+.s1{--ident:linear-gradient(135deg,#7ef0dd,var(--turq));   --ident-tinta:#0e0722;}
+.s2{--ident:linear-gradient(135deg,#c3a6ff,var(--violet)); --ident-tinta:#ffffff;}
+.s3{--ident:linear-gradient(135deg,#ff9ecb,var(--magenta));--ident-tinta:#ffffff;}
+.opp .av, .youtag .av, .castigo .av, .pl-av, .sl-av{background:var(--ident);color:var(--ident-tinta);}
+/* Avatar de naipe vermelho sobre o círculo do assento. O tom escuro seria ilegível em cima do
+   dourado e o claro sumiria no magenta: o vermelho é o único que funciona nos quatro. */
+.av.vermelho, .sl-av.vermelho{color:#c2183c;}
 .opp .n{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.08);color:#fff;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;}
 .opp .m{font-size:calc(var(--ui)*.9);font-weight:800;margin-top:3px;display:flex;gap:calc(var(--ui)*.62);}
@@ -197,8 +213,7 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   box-shadow:0 6px 18px -8px #000;}
 .youtag.active{box-shadow:0 0 0 2px var(--gold),0 0 22px rgba(244,197,66,.55);}
 .youtag .av{width:calc(var(--ui)*2.5);height:calc(var(--ui)*2.5);border-radius:50%;display:grid;place-items:center;
-  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.15);color:#0e0722;
-  background:linear-gradient(135deg,#ffe27a,var(--gold));border:2px solid var(--night2);flex:none;}
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.15);border:2px solid var(--night2);flex:none;}
 .youtag .n{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.08);line-height:1.1;}
 .youtag .m{font-size:calc(var(--ui)*.9);font-weight:800;color:var(--gold);margin-top:3px;}
 /* Aviso de confirmação do toque: canto inferior DIREITO, a única faixa que o leque nunca
@@ -234,10 +249,6 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*.98);}
 .castigo .av{width:calc(var(--ui)*2.1);height:calc(var(--ui)*2.1);border-radius:50%;display:grid;
   place-items:center;font-style:normal;font-size:calc(var(--ui)*1);color:#0e0722;border:2px solid var(--night2);}
-.castigo .av.s0{background:linear-gradient(135deg,#ffe27a,var(--gold));}
-.castigo .av.s1{background:linear-gradient(135deg,#7ef0dd,var(--turq));}
-.castigo .av.s2{background:linear-gradient(135deg,#c3a6ff,var(--violet));}
-.castigo .av.s3{background:linear-gradient(135deg,#ff9ecb,var(--magenta));}
 .castigo .oque{font-family:var(--disp);font-weight:800;color:#ff9ecb;font-size:calc(var(--ui)*1.12);
   padding-left:calc(var(--ui)*.7);border-left:1px solid rgba(255,255,255,.18);}
 .castigo .quanto{font-family:var(--disp);font-weight:800;font-variant-numeric:tabular-nums;
@@ -406,11 +417,7 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .pl-mov{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.86);}
 .pl-mov.up{color:var(--turq);} .pl-mov.down{color:#ff7aa8;} .pl-mov.flat{color:var(--faint);}
 .pl-av{width:calc(var(--ui)*2.3);height:calc(var(--ui)*2.3);border-radius:50%;display:grid;place-items:center;
-  font-family:var(--disp);font-weight:800;color:#0e0722;border:2px solid var(--night2);font-size:calc(var(--ui)*1.06);}
-.pl-av.s0{background:linear-gradient(135deg,#ffe27a,var(--gold));}
-.pl-av.s1{background:linear-gradient(135deg,#7ef0dd,var(--turq));}
-.pl-av.s2{background:linear-gradient(135deg,#c3a6ff,var(--violet));}
-.pl-av.s3{background:linear-gradient(135deg,#ff9ecb,var(--magenta));}
+  font-family:var(--disp);font-weight:800;border:2px solid var(--night2);font-size:calc(var(--ui)*1.06);}
 .pl-name{font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*1.06);line-height:1.15;min-width:0;}
 .pl-detail{display:block;font-family:var(--body);font-weight:700;font-style:normal;font-size:calc(var(--ui)*.86);
   color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -567,6 +574,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   border:1px solid rgba(45,212,191,.42);border-radius:999px;padding:.1em .5em;line-height:1.5;}
 .assist::before{content:"🤖";font-size:.9em;}
 
+/* Selo de BOT na mesa. Mesma família visual do selo de assistência (as duas coisas dizem "aqui
+   quem joga é o servidor"), tom mais apagado porque é permanente e não um aviso. */
+.n .robo{display:inline-flex;align-items:center;gap:.28em;margin-left:.45em;vertical-align:middle;
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.62);letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted);background:rgba(255,255,255,.06);
+  border:1px solid rgba(146,132,184,.42);border-radius:999px;padding:.1em .5em;line-height:1.5;}
+.n .robo::before{content:"🤖";font-size:.9em;}
+
 /* Ausente: o card esmaece, sem sumir — a pessoa continua na mesa, só não está conectada agora. */
 .opp.ausente{opacity:.55;filter:saturate(.6);}
 .opp.ausente .av{filter:grayscale(.5);}
@@ -575,14 +590,19 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    esquerda), com o slot de trunfo (abaixo do HUD) nem com o adversário do topo (centro). */
 .mprelogio{position:absolute;z-index:9;
   top:calc(var(--pad) + var(--st) + var(--ui)*2.9);right:calc(var(--pad) + var(--sr));
+  display:flex;flex-direction:column;align-items:flex-end;gap:.2em;
   font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.95);letter-spacing:.04em;
   padding:.18em .62em;border-radius:999px;line-height:1.4;
   color:var(--muted);background:rgba(14,7,26,.78);border:1px solid rgba(146,132,184,.35);
   font-variant-numeric:tabular-nums;}
 .mprelogio.meu{color:#fff;border-color:rgba(244,197,66,.5);}
-.mprelogio.warning{color:var(--gold);border-color:rgba(244,197,66,.6);background:rgba(40,26,4,.82);}
-.mprelogio.critical{color:#fff;background:linear-gradient(180deg,#e0338a,#a11f61);
-  border-color:rgba(255,255,255,.35);animation:mppulsa .9s ease-in-out infinite;}
+/* ESTADO CRÍTICO — últimos 10s. Vermelho + pulso, mas a cor NUNCA é o único sinal: o texto
+   abaixo diz a mesma coisa, e há um som na transição. Ver ChipDoRelogio. */
+.mprelogio.critico{color:#fff;background:linear-gradient(180deg,#e0338a,#a11f61);
+  border-color:rgba(255,255,255,.35);border-radius:16px;
+  animation:mppulsa .9s ease-in-out infinite;}
+.mprelogio i{font-style:normal;font-size:calc(var(--ui)*.66);letter-spacing:.02em;
+  font-weight:800;opacity:.95;white-space:nowrap;}
 @keyframes mppulsa{0%,100%{transform:scale(1);}50%{transform:scale(1.09);}}
 
 /* Faixa de conexão: só existe quando algo está errado. Em jogo normal não ocupa nada. */
@@ -634,6 +654,22 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   background:rgba(255,255,255,.06);border:1.5px solid rgba(146,132,184,.45);border-radius:12px;
   padding:.55em .8em;outline:none;width:100%;}
 .hm-campo input:focus{border-color:var(--gold);background:rgba(255,255,255,.1);}
+/* Seletor de avatar. Oito escolhas numa grade — cabe na tela do celular sem rolar, e a escolha
+   é um toque só. O rótulo de cada um vai em aria-label: identidade não pode depender de enxergar
+   um glifo pequeno. */
+.hm-avatares{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;width:100%;
+  border:none;padding:0;margin:0;min-width:0;}
+.hm-avatares legend{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.7);
+  letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:0;margin-bottom:4px;}
+.hm-av{aspect-ratio:1;display:grid;place-items:center;cursor:pointer;
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.15);color:var(--ink);
+  background:rgba(255,255,255,.06);border:1.5px solid rgba(146,132,184,.45);border-radius:12px;
+  padding:0;line-height:1;transition:all .18s ease;}
+.hm-av.vermelho{color:#ff7a96;}
+.hm-av.escolhido{border-color:var(--gold);background:rgba(244,197,66,.16);
+  box-shadow:0 0 0 1.5px rgba(244,197,66,.4);}
+.hm-av:active{transform:translateY(1px);}
+
 .hm-ou{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.72);
   letter-spacing:.2em;text-transform:uppercase;color:var(--faint);}
 .hm-aviso{font-size:clamp(.72rem,1.8vh,.88rem);color:var(--gold);max-width:min(86vw,340px);margin:0;}
@@ -658,11 +694,7 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .sl-lugar.ausente{opacity:.6;}
 .sl-lugar.voce{box-shadow:0 0 0 1.5px rgba(244,197,66,.45);}
 .sl-av{width:calc(var(--ui)*2.1);height:calc(var(--ui)*2.1);border-radius:50%;flex:none;
-  display:grid;place-items:center;font-family:var(--disp);font-weight:800;color:#231206;
-  background:linear-gradient(135deg,#ffe27a,var(--gold));}
-.sl-lugar.s1 .sl-av{background:linear-gradient(135deg,#7ef0dd,var(--turq));}
-.sl-lugar.s2 .sl-av{background:linear-gradient(135deg,#c3a6ff,var(--violet));color:#fff;}
-.sl-lugar.s3 .sl-av{background:linear-gradient(135deg,#ff9ecb,var(--magenta));color:#fff;}
+  display:grid;place-items:center;font-family:var(--disp);font-weight:800;}
 .sl-nome{font-family:var(--disp);font-weight:800;color:#fff;flex:1 1 auto;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .sl-nome i{font-style:normal;color:var(--faint);font-weight:800;}
@@ -671,7 +703,8 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .sl-lugar.pronto .sl-estado{color:var(--gold);}
 /* Assento de BOT NORMAL no lobby: presente, mas visualmente mais quieto que uma pessoa. */
 .sl-lugar.robo{border-style:dashed;border-color:rgba(146,132,184,.55);background:rgba(255,255,255,.03);}
-.sl-lugar.robo .sl-av{background:linear-gradient(135deg,#3a3357,#26203d);color:var(--muted);font-size:calc(var(--ui)*1.1);}
+/* O bot mantém a COR DO ASSENTO — a dica de que é bot são a borda tracejada e o nome. */
+.sl-lugar.robo .sl-av{font-size:calc(var(--ui)*1.1);}
 .sl-lugar.robo .sl-nome{color:var(--muted);}
 
 /* Botoes de composicao — so aparecem para o anfitriao, e so antes de comecar. */
@@ -691,6 +724,6 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   .coroawrap{opacity:1;transform:none;} .fimtitulo{opacity:1;transform:none;}
   .fimlinha{transition:none;} .confetes{display:none;}
   .hand .card{transition:none;}
-  .mprelogio.critical{animation:none;} .mprecusa{animation:none;} .pl-pronto{transition:none;}
+  .mprelogio.critico{animation:none;} .mprecusa{animation:none;} .pl-pronto{transition:none;}
   .sl-lugar{transition:none;}
 }

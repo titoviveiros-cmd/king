@@ -233,9 +233,11 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     }
   }, [abrir, assinar, bump, servidor]);
 
-  const criarSala = useCallback((nick: string) => { void conectar({ tipo: "criar", nick }); }, [conectar]);
-  const entrarNaSala = useCallback((codigo: string, nick: string) => {
-    void conectar({ tipo: "entrar", codigo: codigo.trim().toUpperCase(), nick });
+  const criarSala = useCallback((nick: string, avatar: string) => {
+    void conectar({ tipo: "criar", nick, avatar });
+  }, [conectar]);
+  const entrarNaSala = useCallback((codigo: string, nick: string, avatar: string) => {
+    void conectar({ tipo: "entrar", codigo: codigo.trim().toUpperCase(), nick, avatar });
   }, [conectar]);
   const voltarParaSala = useCallback(() => {
     const token = lerRecuperacao();

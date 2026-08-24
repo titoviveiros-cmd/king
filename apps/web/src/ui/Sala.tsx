@@ -20,6 +20,7 @@ import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
 import type { EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao } from "../game/useKingOnline.js";
+import { desenhoDoAvatar } from "./avatares.js";
 
 const LUGARES: Seat[] = [0, 1, 2, 3];
 
@@ -84,9 +85,11 @@ export function Sala({
               key={i}
               className={`sl-lugar s${i}${vazio ? " vago" : ""}${bot ? " robo" : ""}${a?.ready && !bot ? " pronto" : ""}${a && !vazio && !bot && !a.connected ? " ausente" : ""}${i === eu ? " voce" : ""}`}
             >
-              <span className="sl-av">{vazio ? "+" : bot ? "🤖" : a.nick[0]}</span>
+              <Insignia vazio={vazio} bot={bot} avatar={a?.avatar} />
               <span className="sl-nome">
                 {vazio ? "Aguardando…" : a.nick}
+                {/* O bot ganhou nome próprio; a etiqueta é o que impede alguém de achar que é gente. */}
+                {bot && <i> · bot</i>}
                 {i === eu && <i> (você)</i>}
                 {a?.host && !bot && <i> · anfitrião</i>}
               </span>
@@ -126,6 +129,17 @@ export function Sala({
       <div className="foot">{rodape(ocupados, humanos, souAnfitriao)}</div>
     </div>
   );
+}
+
+/**
+ * O círculo do lugar. Cor pelo assento, desenho pelo avatar autoritativo — e o robô continua
+ * com cara de robô, porque agora ele tem nome de gente.
+ */
+function Insignia({ vazio, bot, avatar }: { vazio: boolean; bot: boolean; avatar?: string }) {
+  if (vazio) return <span className="sl-av" aria-label="lugar vago">+</span>;
+  if (bot) return <span className="sl-av" aria-label="bot">🤖</span>;
+  const d = desenhoDoAvatar(avatar);
+  return <span className={`sl-av${d.vermelho ? " vermelho" : ""}`} aria-label={d.rotulo}>{d.glifo}</span>;
 }
 
 /**

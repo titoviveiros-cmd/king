@@ -48,7 +48,7 @@ function salaFalsa(estadoInicial: unknown = null) {
 const ESTADO = {
   protocolVersion: 1, roomCode: "0315", roomId: "0315", status: "lobby",
   seats: [
-    { seat: 0, playerId: "p0", nick: "Tito", connected: true, ready: true, assisted: false },
+    { seat: 0, playerId: "p0", nick: "Tito", connected: true, ready: true, assisted: false, avatar: "espadas" },
     { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false },
     { seat: 2, playerId: "p2", nick: "Bia", connected: false, ready: false, assisted: true },
     { seat: 3, playerId: "", nick: "", connected: false, ready: false, assisted: false },
@@ -61,7 +61,7 @@ describe("lerEstadoDaSala", () => {
     expect(e.roomCode).toBe("0315");
     expect(e.status).toBe("lobby");
     expect(e.seats).toHaveLength(4);
-    expect(e.seats[0]).toMatchObject({ nick: "Tito", ready: true, connected: true });
+    expect(e.seats[0]).toMatchObject({ nick: "Tito", ready: true, connected: true, avatar: "espadas" });
     expect(e.seats[2]).toMatchObject({ nick: "Bia", connected: false, assisted: true });
   });
 
@@ -80,9 +80,11 @@ describe("lerEstadoDaSala", () => {
     expect(magro.status).toBe("lobby");
     const torto = lerEstadoDaSala({ status: 7, seats: [{}, null] })!;
     expect(torto.status).toBe("lobby"); // status desconhecido cai no seguro
+    // `avatar` vazio é aceitável AQUI: quem garante um valor do conjunto fechado é o servidor,
+    // e a camada de desenho cai no padrão sozinha. O leitor não inventa dado que não veio.
     expect(torto.seats).toEqual([
-      { seat: 0, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false },
-      { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false },
+      { seat: 0, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "" },
+      { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "" },
     ]);
   });
 

@@ -27,8 +27,8 @@ export default function ModoOnline({
     // salas por um clique deixaria a primeira órfã até o TTL do servidor.
     if (disparado.current) return;
     disparado.current = true;
-    if (entrada.tipo === "criar") criarSala(entrada.nick);
-    else if (entrada.tipo === "entrar") entrarNaSala(entrada.codigo, entrada.nick);
+    if (entrada.tipo === "criar") criarSala(entrada.nick, entrada.avatar);
+    else if (entrada.tipo === "entrar") entrarNaSala(entrada.codigo, entrada.nick, entrada.avatar);
     else voltarParaSala();
   }, [entrada, criarSala, entrarNaSala, voltarParaSala]);
 

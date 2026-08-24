@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
+import { AVATARES, avatarLembrado, desenhoDoAvatar, lembrarAvatar, type Avatar } from "./avatares.js";
 
 /**
  * O código da sala tem QUATRO DÍGITOS e é sempre string.
@@ -18,8 +19,8 @@ export interface OnlineDaHome {
   /** `null` quando o multiplayer está disponível; texto explicativo quando não está. */
   indisponivel: string | null;
   podeVoltar: boolean;
-  onCriar: (nick: string) => void;
-  onEntrar: (codigo: string, nick: string) => void;
+  onCriar: (nick: string, avatar: Avatar) => void;
+  onEntrar: (codigo: string, nick: string, avatar: Avatar) => void;
   onVoltar: () => void;
 }
 
@@ -34,6 +35,9 @@ export function Home({
   const [painel, setPainel] = useState(false);
   const [nick, setNick] = useState("");
   const [codigo, setCodigo] = useState("");
+  // A escolha anterior volta pré-selecionada. É conveniência local e nada mais: quem manda no
+  // avatar que os outros veem é o servidor, que revalida a etiqueta na entrada.
+  const [avatar, setAvatar] = useState<Avatar>(avatarLembrado);
 
   const nome = nick.trim() || "Jogador";
 
@@ -71,7 +75,26 @@ export function Home({
                 maxLength={14}
               />
             </label>
-            <button className="btn violet wide" onClick={() => { sfxTap(); online.onCriar(nome); }}>
+            <fieldset className="hm-avatares">
+              <legend>Seu avatar</legend>
+              {AVATARES.map((id) => {
+                const d = desenhoDoAvatar(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`hm-av${d.vermelho ? " vermelho" : ""}${id === avatar ? " escolhido" : ""}`}
+                    aria-pressed={id === avatar}
+                    aria-label={d.rotulo}
+                    title={d.rotulo}
+                    onClick={() => { sfxTap(); setAvatar(id); lembrarAvatar(id); }}
+                  >
+                    {d.glifo}
+                  </button>
+                );
+              })}
+            </fieldset>
+            <button className="btn violet wide" onClick={() => { sfxTap(); online.onCriar(nome, avatar); }}>
               Criar uma sala
             </button>
             <div className="hm-ou">ou</div>
@@ -89,7 +112,7 @@ export function Home({
             <button
               className="btn gold wide"
               disabled={codigo.length < TAMANHO_CODIGO}
-              onClick={() => { sfxTap(); online.onEntrar(codigo, nome); }}
+              onClick={() => { sfxTap(); online.onEntrar(codigo, nome, avatar); }}
             >
               Entrar na sala
             </button>

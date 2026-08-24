@@ -26,6 +26,8 @@ export interface AssentoLido {
   bot: boolean;
   /** Anfitrião da sala: o único que adiciona e remove bots. */
   host: boolean;
+  /** Avatar escolhido. Vem do estado autoritativo — é o MESMO em todos os aparelhos. */
+  avatar: string;
 }
 
 /** Estado PÚBLICO da sala. Nunca contém mão, baralho nem semente — isso é lei do servidor. */
@@ -55,8 +57,8 @@ export interface SessaoKing {
 }
 
 export type Pedido =
-  | { tipo: "criar"; nick: string }
-  | { tipo: "entrar"; codigo: string; nick: string }
+  | { tipo: "criar"; nick: string; avatar: string }
+  | { tipo: "entrar"; codigo: string; nick: string; avatar: string }
   | { tipo: "voltar"; recoveryToken: string };
 
 /** Abre uma sessão. A implementação real fala Colyseus; os testes injetam uma falsa. */
@@ -102,6 +104,7 @@ export function lerEstadoDaSala(bruto: unknown): EstadoDaSalaLido | null {
         assisted: booleano(a.assisted),
         bot: booleano(a.bot),
         host: booleano(a.host),
+        avatar: texto(a.avatar),
       };
     }),
   };
@@ -147,7 +150,7 @@ export function abridorColyseus(url: string): AbridorDeSessao {
     if (pedido.tipo === "voltar") {
       return envolverSala(await client.reconnect(pedido.recoveryToken));
     }
-    const opcoes = { protocolVersion: PROTOCOL_VERSION, nick: pedido.nick };
+    const opcoes = { protocolVersion: PROTOCOL_VERSION, nick: pedido.nick, avatar: pedido.avatar };
     const sala = pedido.tipo === "criar"
       ? await client.create(SALA_KING, opcoes)
       : await client.joinById(pedido.codigo, opcoes);

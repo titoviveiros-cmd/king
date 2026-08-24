@@ -24,6 +24,7 @@ import { PartidaRemota } from "../game/partidaRemota.js";
 import { Mesa, type MesaMultiplayer } from "./Mesa.js";
 import type { AtualizacaoDeEstado, Causa } from "../net/protocolo.js";
 import type { EstadoDaSalaLido } from "../net/clienteKing.js";
+import { AVATAR_PADRAO, desenhoDoAvatar } from "./avatares.js";
 
 const noop = () => {};
 const JOGADORES = ["Você", "Bia", "Léo", "Nara"];
@@ -39,12 +40,20 @@ function render(game: KingGame | PartidaRemota, mp?: MesaMultiplayer, reviewing 
   ));
 }
 
-function sala(over: Partial<EstadoDaSalaLido> = {}, assentos: Partial<{ assisted: boolean; connected: boolean; ready: boolean }>[] = []): EstadoDaSalaLido {
+/** Os avatares do fixture: um por assento, para ninguém passar por engano num teste de igualdade. */
+const AVATARES_DA_MESA = ["coroa", "copas", "espadas", "ouros"];
+
+type AssentoDoFixture = Partial<{
+  assisted: boolean; connected: boolean; ready: boolean; bot: boolean; host: boolean; avatar: string;
+}>;
+
+function sala(over: Partial<EstadoDaSalaLido> = {}, assentos: AssentoDoFixture[] = []): EstadoDaSalaLido {
   return {
     protocolVersion: 1, roomCode: "0315", roomId: "0315", status: "playing",
     seats: SEATS.map((s) => ({
       seat: s, playerId: "p" + s, nick: JOGADORES[s],
-      connected: true, ready: false, assisted: false, ...(assentos[s] ?? {}),
+      connected: true, ready: false, assisted: false, bot: false, host: s === 0,
+      avatar: AVATARES_DA_MESA[s], ...(assentos[s] ?? {}),
     })),
     ...over,
   };
@@ -192,12 +201,45 @@ describe("indicações que só existem no multiplayer", () => {
 
   it("o relógio da decisão vem do servidor e mostra os segundos restantes", () => {
     const m = partidaEmCurso();
+    const relogio = { tipo: "PLAY" as const, seat: 0 as Seat, fase: "NORMAL" as const, restanteMs: 22_000, recebidoEm: Date.now() };
+    const root = render(remota(m, 0), contexto(0, { relogio }));
+    const chip = root.querySelector(".mprelogio")!;
+    expect(chip.getAttribute("class")).toContain("normal");
+    expect(chip.getAttribute("class")).toContain("meu");
+    expect(chip.text).toMatch(/^2[12]s$/);
+    // acima de 10s nao existe alerta nenhum
+    expect(chip.text).not.toContain("acabando");
+  });
+
+  it("aos 10 segundos entra o ESTADO CRITICO — cor, TEXTO e aria, nao so cor", () => {
+    const m = partidaEmCurso();
     const relogio = { tipo: "PLAY" as const, seat: 0 as Seat, fase: "WARNING" as const, restanteMs: 8000, recebidoEm: Date.now() };
     const root = render(remota(m, 0), contexto(0, { relogio }));
     const chip = root.querySelector(".mprelogio")!;
-    expect(chip.getAttribute("class")).toContain("warning");
+
+    expect(chip.getAttribute("class")).toContain("critico");
     expect(chip.getAttribute("class")).toContain("meu");
-    expect(chip.text).toMatch(/^[78]s$/);
+    expect(chip.text).toMatch(/^[78]s/);
+    // ACESSIBILIDADE: o aviso nao pode depender so da cor
+    expect(chip.text).toContain("Seu tempo está acabando");
+    expect(chip.getAttribute("aria-live")).toBe("assertive");
+  });
+
+  it("no turno DOS OUTROS o relogio fica critico, mas sem texto dirigido a mim", () => {
+    const m = partidaEmCurso();
+    const relogio = { tipo: "PLAY" as const, seat: 2 as Seat, fase: "CRITICAL" as const, restanteMs: 6000, recebidoEm: Date.now() };
+    const root = render(remota(m, 0), contexto(0, { relogio }));
+    const chip = root.querySelector(".mprelogio")!;
+    expect(chip.getAttribute("class")).toContain("critico");
+    expect(chip.getAttribute("class")).not.toContain("meu");
+    expect(chip.text).not.toContain("acabando");
+    expect(chip.getAttribute("aria-live")).toBe("off");
+  });
+
+  it("prazo esgotado some da tela — quem age por estouro e o servidor", () => {
+    const m = partidaEmCurso();
+    const relogio = { tipo: "PLAY" as const, seat: 0 as Seat, fase: "CRITICAL" as const, restanteMs: 0, recebidoEm: Date.now() };
+    expect(render(remota(m, 0), contexto(0, { relogio })).querySelectorAll(".mprelogio")).toHaveLength(0);
   });
 
   it("o relógio de READY não vira chip: quem trata disso é o Placar", () => {
@@ -284,5 +326,153 @@ describe("Placar entre-mãos no multiplayer", () => {
     const root = render(g);
     expect(root.querySelectorAll(".pl-consenso")).toHaveLength(0);
     expect(root.querySelector(".pl-actions .btn")!.text).toContain("Próxima mão");
+  });
+});
+
+// ═══════════════════ 6 · IDENTIDADE DE COR POR ASSENTO ═══════════════════
+
+describe("a cor pertence ao jogador, não ao lugar na tela", () => {
+  /** A classe de identidade que o avatar de cada assento carrega, na visão de `eu`. */
+  function corPorAssento(m: MatchState, eu: Seat): Record<number, string> {
+    const root = render(remota(m, eu), contexto(eu));
+    const mapa: Record<number, string> = {};
+    // o card local
+    const meu = root.querySelector(".youtag .av")?.getAttribute("class") ?? "";
+    mapa[eu] = (meu.match(/\bs([0-3])\b/) ?? [])[1] ?? "?";
+    // e os três adversários
+    for (const pos of ["left", "top", "right"]) {
+      const el = root.querySelector(`.opp.${pos} .av`);
+      const cls = el?.getAttribute("class") ?? "";
+      const s = (cls.match(/\bs([0-3])\b/) ?? [])[1];
+      const nome = root.querySelector(`.opp.${pos} .n`)?.text.trim() ?? "";
+      const assento = JOGADORES.findIndex((j) => nome.startsWith(j));
+      if (s !== undefined && assento >= 0) mapa[assento] = s;
+    }
+    return mapa;
+  }
+
+  it("cada assento carrega a SUA classe de identidade, qualquer que seja o observador", () => {
+    const m = partidaEmCurso();
+    for (const eu of SEATS) {
+      const mapa = corPorAssento(m, eu);
+      for (const s of SEATS) {
+        expect(mapa[s], `assento ${s} visto por ${eu}`).toBe(String(s));
+      }
+    }
+  });
+
+  it("dois clientes diferentes veem o MESMO assento com a MESMA cor", () => {
+    const m = partidaEmCurso();
+    const porTito = corPorAssento(m, 0);
+    const porLeo = corPorAssento(m, 2);
+    for (const s of SEATS) {
+      expect(porLeo[s], `assento ${s}`).toBe(porTito[s]);
+    }
+  });
+
+  it("a POSIÇÃO na tela muda entre clientes, a identidade não", () => {
+    const m = partidaEmCurso();
+    const doTito = render(remota(m, 0), contexto(0));
+    const doLeo = render(remota(m, 2), contexto(2));
+
+    // o assento 2 está no TOPO para o Tito e EMBAIXO (é ele) para o Léo — posições diferentes
+    expect(nomeEm(doTito, ".opp.top .n")).toBe("Léo");
+    expect(nomeEm(doLeo, ".youtag .n")).toBe("Léo");
+
+    // ...e mesmo assim a classe de identidade é a mesma nos dois
+    expect(doTito.querySelector(".opp.top .av")?.getAttribute("class")).toContain("s2");
+    expect(doLeo.querySelector(".youtag .av")?.getAttribute("class")).toContain("s2");
+  });
+
+  it("o Placar usa a mesma identidade da Mesa", () => {
+    const m = createMatch(JOGADORES, 13);
+    startNextHand(m);
+    for (let g = 0; g < 3000; g++) {
+      const h = m.hand!;
+      if (h.handScores !== null) break;
+      const s = h.turn!;
+      playCard(m, s, chooseNormalCard(buildBotView(m, s)));
+    }
+    for (const eu of SEATS) {
+      const root = render(remota(m, eu), contexto(eu));
+      for (const linha of root.querySelectorAll(".pl-row")) {
+        const cls = linha.querySelector(".pl-av")?.getAttribute("class") ?? "";
+        expect(cls).toMatch(/\bs[0-3]\b/);
+      }
+      // a linha do proprio jogador tem a classe do assento dele
+      const minha = root.querySelectorAll(".pl-row").find((r) => r.getAttribute("class")?.includes("you"));
+      expect(minha?.querySelector(".pl-av")?.getAttribute("class"), `assento ${eu}`).toContain(`s${eu}`);
+    }
+  });
+});
+
+// ═══════════════════ AVATAR ═══════════════════
+//
+// A cor vem do assento; o DESENHO vem do avatar que o servidor guardou. As duas coisas juntas
+// são a identidade — e identidade que muda de aparelho para aparelho não é identidade.
+
+describe("o avatar desenhado é o do estado autoritativo", () => {
+  /** O glifo desenhado para cada assento, na visão de `eu`. */
+  function glifoPorAssento(m: MatchState, eu: Seat): Record<number, string> {
+    const root = render(remota(m, eu), contexto(eu));
+    const mapa: Record<number, string> = {};
+    mapa[eu] = root.querySelector(".youtag .av")?.text.trim() ?? "";
+    for (const pos of ["left", "top", "right"]) {
+      const nome = root.querySelector(`.opp.${pos} .n`)?.text.trim() ?? "";
+      const assento = JOGADORES.findIndex((j) => nome.startsWith(j));
+      if (assento >= 0) mapa[assento] = root.querySelector(`.opp.${pos} .av`)?.text.trim() ?? "";
+    }
+    return mapa;
+  }
+
+  it("cada assento aparece com o desenho do SEU avatar", () => {
+    const esperado = AVATARES_DA_MESA.map((a) => desenhoDoAvatar(a).glifo);
+    const mapa = glifoPorAssento(partidaEmCurso(), 0);
+    for (const s of SEATS) expect(mapa[s], `assento ${s}`).toBe(esperado[s]);
+  });
+
+  it("dois clientes diferentes desenham o MESMO avatar no mesmo assento", () => {
+    const m = partidaEmCurso();
+    const porTito = glifoPorAssento(m, 0);
+    const porLeo = glifoPorAssento(m, 2);
+    for (const s of SEATS) expect(porLeo[s], `assento ${s}`).toBe(porTito[s]);
+  });
+
+  it("a rotação da tela não mexe no avatar: quem gira é a posição", () => {
+    const m = partidaEmCurso();
+    const doTito = render(remota(m, 0), contexto(0));
+    const doLeo = render(remota(m, 2), contexto(2));
+    const glifoDoLeo = desenhoDoAvatar(AVATARES_DA_MESA[2]).glifo;
+    expect(doTito.querySelector(".opp.top .av")?.text.trim()).toBe(glifoDoLeo);
+    expect(doLeo.querySelector(".youtag .av")?.text.trim()).toBe(glifoDoLeo);
+  });
+
+  it("o avatar vem acompanhado do NOME legível — não é só um símbolo", () => {
+    const root = render(remota(partidaEmCurso(), 0), contexto(0));
+    expect(root.querySelector(".youtag .av")?.getAttribute("aria-label"))
+      .toBe(desenhoDoAvatar(AVATARES_DA_MESA[0]).rotulo);
+  });
+
+  it("avatar desconhecido não quebra a tela: cai no padrão", () => {
+    const m = partidaEmCurso();
+    const mp = contexto(0, { sala: sala({}, [{ avatar: "nao-existe" }]) });
+    const root = render(remota(m, 0), mp);
+    expect(root.querySelector(".youtag .av")?.text.trim()).toBe(desenhoDoAvatar(AVATAR_PADRAO).glifo);
+  });
+
+  it("SEM multiplayer nada muda: o jogo local continua com a inicial do nome", () => {
+    const root = render(new KingGame(JOGADORES, 23));
+    expect(root.querySelector(".youtag .av")?.text.trim()).toBe(JOGADORES[0][0]);
+  });
+
+  it("o assento de BOT é declarado como bot na mesa", () => {
+    const m = partidaEmCurso();
+    const mp = contexto(0, { sala: sala({}, [{}, { bot: true }]) });
+    const root = render(remota(m, 0), mp);
+    const comBot = root.querySelectorAll(".opp .n").find((n) => n.text.includes(JOGADORES[1]));
+    expect(comBot?.querySelector(".robo")).not.toBeNull();
+    // e os humanos continuam sem selo nenhum
+    const humano = root.querySelectorAll(".opp .n").find((n) => n.text.includes(JOGADORES[2]));
+    expect(humano?.querySelector(".robo")).toBeNull();
   });
 });

@@ -12,7 +12,8 @@ import type { Castigo } from "../game/anuncio.js";
 import { CardView } from "./CardView.js";
 import { TEMPOS } from "../game/timings.js";
 import { adversariosDe, slotDe } from "./assentos.js";
-import { ChipDoRelogio, FaixaDaConexao, SeloDeAssistencia, AvisoDeRecusa, type MesaMultiplayer } from "./MesaOnline.js";
+import { ChipDoRelogio, FaixaDaConexao, SeloDeAssistencia, SeloDeBot, AvisoDeRecusa, type MesaMultiplayer } from "./MesaOnline.js";
+import { desenhoDoAvatar } from "./avatares.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
 
@@ -230,9 +231,11 @@ export function Mesa({
             key={s}
             className={`opp ${pos === "l" ? "left" : pos === "t" ? "top" : "right"}${turn === s && phase === "play" ? " active" : ""}${assento && !assento.connected ? " ausente" : ""}`}
           >
-            <div className="av">{oppName(s)[0]}</div>
+            <Insignia seat={s} avatar={assento?.avatar} nome={oppName(s)} />
             <div>
-              <div className="n">{oppName(s)}<SeloDeAssistencia assento={assento} /></div>
+              <div className="n">
+                {oppName(s)}<SeloDeBot assento={assento} /><SeloDeAssistencia assento={assento} />
+              </div>
               <div className="m"><span className="cc">🂠 {counts[s]}</span><span className="pt">{scores[s]} pts</span></div>
             </div>
           </div>
@@ -250,7 +253,7 @@ export function Mesa({
 
       {/* jogador local */}
       <div className={`youtag ${humanTurn ? "active" : ""}`}>
-        <div className="av">{players[eu][0]}</div>
+        <Insignia seat={eu} avatar={mp?.sala?.seats[eu]?.avatar} nome={players[eu]} />
         <div>
           <div className="n">{players[eu]}<SeloDeAssistencia assento={mp?.sala?.seats[eu]} /></div>
           <div className="m">🂠 {counts[eu]} · {scores[eu]} pts</div>
@@ -266,7 +269,8 @@ export function Mesa({
           role="status"
         >
           <span className="quem">
-            <i className={`av s${castigo.seat}`}>{castigo.jogador[0]}</i>
+            <Insignia seat={castigo.seat} avatar={mp?.sala?.seats[castigo.seat]?.avatar}
+              nome={castigo.jogador} selo />
             {castigo.voce ? "Você pegou" : `${castigo.jogador} pegou`}
           </span>
           <span className="oque">{castigo.oQue}</span>
@@ -328,6 +332,30 @@ export function Mesa({
       )}
     </div>
   );
+}
+
+/**
+ * O círculo de identidade — adversários, você e o selo do castigo usam o mesmo.
+ *
+ * A COR vem do ASSENTO (`s0`–`s3`), nunca da posição na tela: a Mesa gira em torno de quem
+ * olha, e colorir por posição faria a mesma pessoa aparecer de uma cor em cada aparelho.
+ *
+ * O DESENHO vem do avatar do estado autoritativo. No jogo local não há avatar escolhido nem
+ * outros aparelhos para combinar: fica a inicial do nome, como sempre foi.
+ */
+function Insignia({ seat, avatar, nome, selo }: {
+  seat: Seat;
+  avatar?: string;
+  nome: string;
+  /** O selo do castigo desenha um `<i>` dentro de uma linha de texto, não um bloco. */
+  selo?: boolean;
+}) {
+  const d = avatar ? desenhoDoAvatar(avatar) : null;
+  const classe = `av s${seat}${d?.vermelho ? " vermelho" : ""}`;
+  const conteudo = d ? d.glifo : nome[0];
+  return selo
+    ? <i className={classe} aria-label={d?.rotulo}>{conteudo}</i>
+    : <div className={classe} aria-label={d?.rotulo}>{conteudo}</div>;
 }
 
 /**
