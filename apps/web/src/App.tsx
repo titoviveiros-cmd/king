@@ -1,6 +1,6 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { useKingGame } from "./game/useKingGame.js";
-import { Home, type OnlineDaHome } from "./ui/Home.js";
+import { Home, type OnlineDaHome, type TutorialDaHome } from "./ui/Home.js";
 import { Mesa } from "./ui/Mesa.js";
 import { AudioPanel } from "./ui/AudioPanel.js";
 import { RotateGate } from "./ui/RotateGate.js";
@@ -8,6 +8,8 @@ import { useBotaoVoltar } from "./ui/useBotaoVoltar.js";
 import { servidorConfigurado } from "./net/servidor.js";
 import { lerRecuperacao } from "./net/recuperacao.js";
 import type { Entrada } from "./modos.js";
+import { analytics } from "./analytics/analytics.js";
+import { armazenamentoLocal, deveAbrirSozinho } from "./tutorial/persistencia.js";
 
 /**
  * Dois modos, uma Mesa.
@@ -21,9 +23,26 @@ import type { Entrada } from "./modos.js";
  */
 const ModoOnline = lazy(() => import("./ModoOnline.js"));
 
+/**
+ * APRENDA KING também entra por `lazy()`. Ele carrega quatro cenários e um roteiro que quem já
+ * aprendeu nunca mais vai abrir — não faz sentido esse peso viajar em toda visita.
+ */
+const Tutorial = lazy(() => import("./tutorial/Tutorial.js").then((m) => ({ default: m.Tutorial })));
+
 export function App() {
   const [audioOpen, setAudioOpen] = useState(false);
   const [entrada, setEntrada] = useState<Entrada | null>(null);
+  // Primeira utilização: o tutorial se apresenta sozinho. Uma vez só, para sempre — ver
+  // `deveAbrirSozinho`. Depois disso ele só aparece quando chamado.
+  const [tutorialAberto, setTutorialAberto] = useState(() => deveAbrirSozinho(armazenamentoLocal.ler()));
+  const [tutorialConcluido, setTutorialConcluido] = useState(() => armazenamentoLocal.ler().concluido);
+
+  const aberturaAnunciada = useRef(false);
+  useEffect(() => {
+    if (aberturaAnunciada.current) return;
+    aberturaAnunciada.current = true;
+    analytics.track("app_open", {});
+  }, []);
 
   // Esc fecha o painel de áudio (teclado de PC).
   useEffect(() => {
@@ -36,12 +55,25 @@ export function App() {
   const abrirAudio = useCallback(() => setAudioOpen(true), []);
   const voltarParaLocal = useCallback(() => setEntrada(null), []);
 
+  const tutorial: TutorialDaHome = {
+    onAbrir: () => setTutorialAberto(true),
+    concluido: tutorialConcluido,
+  };
+  const fecharTutorial = useCallback((concluido: boolean) => {
+    setTutorialAberto(false);
+    if (concluido) setTutorialConcluido(true);
+  }, []);
+
   return (
     <>
-      {entrada === null ? (
-        <ModoLocal onOpenAudio={abrirAudio} onIrParaOnline={setEntrada} />
+      {tutorialAberto ? (
+        <Suspense fallback={<Carregando texto="Preparando a mesa…" />}>
+          <Tutorial onSair={fecharTutorial} onOpenAudio={abrirAudio} />
+        </Suspense>
+      ) : entrada === null ? (
+        <ModoLocal onOpenAudio={abrirAudio} onIrParaOnline={setEntrada} tutorial={tutorial} />
       ) : (
-        <Suspense fallback={<Conectando />}>
+        <Suspense fallback={<Carregando texto="Conectando…" />}>
           <ModoOnline entrada={entrada} onOpenAudio={abrirAudio} onSair={voltarParaLocal} />
         </Suspense>
       )}
@@ -51,12 +83,12 @@ export function App() {
   );
 }
 
-/** Enquanto o pedaço do multiplayer é baixado. Na prática, um piscar. */
-function Conectando() {
+/** Enquanto um pedaço carregado sob demanda chega. Na prática, um piscar. */
+function Carregando({ texto }: { texto: string }) {
   return (
     <div className="home">
       <div className="kw">KING</div>
-      <div className="foot">Conectando…</div>
+      <div className="foot">{texto}</div>
     </div>
   );
 }
@@ -64,10 +96,11 @@ function Conectando() {
 // ─────────────────────────────── MODO LOCAL / BOTS ───────────────────────────────
 
 function ModoLocal({
-  onOpenAudio, onIrParaOnline,
+  onOpenAudio, onIrParaOnline, tutorial,
 }: {
   onOpenAudio: () => void;
   onIrParaOnline: (e: Entrada) => void;
+  tutorial: TutorialDaHome;
 }) {
   const g = useKingGame();
   const { screen, goHome } = g;
@@ -85,7 +118,7 @@ function ModoLocal({
   };
 
   if (screen === "home" || !g.game) {
-    return <Home onStart={g.start} onOpenAudio={onOpenAudio} online={online} />;
+    return <Home onStart={g.start} onOpenAudio={onOpenAudio} online={online} tutorial={tutorial} />;
   }
   return (
     <Mesa

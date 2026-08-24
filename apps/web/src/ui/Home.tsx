@@ -15,6 +15,13 @@ import { AVATARES, avatarLembrado, desenhoDoAvatar, lembrarAvatar, type Avatar }
 const SOMENTE_DIGITOS = /\D/g;
 const TAMANHO_CODIGO = 4;
 
+export interface TutorialDaHome {
+  /** Abre APRENDA KING. Sempre disponível — quem já concluiu pode rever quando quiser. */
+  onAbrir: () => void;
+  /** Já concluiu alguma vez? Muda o rótulo: "Aprenda" convida, "Rever" não insiste. */
+  concluido: boolean;
+}
+
 export interface OnlineDaHome {
   /** `null` quando o multiplayer está disponível; texto explicativo quando não está. */
   indisponivel: string | null;
@@ -25,12 +32,13 @@ export interface OnlineDaHome {
 }
 
 export function Home({
-  onStart, onOpenAudio, online,
+  onStart, onOpenAudio, online, tutorial,
 }: {
   onStart: () => void;
   onOpenAudio: () => void;
   /** Ausente = build sem multiplayer. A Home continua a de sempre. */
   online?: OnlineDaHome;
+  tutorial?: TutorialDaHome;
 }) {
   const [painel, setPainel] = useState(false);
   const [nick, setNick] = useState("");
@@ -55,6 +63,15 @@ export function Home({
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
       </div>
+
+      {/* APRENDA KING fica FORA da fileira principal e em tom discreto: quem já sabe jogar não
+          deve tropeçar nele toda vez que abre o app, e quem não sabe precisa achá-lo sem
+          procurar. Ele abre sozinho na primeira utilização; aqui é só o caminho de volta. */}
+      {tutorial && (
+        <button className="hm-tutorial" onClick={() => { sfxTap(); tutorial.onAbrir(); }}>
+          {tutorial.concluido ? "Rever como se joga" : "Aprenda KING"}
+        </button>
+      )}
 
       {online && painel && (
         online.indisponivel ? (

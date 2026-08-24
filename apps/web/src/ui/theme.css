@@ -768,3 +768,65 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .socpe{display:flex;justify-content:space-between;gap:8px;padding-top:2px;}
 .socmais{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.7);letter-spacing:.1em;
   text-transform:uppercase;color:var(--turq);background:none;border:none;cursor:pointer;padding:.2em;}
+
+/* ══════════════════════ APRENDA KING ══════════════════════
+   O tutorial é a Mesa de verdade com uma camada por cima. Duas regras de espaço:
+   a barra de progresso mora no topo-esquerdo (onde não há nada), e o Rei fala no
+   rodapé — acima do leque, nunca sobre ele. */
+
+.tut{position:fixed;inset:0;}
+
+/* Progresso + Pular. Fino de propósito: informa sem competir com o HUD do contrato — e por
+   isso NÃO fica no topo: lá ele cobria o HUD em landscape de celular. */
+.tut-barra{display:flex;align-items:center;gap:8px;width:100%;max-width:min(56vw,340px);
+  margin-left:auto;}
+.tut-passo{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.7);letter-spacing:.1em;
+  color:var(--faint);font-variant-numeric:tabular-nums;flex:none;}
+.tut-trilho{flex:1 1 auto;height:4px;min-width:60px;border-radius:999px;
+  background:rgba(255,255,255,.1);overflow:hidden;}
+.tut-trilho i{display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg,var(--turq),var(--gold));transition:width .3s ease;}
+.tut-pular{flex:none;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.68);
+  letter-spacing:.12em;text-transform:uppercase;color:var(--faint);background:none;border:none;
+  cursor:pointer;padding:.2em .3em;}
+.tut-pular:active{color:var(--ink);}
+
+/* A faixa do guia. Fundo com degradê para o texto ler por cima de qualquer carta que passe
+   embaixo, sem precisar de um bloco opaco cobrindo a mesa. */
+/* A faixa do guia: alinhada à DIREITA para não encostar no card do jogador local, que mora no
+   canto inferior esquerdo. O degradê deixa o texto legível por cima das cartas sem precisar de
+   um bloco opaco cobrindo a mesa, e `pointer-events` devolve o leque ao toque. */
+.tut-guia{position:absolute;z-index:12;left:0;right:0;bottom:0;
+  display:flex;flex-direction:column;align-items:flex-end;gap:calc(var(--ui)*.4);
+  padding:calc(var(--ui)*.7) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb)) calc(var(--pad) + var(--sl));
+  background:linear-gradient(180deg,rgba(10,4,20,0),rgba(10,4,20,.88) 42%);
+  pointer-events:none;}
+.tut-guia > *{pointer-events:auto;}
+.tut-linha{display:flex;align-items:center;justify-content:flex-end;gap:clamp(8px,1.6vw,14px);
+  width:100%;}
+.tut-ok{flex:none;}
+
+/* O Rei. Coroa + uma linha. Ele orienta, não domina: se a fala precisar de dois parágrafos,
+   o problema é a fala. */
+.rei{display:flex;align-items:center;gap:clamp(6px,1.4vw,12px);max-width:min(52vw,470px);
+  margin-left:auto;}
+.rei-cara{flex:none;display:grid;place-items:center;width:calc(var(--ui)*2.6);height:calc(var(--ui)*2.6);
+  border-radius:50%;background:radial-gradient(circle at 40% 30%,#3a1f66,#1b0d33);
+  border:1.5px solid rgba(244,197,66,.45);box-shadow:0 6px 18px -8px #000;}
+.rei-fala{margin:0;font-family:var(--body);font-weight:700;color:#fff;line-height:1.32;
+  font-size:clamp(.78rem,1.9vh,.98rem);text-shadow:0 2px 8px rgba(0,0,0,.7);}
+.rei.acerto .rei-cara{border-color:var(--turq);box-shadow:0 0 0 2px rgba(45,212,191,.35),0 6px 18px -8px #000;}
+.rei.erro .rei-cara{border-color:var(--magenta);box-shadow:0 0 0 2px rgba(224,51,138,.35),0 6px 18px -8px #000;}
+
+/* Confirmação de saída: curta, dois botões, nada de sermão. */
+.tut-confirma{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:clamp(10px,2vh,18px);
+  background:rgba(10,4,20,.82);backdrop-filter:blur(4px);padding:var(--pad);text-align:center;}
+.tut-confirma p{margin:0;font-family:var(--body);font-weight:700;color:#fff;
+  font-size:clamp(.85rem,2.2vh,1.05rem);max-width:min(84vw,440px);}
+
+/* Entrada para o tutorial na Home. Discreta: link, não botão principal. */
+.hm-tutorial{margin-top:clamp(6px,1.4vh,12px);font-family:var(--disp);font-weight:800;
+  font-size:calc(var(--ui)*.78);letter-spacing:.1em;color:var(--turq);background:none;border:none;
+  cursor:pointer;padding:.3em .6em;text-decoration:underline;text-underline-offset:4px;}
+.hm-tutorial:active{color:var(--gold);}
