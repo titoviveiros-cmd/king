@@ -37,7 +37,24 @@ describe("avatar: conjunto fechado", () => {
       expect(AVATARES).toContain(avatarDeBot(seat));
     }
     // quatro assentos, quatro desenhos: dois bots na mesma mesa não ficam idênticos
-    expect(new Set([0, 1, 2, 3].map(avatarDeBot)).size).toBe(4);
+    expect(new Set([0, 1, 2, 3].map((s) => avatarDeBot(s))).size).toBe(4);
+  });
+
+  it("o bot NÃO copia um avatar que alguém na mesa já escolheu", () => {
+    // aconteceu de verdade num teste contra a VPS: a Raiza escolheu a Dama e o bot do assento 2
+    // nasceu Dama também. Dois desenhos iguais na mesma mesa, distinguíveis só pela cor.
+    const preferido = avatarDeBot(2);
+    const outro = avatarDeBot(2, [preferido]);
+    expect(outro).not.toBe(preferido);
+    expect(AVATARES).toContain(outro);
+  });
+
+  it("com a mesa inteira ocupada, ainda devolve um avatar válido em vez de explodir", () => {
+    expect(AVATARES).toContain(avatarDeBot(1, [...AVATARES]));
+  });
+
+  it("sem colisão, o determinismo continua valendo", () => {
+    expect(avatarDeBot(3, ["coroa", "rei"])).toBe(avatarDeBot(3));
   });
 });
 

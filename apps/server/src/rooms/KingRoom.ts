@@ -229,7 +229,7 @@ export class KingRoom extends Room<{
       // O NOME É DO SERVIDOR. Sorteado no frontend, cada cliente veria um nome diferente para o
       // mesmo bot. Aqui ele entra no estado sincronizado e chega igual a todo mundo.
       a.nick = nomeDeBotLivre(this.state.seats.map((x) => x.nick).filter(Boolean));
-      a.avatar = avatarDeBot(seat);
+      a.avatar = avatarDeBot(seat, this.state.seats.filter((x) => x.playerId !== ASSENTO_VAZIO).map((x) => x.avatar));
       a.connected = true;
       a.bot = true;
       // Bot não clica em "estou pronto": ele já nasce pronto. Ver a regra de início.

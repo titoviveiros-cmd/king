@@ -81,7 +81,20 @@ export function nomeDeBotLivre(ocupados: readonly string[], rnd: () => number = 
   return "Bot";
 }
 
-/** Avatar do bot: determinístico pelo assento, para não sortear duas coisas ao mesmo tempo. */
-export function avatarDeBot(seat: number): Avatar {
-  return AVATARES[((seat % AVATARES.length) + AVATARES.length) % AVATARES.length];
+/**
+ * Avatar do bot.
+ *
+ * A base é DETERMINÍSTICA pelo assento — não faz sentido sortear duas coisas ao mesmo tempo, e
+ * assento fixo garante que dois bots nunca nasçam iguais entre si.
+ *
+ * Mas o assento não sabe o que os humanos escolheram. Num teste real contra a VPS, a Raiza
+ * escolheu a Dama e o bot do assento 2 recebeu a Dama também: dois desenhos idênticos na mesma
+ * mesa, distinguíveis só pela cor. Com glifos isso é feio; com os rostos de bicho seria confusão
+ * de verdade. Então o determinismo cede quando há colisão, e só então.
+ */
+export function avatarDeBot(seat: number, ocupados: readonly string[] = []): Avatar {
+  const preferido = AVATARES[((seat % AVATARES.length) + AVATARES.length) % AVATARES.length];
+  const usados = new Set(ocupados);
+  if (!usados.has(preferido)) return preferido;
+  return AVATARES.find((a) => !usados.has(a)) ?? preferido;
 }

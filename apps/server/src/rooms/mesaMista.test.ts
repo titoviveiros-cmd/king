@@ -833,3 +833,28 @@ describe("9 · mensagem social chega igual para todos", () => {
     expect(Object.keys(raiza.sociais[0]).sort()).toEqual(["duracaoMs", "messageId", "seat"]);
   }, 30_000);
 });
+
+describe("9 · o bot não copia o avatar de quem já está na mesa", () => {
+  it("humano escolhe a dama; o bot do assento 2 pega outra coisa", async () => {
+    // O assento 2 preferiria "dama" — é o determinismo. Mas a Raiza chegou primeiro.
+    const { dono, codigo } = await criarSala("Tito", "coroa");
+    await entrar(codigo, "Raiza", "dama");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    await addBot(dono, 2);
+
+    const avatares = assentosDe(dono).slice(0, 3).map((a) => a.avatar);
+    expect(new Set(avatares).size, avatares.join(",")).toBe(3);
+    expect(AVATARES as readonly string[]).toContain(avatares[2]);
+  });
+
+  it("mesa cheia: quatro identidades, quatro desenhos diferentes", async () => {
+    const { dono, codigo } = await criarSala("Tito", "espadas");
+    await entrar(codigo, "Raiza", "copas");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    await addBot(dono, 2);
+    await addBot(dono, 3);
+
+    const avatares = assentosDe(dono).map((a) => a.avatar);
+    expect(new Set(avatares).size, avatares.join(",")).toBe(ASSENTOS);
+  });
+});
