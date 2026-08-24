@@ -17,7 +17,8 @@
     "test:e2e": "npm run test:e2e --workspace apps/web",
     "ci": "npm test && npm run build && npm run smoke:server && npm run test:e2e",
     "mobile:preparar": "node scripts/preparar-mobile.mjs",
-    "mobile:sync": "npm run build --workspace apps/web && npm --workspace apps/web exec cap sync && npm run mobile:preparar"
+    "mobile:sync": "npm run build --workspace apps/web && npm --workspace apps/web exec cap sync && npm run mobile:preparar && npm run mobile:validar",
+    "mobile:validar": "node scripts/validar-mobile.mjs"
   },
   "engines": {
     "node": ">=22"
