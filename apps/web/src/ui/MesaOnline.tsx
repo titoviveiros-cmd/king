@@ -9,10 +9,13 @@
 //   2. que a conexão caiu e está voltando;
 //   3. que o servidor está jogando por alguém que se ausentou;
 //   4. quem já confirmou a próxima mão.
-import { useEffect, useRef } from "react";
+//
+// A quinta é social e não é informação de jogo: as mensagens rápidas entre os quatro.
+import { useEffect, useRef, useState } from "react";
 import type { Seat } from "@king/engine";
 import { deveAlertar, lerRelogio } from "./relogio.js";
-import { sfxTempoAcabando } from "../audio/sounds.js";
+import { sfxTap, sfxSocial, sfxTempoAcabando } from "../audio/sounds.js";
+import { atalhosDe, fraseDe, porCategoria, ROTULO_DA_CATEGORIA } from "./social.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao, RelogioRecebido } from "../game/useKingOnline.js";
 
@@ -30,6 +33,9 @@ export interface MesaMultiplayer {
   /** Há intenção em voo: o leque não aceita um segundo toque. */
   aguardando: boolean;
   pediProximaMao: boolean;
+  /** Mensagem social em cartaz por assento. Efêmera: não é estado de jogo, não sobrevive à queda. */
+  mensagens: Partial<Record<Seat, { id: string; nonce: number }>>;
+  onEnviarMensagem: (id: string) => void;
 }
 
 /**
@@ -168,5 +174,95 @@ export function ConsensoDaProximaMao({
         <button className="btn gold" autoFocus onClick={onAdvance}>Próxima mão ▸</button>
       )}
     </div>
+  );
+}
+
+// ══════════════════════ SOCIAL ══════════════════════
+
+/**
+ * O balão de quem falou. Fica ao lado do avatar do REMETENTE, e não num painel central: numa
+ * mesa de quatro, "quem disse" é metade da graça.
+ *
+ * `key={nonce}` de propósito — repetir a mesma frase remonta o elemento e a animação toca de
+ * novo. Sem isso, mandar "Boa!" duas vezes seguidas pareceria um clique perdido.
+ */
+export function BalaoSocial({ mensagem }: { mensagem?: { id: string; nonce: number } }) {
+  const frase = fraseDe(mensagem?.id);
+  if (!frase) return null;
+  return (
+    <span key={mensagem!.nonce} className="balao" role="status">{frase.texto}</span>
+  );
+}
+
+/**
+ * O botão de falar e o painel.
+ *
+ * Discreto de propósito: fechado, é um botão junto dos controles do topo, e nada mais.
+ *
+ * Aberto, é MODAL — com véu e tudo. Em landscape de celular não existe canto livre: o leque
+ * ocupa a metade de baixo e os cards dos jogadores as bordas. Medido em 852×393, qualquer painel
+ * com dezoito frases encosta no leque. Em vez de fingir que cabe, o painel assume que está por
+ * cima: escurece a mesa, fecha ao tocar fora e some assim que a frase é escolhida. Ler cartas e
+ * escolher frase são coisas que ninguém faz ao mesmo tempo.
+ *
+ * O que NUNCA cobre carta é o que fica permanente — o botão e os balões.
+ *
+ * Não existe campo de texto. Não é limitação de implementação: é a decisão de produto.
+ */
+export function BotaoSocial({ status, onEnviar }: {
+  status: "playing" | "finished";
+  onEnviar: (id: string) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [tudo, setTudo] = useState(false);
+
+  const mandar = (id: string) => {
+    sfxSocial();
+    onEnviar(id);
+    setAberto(false);
+    setTudo(false);
+  };
+
+  return (
+    <>
+      <button
+        className={`topbtn soc${aberto ? " on" : ""}`}
+        aria-label="Mensagens rápidas"
+        aria-expanded={aberto}
+        onClick={() => { sfxTap(); setAberto((v) => !v); setTudo(false); }}
+      >
+        💬
+      </button>
+
+      {aberto && <div className="socscrim" onClick={() => setAberto(false)} aria-hidden />}
+      {aberto && (
+        <div className="socpanel" role="dialog" aria-modal="true" aria-label="Mensagens rápidas">
+          {tudo ? (
+            porCategoria().map(({ categoria, frases }) => (
+              <div key={categoria} className="socgrupo">
+                <span className="soclb">{ROTULO_DA_CATEGORIA[categoria]}</span>
+                <div className="socfrases">
+                  {frases.map((f) => (
+                    <button key={f.id} className="socbtn" onClick={() => mandar(f.id)}>{f.texto}</button>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="socfrases">
+              {atalhosDe(status).map((f) => (
+                <button key={f.id} className="socbtn" onClick={() => mandar(f.id)}>{f.texto}</button>
+              ))}
+            </div>
+          )}
+          <div className="socpe">
+            <button className="socmais" onClick={() => { sfxTap(); setTudo((v) => !v); }}>
+              {tudo ? "menos" : "mais mensagens"}
+            </button>
+            <button className="socmais" onClick={() => { sfxTap(); setAberto(false); }}>fechar</button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

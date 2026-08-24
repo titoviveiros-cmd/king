@@ -191,3 +191,15 @@ export function sfxTempoAcabando(): void {
   audio.tone({ freq: 466.16, dur: 0.11, gain: 0.045, wave: "triangle", delay: 0.08, space: 0.2 });
   audio.vibrate(14);
 }
+
+/**
+ * Mensagem social — a sua e a dos outros.
+ *
+ * Curto e agudo, sem peso: precisa fazer a cabeça levantar sem competir com o som da carta nem
+ * assustar quem está decidindo. Duas notas ascendentes — a inflexão de quem chamou seu nome.
+ */
+export function sfxSocial(): void {
+  audio.tone({ freq: 587.33, dur: 0.05, gain: 0.04, wave: "sine", space: 0.18 });
+  audio.tone({ freq: 880.0, dur: 0.07, gain: 0.032, wave: "sine", delay: 0.055, space: 0.24 });
+  audio.vibrate(10);
+}

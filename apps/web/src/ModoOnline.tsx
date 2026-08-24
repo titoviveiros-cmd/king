@@ -63,6 +63,8 @@ export default function ModoOnline({
     emVoo: g.game.cartaEmVoo(),
     aguardando: g.game.aguardandoServidor(),
     pediProximaMao: g.game.pediProximaMao(),
+    mensagens: g.mensagens,
+    onEnviarMensagem: g.enviarMensagem,
   };
 
   return (

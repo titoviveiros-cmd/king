@@ -16,6 +16,8 @@ export type {
   AtualizacaoDeEstado, AcaoRecusada, EstadoDeConsenso, Causa, StatusDaSala,
   // relógio e assistência
   RelogioDaDecisao, AcaoAutomatica, TipoDeDecisao, FaseDoRelogio,
+  // social
+  EnviarMensagemSocial, MensagemSocialDifundida,
   // mapas por direção
   ClienteParaServidor, ServidorParaCliente, MensagemDoCliente, MensagemDoServidor,
 } from "@king/protocol";

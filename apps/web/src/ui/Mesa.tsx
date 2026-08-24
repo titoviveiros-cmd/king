@@ -12,7 +12,10 @@ import type { Castigo } from "../game/anuncio.js";
 import { CardView } from "./CardView.js";
 import { TEMPOS } from "../game/timings.js";
 import { adversariosDe, slotDe } from "./assentos.js";
-import { ChipDoRelogio, FaixaDaConexao, SeloDeAssistencia, SeloDeBot, AvisoDeRecusa, type MesaMultiplayer } from "./MesaOnline.js";
+import {
+  BalaoSocial, BotaoSocial, ChipDoRelogio, FaixaDaConexao, SeloDeAssistencia, SeloDeBot,
+  AvisoDeRecusa, type MesaMultiplayer,
+} from "./MesaOnline.js";
 import { desenhoDoAvatar } from "./avatares.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
@@ -217,6 +220,12 @@ export function Mesa({
       {mp && <FaixaDaConexao conexao={mp.conexao} codigo={mp.sala?.roomCode ?? ""} />}
       {mp && <AvisoDeRecusa recusa={mp.recusa} />}
       <div className="topbtn">
+        {mp && (
+          <BotaoSocial
+            status={mp.sala?.status === "finished" ? "finished" : "playing"}
+            onEnviar={mp.onEnviarMensagem}
+          />
+        )}
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
         <button className="btn ghost" onClick={() => { sfxTap(); onHome(); }}>Sair</button>
@@ -238,6 +247,7 @@ export function Mesa({
               </div>
               <div className="m"><span className="cc">🂠 {counts[s]}</span><span className="pt">{scores[s]} pts</span></div>
             </div>
+            {mp && <BalaoSocial mensagem={mp.mensagens[s]} />}
           </div>
         );
       })}
@@ -258,6 +268,7 @@ export function Mesa({
           <div className="n">{players[eu]}<SeloDeAssistencia assento={mp?.sala?.seats[eu]} /></div>
           <div className="m">🂠 {counts[eu]} · {scores[eu]} pts</div>
         </div>
+        {mp && <BalaoSocial mensagem={mp.mensagens[eu]} />}
       </div>
       {/* Selo do castigo: a mesa para e todos veem QUEM pegou a bucha e QUANTO custou.
           Antes a vaza penalizada era recolhida em 1,15s sem nome nem número — ninguém

@@ -25,6 +25,7 @@ import { Mesa, type MesaMultiplayer } from "./Mesa.js";
 import type { AtualizacaoDeEstado, Causa } from "../net/protocolo.js";
 import type { EstadoDaSalaLido } from "../net/clienteKing.js";
 import { AVATAR_PADRAO, desenhoDoAvatar } from "./avatares.js";
+import { fraseDe } from "./social.js";
 
 const noop = () => {};
 const JOGADORES = ["Você", "Bia", "Léo", "Nara"];
@@ -62,7 +63,8 @@ function sala(over: Partial<EstadoDaSalaLido> = {}, assentos: AssentoDoFixture[]
 function contexto(eu: Seat, over: Partial<MesaMultiplayer> = {}): MesaMultiplayer {
   return {
     eu, sala: sala(), conexao: "conectado", relogio: null, prontos: [],
-    recusa: null, emVoo: null, aguardando: false, pediProximaMao: false, ...over,
+    recusa: null, emVoo: null, aguardando: false, pediProximaMao: false,
+    mensagens: {}, onEnviarMensagem: noop, ...over,
   };
 }
 
@@ -474,5 +476,86 @@ describe("o avatar desenhado é o do estado autoritativo", () => {
     // e os humanos continuam sem selo nenhum
     const humano = root.querySelectorAll(".opp .n").find((n) => n.text.includes(JOGADORES[2]));
     expect(humano?.querySelector(".robo")).toBeNull();
+  });
+});
+
+// ═══════════════════ SOCIAL NA MESA ═══════════════════
+
+describe("mensagens sociais aparecem onde importa: no jogador que falou", () => {
+  const comMensagem = (m: Partial<Record<Seat, { id: string; nonce: number }>>) =>
+    contexto(0, { mensagens: m });
+
+  it("o balão sai do card de QUEM falou, não de um painel central", () => {
+    const root = render(remota(partidaEmCurso(), 0), comMensagem({ 2: { id: "doeu", nonce: 1 } }));
+    const dono = root.querySelectorAll(".opp").find((o) => o.querySelector(".balao"));
+    expect(dono, "algum adversário tem o balão").toBeTruthy();
+    expect(dono!.querySelector(".n")?.text).toContain(JOGADORES[2]);
+    expect(dono!.querySelector(".balao")?.text.trim()).toBe(desenhoDaFrase("doeu"));
+    // e ninguém mais fala junto
+    expect(root.querySelectorAll(".balao")).toHaveLength(1);
+  });
+
+  it("a minha própria mensagem aparece no meu card", () => {
+    const root = render(remota(partidaEmCurso(), 0), comMensagem({ 0: { id: "boa", nonce: 1 } }));
+    expect(root.querySelector(".youtag .balao")?.text.trim()).toBe(desenhoDaFrase("boa"));
+  });
+
+  it("dois falando ao mesmo tempo: dois balões, cada um no seu dono", () => {
+    const root = render(
+      remota(partidaEmCurso(), 0),
+      comMensagem({ 0: { id: "boa", nonce: 1 }, 1: { id: "quase", nonce: 2 } }),
+    );
+    expect(root.querySelectorAll(".balao")).toHaveLength(2);
+    expect(root.querySelector(".youtag .balao")?.text.trim()).toBe(desenhoDaFrase("boa"));
+  });
+
+  it("etiqueta desconhecida não desenha balão nenhum", () => {
+    const root = render(remota(partidaEmCurso(), 0), comMensagem({ 0: { id: "nao-existe", nonce: 1 } }));
+    expect(root.querySelectorAll(".balao")).toHaveLength(0);
+  });
+
+  it("o balão é anunciado por leitor de tela — quem não olha para o card fica sabendo", () => {
+    const root = render(remota(partidaEmCurso(), 0), comMensagem({ 0: { id: "boa", nonce: 1 } }));
+    expect(root.querySelector(".balao")?.getAttribute("role")).toBe("status");
+  });
+
+  it("sem ninguém falando, a mesa não ganha um pixel a mais", () => {
+    expect(render(remota(partidaEmCurso(), 0), contexto(0)).querySelectorAll(".balao")).toHaveLength(0);
+  });
+});
+
+describe("o botão de falar", () => {
+  it("existe no multiplayer e NÃO existe no jogo local", () => {
+    expect(render(remota(partidaEmCurso(), 0), contexto(0)).querySelectorAll(".soc")).toHaveLength(1);
+    expect(render(new KingGame(JOGADORES, 23)).querySelectorAll(".soc")).toHaveLength(0);
+  });
+
+  it("começa fechado: o painel não rouba espaço de quem está decidindo", () => {
+    const root = render(remota(partidaEmCurso(), 0), contexto(0));
+    expect(root.querySelectorAll(".socpanel")).toHaveLength(0);
+    expect(root.querySelector(".soc")?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("tem rótulo legível", () => {
+    const root = render(remota(partidaEmCurso(), 0), contexto(0));
+    expect(root.querySelector(".soc")?.getAttribute("aria-label")).toBe("Mensagens rápidas");
+  });
+});
+
+/** O texto que a frase deve desenhar. Vem da MESMA tabela que a Mesa usa. */
+function desenhoDaFrase(id: string): string {
+  return fraseDe(id)!.texto;
+}
+
+describe("o painel é modal, e assume que é", () => {
+  it("fechado, não existe véu nenhum sobre a mesa", () => {
+    expect(render(remota(partidaEmCurso(), 0), contexto(0)).querySelectorAll(".socscrim")).toHaveLength(0);
+  });
+
+  it("o que fica permanente na tela nunca é o painel: só o botão", () => {
+    const root = render(remota(partidaEmCurso(), 0), contexto(0));
+    expect(root.querySelectorAll(".soc")).toHaveLength(1);
+    expect(root.querySelectorAll(".socpanel")).toHaveLength(0);
+    expect(root.querySelectorAll(".socscrim")).toHaveLength(0);
   });
 });

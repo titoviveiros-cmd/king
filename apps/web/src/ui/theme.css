@@ -727,3 +727,54 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   .mprelogio.critico{animation:none;} .mprecusa{animation:none;} .pl-pronto{transition:none;}
   .sl-lugar{transition:none;}
 }
+
+/* ══════════════════════ SOCIAL — mensagens rápidas ══════════════════════
+   Regra de ouro deste bloco: nada aqui pode cobrir carta, vaza ou relógio. Quem está
+   decidindo tem prioridade sobre quem está conversando. */
+
+/* O balão de quem falou. Sai do card do jogador, para "quem disse" ser óbvio sem ler nome.
+   `position:absolute` dentro do card, que já é relative por ser posicionado na mesa. */
+.balao{position:absolute;z-index:11;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);
+  white-space:nowrap;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.82);
+  color:#231206;background:linear-gradient(180deg,#fff3c4,var(--gold));
+  border-radius:999px;padding:.3em .8em;line-height:1.35;
+  box-shadow:0 8px 20px -8px #000,0 0 0 1px rgba(0,0,0,.25);
+  animation:balaoEntra .22s cubic-bezier(.22,1.4,.4,1);pointer-events:none;}
+.balao::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);
+  border:5px solid transparent;border-top-color:var(--gold);}
+/* O card do jogador local fica no canto inferior esquerdo: o balão sai pela direita para não
+   escapar da tela nem pousar em cima do leque. */
+.youtag .balao{left:auto;right:0;transform:none;bottom:calc(100% + 8px);}
+.youtag .balao::after{left:auto;right:18px;transform:none;}
+@keyframes balaoEntra{from{opacity:0;transform:translateX(-50%) translateY(6px) scale(.9);}}
+.youtag .balao{animation-name:balaoEntraVoce;}
+@keyframes balaoEntraVoce{from{opacity:0;transform:translateY(6px) scale(.9);}}
+@media (prefers-reduced-motion:reduce){.balao{animation:none;}}
+
+/* O botão de falar: mesma família dos controles do topo, sem chamar mais atenção que eles. */
+.topbtn .soc{font-size:calc(var(--ui)*1.05);line-height:1;}
+.topbtn .soc.on{border-color:var(--gold);background:rgba(244,197,66,.16);}
+
+/* O véu. O painel É modal — ver o comentário em BotaoSocial. Escurecer a mesa é o que torna
+   honesto o fato de ele passar por cima do leque, e dá o alvo grande de "fechar" que um polegar
+   precisa em movimento. */
+.socscrim{position:fixed;inset:0;z-index:13;background:rgba(10,4,20,.55);}
+
+/* O painel. Ancorado abaixo dos controles do topo, largura contida, rolagem própria quando
+   expandido — em landscape de celular a altura é o recurso escasso. */
+.socpanel{position:absolute;z-index:14;top:calc(var(--pad) + var(--st) + var(--ui)*2.6);
+  right:calc(var(--pad) + var(--sr));width:min(78vw,340px);max-height:64vh;overflow-y:auto;
+  display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:16px;
+  background:rgba(18,9,32,.96);border:1px solid rgba(180,150,255,.34);
+  box-shadow:0 18px 40px -14px #000;backdrop-filter:blur(8px);}
+.socfrases{display:flex;flex-wrap:wrap;gap:6px;}
+.socbtn{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.8);color:var(--ink);
+  background:rgba(255,255,255,.07);border:1.5px solid rgba(146,132,184,.42);border-radius:999px;
+  padding:.4em .8em;line-height:1.2;cursor:pointer;transition:all .16s ease;}
+.socbtn:active{transform:translateY(1px);background:rgba(244,197,66,.18);border-color:var(--gold);}
+.socgrupo{display:flex;flex-direction:column;gap:5px;}
+.soclb{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.66);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--faint);}
+.socpe{display:flex;justify-content:space-between;gap:8px;padding-top:2px;}
+.socmais{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.7);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--turq);background:none;border:none;cursor:pointer;padding:.2em;}

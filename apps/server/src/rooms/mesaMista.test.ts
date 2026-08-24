@@ -16,9 +16,13 @@ import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import { cardId, legalCardsFor, type Seat } from "@king/engine";
 import { configurarTempos, restaurarTempos } from "../match/tempos.js";
 import { SALA_KING, servidor } from "../app.js";
-import { PROTOCOL_VERSION, type AcaoRecusada, type AtualizacaoDeEstado, type BoasVindas } from "../protocol/index.js";
+import {
+  PROTOCOL_VERSION,
+  type AcaoRecusada, type AtualizacaoDeEstado, type BoasVindas, type MensagemSocialDifundida,
+} from "../protocol/index.js";
 import { ASSENTOS, MIN_HUMANOS } from "./KingRoom.js";
 import { AVATAR_PADRAO, AVATARES, NOMES_DE_BOT } from "./identidade.js";
+import { COOLDOWN_MS, MENSAGENS_SOCIAIS } from "./social.js";
 
 let colyseus: ColyseusTestServer;
 
@@ -57,6 +61,8 @@ interface SdkRoom {
 interface Cliente {
   sdk: SdkRoom; boasVindas: BoasVindas | null;
   view: AtualizacaoDeEstado["view"] | null; rejeicoes: AcaoRecusada[];
+  /** Mensagens sociais recebidas, na ordem. */
+  sociais: MensagemSocialDifundida[];
   /** Versão do último STATE_UPDATE recebido. É o que impede mandar duas jogadas pelo mesmo estado. */
   versao: number;
   /**
@@ -71,13 +77,14 @@ interface Cliente {
 }
 
 function escutar(sdk: SdkRoom): Cliente {
-  const c: Cliente = { sdk, boasVindas: null, view: null, rejeicoes: [], versao: -1 };
+  const c: Cliente = { sdk, boasVindas: null, view: null, rejeicoes: [], sociais: [], versao: -1 };
   sdk.onMessage("SERVER_WELCOME", (m: BoasVindas) => { c.boasVindas = m; });
   sdk.onMessage("STATE_UPDATE", (m: AtualizacaoDeEstado) => {
     c.view = m.view; c.versao = m.stateVersion;
     c.aoAtualizar?.(c);
   });
   sdk.onMessage("ACTION_REJECTED", (m: AcaoRecusada) => c.rejeicoes.push(m));
+  sdk.onMessage("SOCIAL_MESSAGE", (m: MensagemSocialDifundida) => c.sociais.push(m));
   for (const t of ["PLAYER_JOINED", "PLAYER_LEFT", "PLAYER_CONNECTION", "SERVER_ERROR",
     "READY_STATE", "TURN_CLOCK", "AUTO_ACTION"]) sdk.onMessage(t, () => {});
   return c;
@@ -729,4 +736,100 @@ describe("8 · o nome do bot é do SERVIDOR", () => {
     expect(bot.ready).toBe(true);
     expect(NOMES_DE_BOT as readonly string[]).toContain(bot.nick);
   });
+});
+
+// ═══════════════════ 9 · MENSAGENS SOCIAIS ═══════════════════
+//
+// Duas garantias, e a segunda é a que importa mais: (1) todo mundo na mesa recebe a mesma
+// mensagem, e (2) mandar mensagem NÃO é jogar. Nada aqui pode encostar em regra, relógio ou
+// estado da partida.
+
+/** Sobe uma mesa 2H+2B já em partida. É o cenário real das mensagens. */
+async function mesaEmPartida(): Promise<{ dono: Cliente; raiza: Cliente }> {
+  const { dono, codigo } = await criarSala("Tito");
+  const raiza = await entrar(codigo, "Raiza");
+  await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+  await addBot(dono, 2);
+  await addBot(dono, 3);
+  dono.sdk.send("CLIENT_SET_READY", { ready: true });
+  raiza.sdk.send("CLIENT_SET_READY", { ready: true });
+  await ate(() => sala(dono).status === "playing", 10_000, "iniciou");
+  await ate(() => dono.view !== null && raiza.view !== null, 8000, "visoes");
+  return { dono, raiza };
+}
+
+describe("9 · mensagem social chega igual para todos", () => {
+  it("quem manda e quem assiste recebem o MESMO evento, com o assento de quem falou", async () => {
+    const { dono, raiza } = await mesaEmPartida();
+    const assentoDele = dono.boasVindas!.you.seat;
+
+    dono.sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "boa" });
+    await ate(() => raiza.sociais.length > 0, 8000, "a Raiza recebe");
+    await ate(() => dono.sociais.length > 0, 8000, "o Tito tambem recebe o proprio");
+
+    for (const c of [dono, raiza]) {
+      expect(c.sociais[0].seat).toBe(assentoDele);
+      expect(c.sociais[0].messageId).toBe("boa");
+      // o prazo vem do servidor: as quatro telas apagam o balão na mesma hora
+      expect(c.sociais[0].duracaoMs).toBeGreaterThan(0);
+    }
+  }, 30_000);
+
+  it("etiqueta desconhecida é RECUSADA e não chega a ninguém", async () => {
+    const { dono, raiza } = await mesaEmPartida();
+    for (const lixo of ["", "oi tudo bem?", "<script>", "BOA", 42, null]) {
+      dono.sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: lixo });
+    }
+    await ate(() => dono.rejeicoes.length > 0, 8000, "recusa");
+    expect(dono.rejeicoes[0].code).toBe("INVALID_PAYLOAD");
+    expect(raiza.sociais).toHaveLength(0);
+  }, 30_000);
+
+  it("no lobby ninguém fala: o painel só existe com partida em curso", async () => {
+    const { dono, codigo } = await criarSala("Tito");
+    await entrar(codigo, "Raiza");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+
+    dono.sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "boa" });
+    await ate(() => dono.rejeicoes.length > 0, 8000, "recusa");
+    expect(dono.rejeicoes[0].code).toBe("WRONG_PHASE");
+    expect(dono.sociais).toHaveLength(0);
+  });
+
+  it("o limitador é do SERVIDOR: um cliente que ignora o cooldown é barrado assim mesmo", async () => {
+    const { dono, raiza } = await mesaEmPartida();
+    // dez mensagens de uma vez, como faria um cliente modificado
+    for (let i = 0; i < 10; i++) dono.sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "boa" });
+    await ate(() => dono.rejeicoes.length > 0, 8000, "recusa por ritmo");
+
+    expect(dono.rejeicoes.some((r) => r.code === "RATE_LIMITED")).toBe(true);
+    // passou UMA. Não dez, não zero.
+    expect(raiza.sociais).toHaveLength(1);
+    expect(COOLDOWN_MS).toBeGreaterThan(0);
+  }, 30_000);
+
+  it("falar NÃO é jogar: estado, versão e vez continuam exatamente onde estavam", async () => {
+    const { dono, raiza } = await mesaEmPartida();
+    const versaoAntes = dono.versao;
+    const vezAntes = dono.view!.hand!.turn;
+    const maoAntes = dono.view!.hand!.handNumber;
+
+    for (const id of MENSAGENS_SOCIAIS.slice(0, 3)) {
+      dono.sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: id });
+      await new Promise((r) => setTimeout(r, COOLDOWN_MS + 50));
+    }
+    await ate(() => raiza.sociais.length >= 3, 8000, "as tres chegaram");
+
+    expect(dono.versao).toBe(versaoAntes);
+    expect(dono.view!.hand!.turn).toBe(vezAntes);
+    expect(dono.view!.hand!.handNumber).toBe(maoAntes);
+    expect(sala(dono).status).toBe("playing");
+  }, 40_000);
+
+  it("o sigilo continua de pé: nenhuma mensagem carrega carta, mão ou semente", async () => {
+    const { dono, raiza } = await mesaEmPartida();
+    dono.sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "doeu" });
+    await ate(() => raiza.sociais.length > 0, 8000, "chegou");
+    expect(Object.keys(raiza.sociais[0]).sort()).toEqual(["duracaoMs", "messageId", "seat"]);
+  }, 30_000);
 });

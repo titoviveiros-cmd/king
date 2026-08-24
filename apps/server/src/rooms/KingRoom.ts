@@ -21,13 +21,14 @@
 import { CloseCode, Room, ServerError, generateId, type Client } from "colyseus";
 import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import { AVATAR_PADRAO, avatarDeBot, avatarValido, nomeDeBotLivre } from "./identidade.js";
+import { DURACAO_MS, RitmoSocial, mensagemValida } from "./social.js";
 import { ArraySchema, schema } from "@colyseus/schema";
 import type { Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import { TEMPOS } from "../match/tempos.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
-  type Causa, type DefinirPronto, type EscolherTrunfo,
+  type Causa, type DefinirPronto, type EnviarMensagemSocial, type EscolherTrunfo,
   type FaseDoRelogio, type GerirBot, type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao,
   type StatusDaSala, type TipoDeDecisao,
 } from "../protocol/index.js";
@@ -170,6 +171,8 @@ export class KingRoom extends Room<{
    * servidor confere a cada pedido.
    */
   #host: string | null = null;
+  /** Ritmo das mensagens sociais, por assento. Conferido AQUI — no cliente seria sugestão. */
+  readonly #ritmoSocial = new RitmoSocial();
 
   /** Há partida em curso? Só o BOOLEANO — nunca o estado. */
   partidaIniciada(): boolean {
@@ -279,6 +282,30 @@ export class KingRoom extends Room<{
         ready: r.prontos,
       });
       this.#tentarAvancar();
+    });
+
+    // ── mensagens sociais ─────────────────────────────────────────────────────────────────────
+    //
+    // O que este bloco NÃO faz é a parte importante: não toca no estado da partida, não mexe no
+    // relógio da decisão, não adia o timeout e não gera ação de gameplay nenhuma. Uma mensagem
+    // social é ruído amistoso difundido por cima de um jogo que continua exatamente igual.
+
+    this.onMessage("CLIENT_SOCIAL_MESSAGE", (client: ClienteDoKing, msg: EnviarMensagemSocial) => {
+      const dados = client.userData;
+      if (!dados) return this.#recusar(client, "", "NOT_IN_ROOM", "Você não está sentado");
+      if (this.state.status === "lobby") {
+        return this.#recusar(client, "", "WRONG_PHASE", "A partida ainda não começou");
+      }
+      // Etiqueta desconhecida é RECUSADA, não substituída por um padrão. Avatar tem padrão porque
+      // todo assento precisa de um; mensagem não: quem mandou lixo simplesmente não falou.
+      const id = msg?.messageId;
+      if (!mensagemValida(id)) {
+        return this.#recusar(client, "", "INVALID_PAYLOAD", "Mensagem desconhecida");
+      }
+      const veredicto = this.#ritmoSocial.permitir(dados.seat, Date.now());
+      if (!veredicto.ok) return this.#recusar(client, "", veredicto.code, veredicto.message);
+
+      difundir(this, "SOCIAL_MESSAGE", { seat: dados.seat, messageId: id, duracaoMs: DURACAO_MS });
     });
   }
 
@@ -767,6 +794,8 @@ export class KingRoom extends Room<{
     assento.bot = false;
     assento.host = false;
     assento.avatar = AVATAR_PADRAO;
+    // o histórico de mensagens não pode punir quem sentar aqui depois
+    this.#ritmoSocial.esquecer(assento.seat);
   }
 
   /**

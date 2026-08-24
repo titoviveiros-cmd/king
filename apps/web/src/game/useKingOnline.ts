@@ -26,7 +26,7 @@ import { ehSalto, proximoPasso } from "./filaDeApresentacao.js";
 import { useSonsDeTransicao } from "./useSonsDeTransicao.js";
 import { TEMPOS } from "./timings.js";
 import { audio } from "../audio/engine.js";
-import { sfxTap, sfxTrump } from "../audio/sounds.js";
+import { sfxSocial, sfxTap, sfxTrump } from "../audio/sounds.js";
 import { abridorColyseus, type AbridorDeSessao, type EstadoDaSalaLido, type SessaoKing } from "../net/clienteKing.js";
 import { servidorConfigurado } from "../net/servidor.js";
 import { esquecerRecuperacao, guardarRecuperacao, lerRecuperacao } from "../net/recuperacao.js";
@@ -69,6 +69,12 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
   const [prontos, setProntos] = useState<Seat[]>([]);
   const [autoAcao, setAutoAcao] = useState<AutoAcaoRecebida | null>(null);
   const [recusa, setRecusa] = useState<{ mensagem: string; nonce: number } | null>(null);
+  /**
+   * Mensagens sociais em cartaz, por assento. Efêmeras de propósito: nada disso é estado de
+   * jogo — não entra no `Schema`, não sobrevive à queda e não vira histórico. Quem chegou
+   * depois não vê o que foi dito, como numa mesa de verdade.
+   */
+  const [mensagens, setMensagens] = useState<Partial<Record<Seat, { id: string; nonce: number }>>>({});
 
   const servidor = useMemo(() => servidorConfigurado(), []);
   const abrir = useMemo<AbridorDeSessao | null>(
@@ -181,6 +187,19 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       bump();
     });
 
+    s.ao("SOCIAL_MESSAGE", (m) => {
+      const nonce = Date.now();
+      setMensagens((atual) => ({ ...atual, [m.seat]: { id: m.messageId, nonce } }));
+      sfxSocial();
+      // Some sozinha. O prazo vem do SERVIDOR para as quatro telas concordarem, e a remoção só
+      // vale se ninguém tiver falado por cima nesse meio-tempo.
+      window.setTimeout(() => {
+        setMensagens((atual) => (atual[m.seat]?.nonce === nonce
+          ? { ...atual, [m.seat]: undefined }
+          : atual));
+      }, m.duracaoMs);
+    });
+
     s.ao("PLAYER_CONNECTION", () => { setSala(s.estado()); bump(); });
     s.ao("PLAYER_JOINED", () => { setSala(s.estado()); bump(); });
     s.ao("PLAYER_LEFT", () => { setSala(s.estado()); bump(); });
@@ -243,6 +262,14 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     const token = lerRecuperacao();
     if (token) void conectar({ tipo: "voltar", recoveryToken: token });
   }, [conectar]);
+
+  /**
+   * Manda uma mensagem. Vai só a ETIQUETA — o servidor valida contra o conjunto fechado e aplica
+   * o limitador. O cliente não decide se pode: pede.
+   */
+  const enviarMensagem = useCallback((id: string) => {
+    sessao.current?.enviar("CLIENT_SOCIAL_MESSAGE", { messageId: id });
+  }, []);
 
   const sairDaSala = useCallback(() => {
     sfxTap();
@@ -315,6 +342,8 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     prontos,
     autoAcao,
     recusa,
+    mensagens,
+    enviarMensagem,
     humanSeat: assento.current,
     servidor,
     podeVoltar: lerRecuperacao() !== null,

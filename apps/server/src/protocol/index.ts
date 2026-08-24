@@ -56,6 +56,13 @@ export interface GerirBot {
   seat: Seat;
 }
 
+/**
+ * Uma mensagem social. Só a ETIQUETA viaja — nunca texto. Ver rooms/social.ts.
+ */
+export interface EnviarMensagemSocial {
+  messageId: string;
+}
+
 export interface ClienteParaServidor {
   CLIENT_SET_READY: DefinirPronto;
   CLIENT_PLAY_CARD: JogarCarta;
@@ -63,6 +70,7 @@ export interface ClienteParaServidor {
   CLIENT_READY_NEXT_HAND: ProntoParaProximaMao;
   CLIENT_ADD_BOT: GerirBot;
   CLIENT_REMOVE_BOT: GerirBot;
+  CLIENT_SOCIAL_MESSAGE: EnviarMensagemSocial;
 }
 
 // ───────────────────────── SERVIDOR → CLIENTE ─────────────────────────
@@ -107,6 +115,17 @@ export interface Falha {
   message: string;
 }
 
+/**
+ * Alguém mandou uma mensagem. Evento pontual e efêmero: não entra no `Schema`, não sobrevive ao
+ * reconnect e não vira histórico. Quem chegou depois não vê o que foi dito — como numa mesa.
+ */
+export interface MensagemSocialDifundida {
+  seat: Seat;
+  messageId: string;
+  /** Por quantos ms o balão deve ficar. Vem do servidor para as quatro telas concordarem. */
+  duracaoMs: number;
+}
+
 export interface ServidorParaCliente {
   SERVER_WELCOME: BoasVindas;
   PLAYER_JOINED: EventoDeJogador;
@@ -118,6 +137,7 @@ export interface ServidorParaCliente {
   PLAYER_CONNECTION: ConexaoDeJogador;
   TURN_CLOCK: RelogioDaDecisao;
   AUTO_ACTION: AcaoAutomatica;
+  SOCIAL_MESSAGE: MensagemSocialDifundida;
 }
 
 export type MensagemDoCliente = keyof ClienteParaServidor;
