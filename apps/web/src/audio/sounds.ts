@@ -177,3 +177,17 @@ export function sfxYourTurn(): void {
   audio.tone({ freq: 1174.66, dur: 0.13, gain: 0.038, wave: "sine", delay: 0.07, space: 0.35 });
   audio.vibrate(10);
 }
+
+/**
+ * ÚLTIMOS 10 SEGUNDOS do seu turno. Toca UMA vez, na virada 11 → 10 — nunca a cada segundo:
+ * um tique repetido vira ruído, e ruído deixa de ser aviso.
+ *
+ * Terça menor descendente, curta e seca: lê como "atenção" sem soar alarme de incêndio. Segue a
+ * paleta de tensão (magenta) do resto do jogo. Respeita o toggle de efeitos automaticamente,
+ * porque `audio.tone` sai cedo quando os efeitos estão desligados.
+ */
+export function sfxTempoAcabando(): void {
+  audio.tone({ freq: 622.25, dur: 0.07, gain: 0.05, wave: "triangle", space: 0.15 });
+  audio.tone({ freq: 466.16, dur: 0.11, gain: 0.045, wave: "triangle", delay: 0.08, space: 0.2 });
+  audio.vibrate(14);
+}
