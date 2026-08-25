@@ -214,14 +214,20 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .hand .card.sel{transform:rotate(0deg) translateY(calc(var(--handcw)*-.5)) scale(1.14);z-index:60;
   box-shadow:0 10px 22px rgba(0,0,0,.55),0 0 0 2px var(--gold),0 0 26px rgba(244,197,66,.5);}
 
+/* O card do jogador TEM TETO. Sem ele a largura é do texto: um apelido de 14 caracteres
+   empurra o card para dentro do corredor lateral — o mesmo corredor que o leque e a faixa do
+   tutorial contam como reservado. Com teto, o corredor é uma promessa que se cumpre sozinha. */
 .youtag{position:absolute;left:calc(var(--pad) + var(--sl));bottom:calc(var(--pad) + var(--sb));z-index:9;
+  max-width:calc(var(--corredor) - var(--pad));
   display:flex;align-items:center;gap:calc(var(--ui)*.6);background:rgba(18,9,32,.72);border:1px solid rgba(180,150,255,.3);
   border-radius:16px;padding:calc(var(--ui)*.5) calc(var(--ui)*.78);backdrop-filter:blur(6px);transition:box-shadow .3s;
   box-shadow:0 6px 18px -8px #000;}
 .youtag.active{box-shadow:0 0 0 2px var(--gold),0 0 22px rgba(244,197,66,.55);}
 .youtag .av{width:calc(var(--ui)*2.5);height:calc(var(--ui)*2.5);border-radius:50%;display:grid;place-items:center;
   font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.15);border:2px solid var(--night2);flex:none;}
-.youtag .n{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.08);line-height:1.1;}
+.youtag > div{min-width:0;}
+.youtag .n{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.08);line-height:1.1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .youtag .m{font-size:calc(var(--ui)*.9);font-weight:800;color:var(--gold);margin-top:3px;}
 /* Aviso de confirmação do toque: canto inferior DIREITO, a única faixa que o leque nunca
    ocupa. Não pode ficar no meio (a carta selecionada sobe e passa por baixo dele) nem dentro
@@ -845,7 +851,7 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
      depender de acertar um breakpoint. O valor é o mesmo `--corredor` que a Mesa usa para as
      faixas laterais, repetido aqui porque o guia não é descendente de `.mesa`. */
   padding:calc(var(--ui)*.7) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb))
-          calc(var(--pad) + var(--sl) + clamp(140px,18.5vw,220px));
+          calc(var(--pad) + var(--sl) + clamp(140px,18.5vw,220px) + clamp(20px,4vw,44px));
   background:linear-gradient(180deg,rgba(10,4,20,0),rgba(10,4,20,.88) 42%);}
 
 /* TUDO nesta camada é transparente ao toque, MENOS os botões.
