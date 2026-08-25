@@ -12,6 +12,16 @@
   --sl:env(safe-area-inset-left,0px);--sr:env(safe-area-inset-right,0px);
   --st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);
   --pad:clamp(9px,1.8vh,18px);
+  /* ── AS DUAS ZONAS DA MESA ──
+     `--corredor` é a faixa lateral reservada: à esquerda mora o card do jogador local, à
+     direita o aviso de confirmação. `--zonaJogador` é a BORDA DIREITA dessa zona — a linha que
+     nenhuma camada de cima pode cruzar — e `--folgaZonas` é o respiro entre uma zona e a
+     seguinte. Vivem no `:root` porque o guia do tutorial NÃO é descendente de `.mesa` e mesmo
+     assim precisa obedecer ao mesmo contrato; enquanto o valor estava repetido em dois lugares,
+     bastava mexer num deles para as zonas voltarem a se sobrepor. */
+  --corredor:clamp(140px,18.5vw,220px);
+  --zonaJogador:calc(var(--sl) + var(--corredor));
+  --folgaZonas:clamp(20px,4vw,44px);
   /* Unidade tipográfica da interface. Antes cada texto tinha o seu próprio clamp e, numa tela
      de 402px de altura, TODOS caíam no mínimo — por isso a informação ficava miúda. Agora há
      uma só base e cada elemento é um múltiplo dela: mexer aqui reescala a mesa inteira. */
@@ -86,8 +96,7 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
      estava encostando no limite inferior da tela. */
   --handcw:clamp(38px,min(7vw,calc(15.5 * var(--vh))),96px);
   --trickcw:calc(var(--handcw)*.84);
-  /* corredor reservado nas laterais: é onde moram o seu card e o aviso de confirmação */
-  --corredor:clamp(140px,18.5vw,220px);
+  /* `--corredor` vem do `:root`: é contrato compartilhado com a camada do tutorial. */
   --fanmax:min(calc(100vw - 2 * var(--corredor)),780px);
   --n:13;
   --step:min(calc(var(--handcw)*.56),calc((var(--fanmax) - var(--handcw)) / max(calc(var(--n) - 1),1)));
@@ -840,21 +849,30 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   cursor:pointer;padding:.2em .3em;}
 .tut-pular:active{color:var(--ink);}
 
-/* A faixa do guia. Fundo com degradê para o texto ler por cima de qualquer carta que passe
-   embaixo, sem precisar de um bloco opaco cobrindo a mesa. */
-/* A faixa do guia: alinhada à DIREITA para não encostar no card do jogador local, que mora no
-   canto inferior esquerdo. O degradê deixa o texto legível por cima das cartas sem precisar de
-   um bloco opaco cobrindo a mesa, e `pointer-events` devolve o leque ao toque. */
-.tut-guia{position:absolute;z-index:12;left:0;right:0;bottom:0;
-  display:flex;flex-direction:column;align-items:flex-end;gap:calc(var(--ui)*.4);
-  /* O CORREDOR DA ESQUERDA É RESERVADO. É onde mora o card do jogador local, e a faixa do guia
-     não pode entrar nele: medido em 667x375, a coroa do Rei invadia o card em 9px — foi o que
-     apareceu como sobreposição no iPhone. Reservar o corredor resolve em QUALQUER largura, sem
-     depender de acertar um breakpoint. O valor é o mesmo `--corredor` que a Mesa usa para as
-     faixas laterais, repetido aqui porque o guia não é descendente de `.mesa`. */
-  padding:calc(var(--ui)*.7) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb))
-          calc(var(--pad) + var(--sl) + clamp(140px,18.5vw,220px) + clamp(20px,4vw,44px));
-  background:linear-gradient(180deg,rgba(10,4,20,0),rgba(10,4,20,.88) 42%);}
+/* ══ O GUIA É UMA ZONA, NÃO UMA FAIXA ══
+   Duas correções anteriores foram reprovadas no aparelho real pelo mesmo motivo, e vale deixar
+   registrado: o guia era `left:0;right:0` — uma faixa da largura da tela — e o corredor da
+   esquerda era feito de PADDING. Padding afasta o CONTEÚDO; não tira a CAIXA do lugar. O container
+   do guia continuava deitado por cima do card do jogador, com o degradê pintando por cima dele e
+   z-index maior. No DOMRect da coroa não havia colisão nenhuma, e no iPhone havia — porque o que
+   a pessoa enxerga é a camada inteira, não o retângulo do ícone.
+
+   Agora o guia COMEÇA onde a zona do jogador termina: `left: --zonaJogador + --folgaZonas`. A
+   caixa dele não alcança o card em largura nenhuma, e nada disso depende de padding, de breakpoint
+   nem de qual apelido a pessoa escolheu. Duas zonas sem interseção, por construção. */
+.tut-guia{position:absolute;z-index:12;
+  left:calc(var(--zonaJogador) + var(--folgaZonas));right:0;bottom:0;
+  display:flex;flex-direction:column;align-items:stretch;gap:calc(var(--ui)*.4);
+  padding:calc(var(--ui)*.7) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb)) 0;}
+
+/* O degradê mora num pseudo-elemento, e não no container, para poder DESVANECER na borda
+   esquerda. Sem isso a zona ganharia um corte vertical seco no meio da mesa — é o preço de tirar
+   a faixa da largura total, e ele se paga aqui. A máscara é só do fundo: o texto do Rei continua
+   com opacidade cheia. */
+.tut-guia::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:linear-gradient(180deg,rgba(10,4,20,0),rgba(10,4,20,.88) 42%);
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 clamp(28px,7vw,80px));
+          mask-image:linear-gradient(90deg,transparent,#000 clamp(28px,7vw,80px));}
 
 /* TUDO nesta camada é transparente ao toque, MENOS os botões.
    Não é detalhe: a faixa atravessa a tela inteira por cima do leque, e o Playwright pegou a
@@ -862,17 +880,20 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    conseguia jogar. Texto não precisa ser clicável; botão precisa. */
 .tut-guia, .tut-guia *{pointer-events:none;}
 .tut-guia button{pointer-events:auto;}
-.tut-linha{display:flex;align-items:center;justify-content:flex-end;gap:clamp(8px,1.6vw,14px);
-  width:100%;}
+.tut-linha{display:flex;align-items:center;gap:clamp(8px,1.6vw,14px);width:100%;}
 .tut-ok{flex:none;}
 
 /* O Rei. Coroa + uma linha. Ele orienta, não domina: se a fala precisar de dois parágrafos,
-   o problema é a fala. */
-/* A fala ENCOLHE antes de empurrar: `flex:1 1 auto` com `min-width:0` faz o texto ceder
-   espaço para a navegação em vez de estourar a linha. A coroa é o último a sair. */
-.rei{display:flex;align-items:center;gap:clamp(6px,1.4vw,12px);
-  flex:1 1 auto;min-width:0;max-width:min(52vw,470px);margin-left:auto;}
-.rei-cara{flex:none;}
+   o problema é a fala.
+
+   GRID DE DUAS COLUNAS, e a primeira é só da coroa. Antes era flex com `margin-left:auto`, o que
+   fazia a coroa FLUTUAR: fala curta a empurrava para a direita, fala longa a puxava para a
+   esquerda — a posição dela era efeito colateral do comprimento do texto, e mudava a cada passo.
+   Agora ela ancora na borda esquerda da zona do guia e fica no mesmo x o tutorial inteiro.
+   Quando falta largura quem cede é o texto, que quebra dentro de `minmax(0,1fr)`; depois os gaps.
+   A coroa não cede — e também não avança, porque não tem para onde. */
+.rei{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;
+  gap:clamp(6px,1.4vw,12px);flex:1 1 auto;min-width:0;}
 .rei-cara{flex:none;display:grid;place-items:center;width:calc(var(--ui)*2.6);height:calc(var(--ui)*2.6);
   border-radius:50%;background:radial-gradient(circle at 40% 30%,#3a1f66,#1b0d33);
   border:1.5px solid rgba(244,197,66,.45);box-shadow:0 6px 18px -8px #000;}

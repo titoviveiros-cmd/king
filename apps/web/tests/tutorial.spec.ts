@@ -274,52 +274,176 @@ test("com ÁUDIO E VIBRAÇÃO DESLIGADOS, nada depende do som", async ({ page })
   expect(erros, `erros de página: ${erros.join(" | ")}`).toEqual([]);
 });
 
-/**
- * A COROA DO REI não pode cruzar nada do jogo.
+/* ══════════════════ AS DUAS ZONAS ══════════════════
  *
- * No iPhone real ela apareceu por cima do avatar do jogador local. A faixa do guia é alinhada à
- * direita e o card do jogador mora na esquerda, então a colisão depende da largura da fala — o
- * que muda com o viewport. Por isso a verificação é por `DOMRect`, em todos eles.
+ * Duas correções da coroa passaram nos testes e foram reprovadas no iPhone. A razão do falso
+ * verde está registrada aqui para não se repetir: media-se o DOMRect da COROA contra o card do
+ * jogador. A coroa nunca cruzava. Mas a coroa mora dentro de `.tut-guia`, e o `.tut-guia` era
+ * uma faixa da largura da tela, deitada por cima do card, com z-index maior e um degradê pintando
+ * em cima dele. Medir o ícone e ignorar a camada é medir a coisa errada: quem olha a tela vê a
+ * camada.
+ *
+ * Agora o contrato é entre CAIXAS DE CONTAINER, e é ele que estes testes prendem:
+ *
+ *   ZONA A — jogador local: `.youtag` (avatar, apelido, status)
+ *   ZONA B — guia: `.tut-guia` (coroa, fala, progresso, Voltar, Avançar)
+ *
+ * Nenhuma das duas pode ocupar espaço da outra, e entre elas existe uma folga mínima declarada.
  */
-test("a coroa do guia não cruza avatar, cartas nem HUD", async ({ page }, ti) => {
-  const vp = page.viewportSize()!;
-  await primeiraVisita(page);
-  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+const FOLGA_MINIMA = 20;
 
-  const caixa = async (sel: string) => {
-    const b = await page.locator(sel).first().boundingBox();
-    if (!b) throw new Error(`${sel} sem caixa`);
-    return b;
-  };
-  const cruza = (a: { x: number; y: number; width: number; height: number },
-                 b: { x: number; y: number; width: number; height: number }) =>
-    !(a.x + a.width < b.x || a.x > b.x + b.width || a.y + a.height < b.y || a.y > b.y + b.height);
+type Caixa = { x: number; y: number; width: number; height: number };
 
-  const coroa = await caixa(".rei-cara");
-  const alvos: [string, string][] = [
+const cruzam = (a: Caixa, b: Caixa) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+const contido = (dentro: Caixa, fora: Caixa) =>
+  dentro.x >= fora.x - SUBPIXEL && dentro.y >= fora.y - SUBPIXEL &&
+  dentro.x + dentro.width <= fora.x + fora.width + SUBPIXEL &&
+  dentro.y + dentro.height <= fora.y + fora.height + SUBPIXEL;
+
+const desenha = (c: Caixa) =>
+  `x ${Math.round(c.x)}..${Math.round(c.x + c.width)} y ${Math.round(c.y)}..${Math.round(c.y + c.height)}`;
+
+async function caixaDe(page: Page, sel: string): Promise<Caixa> {
+  const b = await page.locator(sel).first().boundingBox();
+  if (!b) throw new Error(`${sel} sem caixa`);
+  return b;
+}
+
+/** Confere o contrato das duas zonas no estado atual da tela. Devolve a distância medida. */
+async function exigirZonasSeparadas(page: Page, onde: string, etiqueta: string): Promise<number> {
+  const guia = await caixaDe(page, ".tut-guia");
+  const card = await caixaDe(page, SEL.youtag);
+  const coroa = await caixaDe(page, ".rei-cara");
+  const vp = vpOf(page);
+  const cabecalho = `[${etiqueta} · ${vp.width}x${vp.height}] ${onde}`;
+
+  // 1. A COROA PERTENCE AO GUIA. Se ela escapar da caixa do container, voltou a ter vida própria.
+  expect(
+    contido(coroa, guia),
+    `${cabecalho}: a coroa saiu do container do guia\n   coroa: ${desenha(coroa)}\n   guia:  ${desenha(guia)}`,
+  ).toBe(true);
+
+  // 2. O CONTAINER DO GUIA NÃO INVADE O CARD DO JOGADOR. É a checagem que faltava.
+  expect(
+    cruzam(guia, card),
+    `${cabecalho}: o CONTAINER do guia invade o card do jogador\n` +
+    `   guia: ${desenha(guia)}\n   card: ${desenha(card)}`,
+  ).toBe(false);
+
+  // 3. E existe folga visível entre as duas zonas — encostar não é separar.
+  const distancia = Math.round(guia.x - (card.x + card.width));
+  expect(
+    distancia,
+    `${cabecalho}: folga de apenas ${distancia}px entre o card e o guia\n` +
+    `   guia: ${desenha(guia)}\n   card: ${desenha(card)}`,
+  ).toBeGreaterThanOrEqual(FOLGA_MINIMA);
+
+  // 4. E a coroa continua sem cruzar o resto da mesa.
+  for (const [nome, sel] of [
     ["avatar do jogador local", `${SEL.youtag} .av`],
-    ["card do jogador local", SEL.youtag],
     ["HUD do contrato", SEL.hud],
     ["utilidades do topo", SEL.topbtn],
-  ];
-
-  for (const [nome, sel] of alvos) {
-    const alvo = await caixa(sel);
+  ] as [string, string][]) {
+    const alvo = await caixaDe(page, sel);
     expect(
-      cruza(coroa, alvo),
-      `[${ti.project.name} · ${vp.width}x${vp.height}] a coroa cruza ${nome}\n` +
-      `   coroa: x ${Math.round(coroa.x)}..${Math.round(coroa.x + coroa.width)} ` +
-      `y ${Math.round(coroa.y)}..${Math.round(coroa.y + coroa.height)}\n` +
-      `   ${nome}: x ${Math.round(alvo.x)}..${Math.round(alvo.x + alvo.width)} ` +
-      `y ${Math.round(alvo.y)}..${Math.round(alvo.y + alvo.height)}`,
+      cruzam(coroa, alvo),
+      `${cabecalho}: a coroa cruza ${nome}\n   coroa: ${desenha(coroa)}\n   ${nome}: ${desenha(alvo)}`,
     ).toBe(false);
   }
 
-  // e a coroa tem de estar inteira na tela
+  expect(insideViewport(coroa as Box, vp), `${cabecalho}: a coroa saiu do viewport`).toBe(true);
+  return distancia;
+}
+
+test("as duas zonas não se cruzam — e é o CONTAINER do guia que é medido", async ({ page }, ti) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+  await exigirZonasSeparadas(page, "passo 1", ti.project.name);
+});
+
+/**
+ * A separação vale NOS DEZESSEIS PASSOS, não na foto inicial.
+ *
+ * Importa porque a coroa já teve posição dependente do comprimento da fala: passo com frase curta
+ * a empurrava para um lado, frase longa para o outro. Medir só o passo 1 deixaria passar
+ * exatamente esse tipo de defeito — e foi assim que ele chegou ao aparelho.
+ */
+test("as zonas continuam separadas do passo 1 ao 16 — e a coroa não se mexe", async ({ page }, ti) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  const xDaCoroa: number[] = [];
+  const distancias: number[] = [];
+  const trilha: string[] = [];
+
+  for (let i = 0; i < 60; i++) {
+    if (!(await page.locator(".tut").count())) break;
+    const rotulo = (await page.locator(".tut-passo").textContent())?.trim() ?? "?";
+    distancias.push(await exigirZonasSeparadas(page, `passo ${rotulo}`, ti.project.name));
+    xDaCoroa.push(Math.round((await caixaDe(page, ".rei-cara")).x));
+
+    const ok = page.locator(".tut-ok");
+    const trunfo = page.locator(".trumpbtn").first();
+    const carta = page.locator(SEL.handCardLegal).first();
+    if (await ok.count()) { trilha.push(`${rotulo}:continuar`); await ok.click(); }
+    else if (await trunfo.count()) { trilha.push(`${rotulo}:trunfo`); await trunfo.click(); }
+    else if (await carta.count()) { trilha.push(`${rotulo}:carta`); await carta.click(); }
+    else throw new Error(`travou no passo ${rotulo}: ${trilha.join(" -> ")}`);
+    await page.waitForTimeout(120);
+  }
+
+  // percorreu os dezesseis
+  const vistos: string[] = [];
+  for (const t of trilha) {
+    const c = t.split(":")[0];
+    if (vistos.at(-1) !== c) vistos.push(c);
+  }
+  expect(vistos).toEqual(Array.from({ length: 16 }, (_, i) => `${i + 1}/16`));
+
+  // A COROA É ÂNCORA, não passageira: mesmo x do começo ao fim. Antes ela deslizava conforme o
+  // tamanho da fala — e um elemento que se move sozinho é o que vira colisão no aparelho.
+  const unicos = [...new Set(xDaCoroa)];
   expect(
-    coroa.x >= 0 && coroa.y >= 0 && coroa.x + coroa.width <= vp.width && coroa.y + coroa.height <= vp.height,
-    "a coroa saiu do viewport",
-  ).toBe(true);
+    unicos.length,
+    `[${ti.project.name}] a coroa mudou de x durante o tutorial: ${unicos.join(", ")}`,
+  ).toBe(1);
+
+  expect(Math.min(...distancias)).toBeGreaterThanOrEqual(FOLGA_MINIMA);
+});
+
+/**
+ * APELIDO NO LIMITE. O campo aceita 14 caracteres, e "W" é o glifo mais largo da fonte — este é o
+ * pior card que o produto consegue produzir. Foi por aqui que a versão anterior furou: o card não
+ * tinha teto e crescia com o texto, entrando na faixa que o guia julgava reservada.
+ */
+test("com o apelido mais largo possível, as zonas continuam separadas", async ({ page }, ti) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  await page.locator(`${SEL.youtag} .n`).evaluate((el) => { el.textContent = "WWWWWWWWWWWWWW"; });
+  await page.waitForTimeout(80);
+  const card = await caixaDe(page, SEL.youtag);
+
+  // A ZONA É UM TETO, e o teto é lido do próprio token — não de um número copiado para o teste.
+  // Se `--zonaJogador` mudar, esta conta muda junto; se o card passar dela, reprova aqui.
+  // `getComputedStyle` devolve a custom property como TEXTO ("calc(0px + clamp(...))"), não em px.
+  // Uma régua de mentira com a largura do token resolve: o próprio navegador faz a conta.
+  const zona = await page.evaluate(() => {
+    const regua = document.createElement("div");
+    regua.style.cssText = "position:absolute;visibility:hidden;width:var(--zonaJogador);";
+    document.body.appendChild(regua);
+    const w = regua.getBoundingClientRect().width;
+    regua.remove();
+    return w;
+  });
+  expect(
+    card.x + card.width,
+    `[${ti.project.name}] o card estourou a zona reservada (${zona}px): ${desenha(card)}`,
+  ).toBeLessThanOrEqual(zona + SUBPIXEL);
+
+  await exigirZonasSeparadas(page, "apelido de 14 caracteres", ti.project.name);
 });
 
 test("passo de AÇÃO se anuncia — o tutorial nunca parece travado", async ({ page }, ti) => {
