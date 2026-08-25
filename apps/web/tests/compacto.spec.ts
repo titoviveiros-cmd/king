@@ -234,3 +234,51 @@ test("SOCIAL: o painel cabe na tela e o fechar nunca some", async ({ browser }) 
     await fechar();
   }
 });
+
+// ───────────────────────── LOBBY: as três zonas ─────────────────────────
+
+test("LOBBY: os quatro lugares cabem, sem rolagem de página nem de lista", async ({ page }, ti) => {
+  const vp = page.viewportSize()!;
+  await criarSala(page, "Tito", "Sapo");
+
+  // 1. A PÁGINA não rola. Nem um pixel.
+  const rolaPagina = await page.evaluate(() => ({
+    v: document.documentElement.scrollHeight > document.documentElement.clientHeight + 1,
+    h: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  }));
+  expect(rolaPagina.v, `[${ti.project.name}] a sala não pode rolar na vertical`).toBe(false);
+  expect(rolaPagina.h, `[${ti.project.name}] a sala não pode rolar na horizontal`).toBe(false);
+
+  // 2. OS QUATRO LUGARES estão visíveis ao mesmo tempo — ver a mesa inteira é a função da tela.
+  const lista = page.locator(".sl-lugares");
+  const dentro = await lista.evaluate((el) => {
+    const L = el.getBoundingClientRect();
+    return [...el.querySelectorAll(".sl-lugar")].filter((s) => {
+      const r = s.getBoundingClientRect();
+      return r.top >= L.top - 1 && r.bottom <= L.bottom + 1;
+    }).length;
+  });
+  expect(dentro, `[${ti.project.name} · ${vp.width}x${vp.height}] lugares inteiramente visíveis`).toBe(4);
+
+  // 3. Se sobrar overflow, ele é INTERNO à lista — nunca da página. Aqui nem isso deve ocorrer.
+  const rolaLista = await lista.evaluate((el) => el.scrollHeight > el.clientHeight + 1);
+  expect(rolaLista, `[${ti.project.name}] a lista de assentos não deveria precisar rolar`).toBe(false);
+
+  // 4. O avatar do assento não pode ser esmagado pela compactação.
+  const menorAvatar = await page.locator(".sl-av").evaluateAll(
+    (els) => Math.min(...els.map((e) => e.getBoundingClientRect().height)),
+  );
+  expect(menorAvatar, `[${ti.project.name}] avatar do assento esmagado`).toBeGreaterThanOrEqual(20);
+
+  // 5. E o CTA continua inteiro na tela.
+  const pronto = await caixa(page, ".row .btn:has-text('Estou pronto')");
+  expect(pronto.t >= 0 && pronto.b <= vp.height, `CTA fora da tela: ${fmt(pronto)}`).toBe(true);
+});
+
+test("LOBBY: o código da sala é o maior elemento — é o que se dita em voz alta", async ({ page }) => {
+  await criarSala(page, "Tito", "Sapo");
+  const codigo = await caixa(page, ".sl-cod");
+  const nome = await caixa(page, ".sl-nome");
+  expect(codigo.h, "o código precisa dominar a tela").toBeGreaterThan(nome.h);
+  expect(await page.locator(".sl-cod").textContent()).toMatch(/\d{4}/);
+});
