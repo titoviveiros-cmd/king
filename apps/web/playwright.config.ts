@@ -28,7 +28,10 @@ const CI = !!process.env.CI;
 const VIEWPORTS: Array<{ w: number; h: number }> = [
   // landscape normal
   { w: 667, h: 375 },
+  { w: 740, h: 360 },
+  { w: 780, h: 360 },
   { w: 800, h: 360 },
+  { w: 844, h: 390 },
   { w: 852, h: 393 },
   { w: 874, h: 402 },
   { w: 956, h: 440 },

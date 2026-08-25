@@ -146,39 +146,97 @@ test("primeira visita: o tutorial se apresenta sozinho, na mesa de verdade", asy
   await expect(page.locator(".rei-fala")).toHaveCount(1);
 });
 
-test("a cromagem do tutorial não cobre HUD, card do jogador nem controles do topo", async ({ page }, ti) => {
+/**
+ * A FAIXA TEM ESPAÇO PRÓPRIO — e é isso que este teste mede, não "quase não encosta".
+ *
+ * Histórico curto, porque explica a régua: três correções tentaram fazer a faixa CONVIVER com a
+ * Mesa por baixo (mover para a direita, reservar corredor, mascarar o fundo). Todas passaram em
+ * teste e foram reprovadas no aparelho, porque camada sobre camada é sobreposição administrada,
+ * não sobreposição eliminada. Agora a faixa é uma fatia do topo e a Mesa começa onde ela acaba.
+ * A verificação certa, portanto, é uma só: as duas caixas não se tocam, e tudo que é jogo mora
+ * dentro da Mesa.
+ */
+test("a faixa do tutorial reserva o topo — a Mesa inteira começa abaixo dela", async ({ page }, ti) => {
   await primeiraVisita(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   const vp = vpOf(page);
   const proj = ti.project.name;
-  const barra = await boxOf(page.locator(".tut-barra"), "tut-barra");
-  const rei = await boxOf(page.locator(".rei"), "rei");
+  const faixa = await boxOf(page.locator(".tut-faixa"), "tut-faixa");
+  const mesa = await boxOf(page.locator(".mesa"), "mesa");
+
+  expect(
+    Math.round(mesa.y),
+    `[${proj} · ${vp.width}×${vp.height}] a Mesa invade a faixa: faixa ${fmt(faixa)}, mesa ${fmt(mesa)}`,
+  ).toBeGreaterThanOrEqual(Math.round(faixa.y + faixa.height) - SUBPIXEL);
+
+  // Nada do jogo pode cruzar a faixa. A lista é o que a pessoa precisa ver e tocar.
   const alvos: [string, Box][] = [
     ["hud", await boxOf(page.locator(SEL.hud), "hud")],
     ["youtag", await boxOf(page.locator(SEL.youtag), "youtag")],
     ["topbtn", await boxOf(page.locator(SEL.topbtn), "topbtn")],
+    ["adversário do topo", await boxOf(page.locator(".opp.top"), "opp.top")],
+    ["leque", await boxOf(page.locator(".hand"), "hand")],
+    ["vaza", await boxOf(page.locator(".trick"), "trick")],
   ];
-
   for (const [nome, alvo] of alvos) {
-    for (const [meuNome, meu] of [["tut-barra", barra], ["rei", rei]] as [string, Box][]) {
-      expect(
-        intersects(meu, alvo, SUBPIXEL),
-        `[${proj} · ${vp.width}×${vp.height}] COLISÃO: ${meuNome} × ${nome}\n` +
-        `   ${meuNome}: ${fmt(meu)}\n   ${nome}: ${fmt(alvo)}`,
-      ).toBe(false);
-    }
+    expect(
+      intersects(faixa, alvo, SUBPIXEL),
+      `[${proj} · ${vp.width}×${vp.height}] COLISÃO: faixa × ${nome}\n` +
+      `   faixa: ${fmt(faixa)}\n   ${nome}: ${fmt(alvo)}`,
+    ).toBe(false);
+    expect(
+      insideViewport(alvo, vp, SUBPIXEL),
+      `[${proj} · ${vp.width}×${vp.height}] FORA DO VIEWPORT: ${nome} ${fmt(alvo)}`,
+    ).toBe(true);
   }
 
-  for (const [nome, caixa] of [["tut-barra", barra], ["rei", rei]] as [string, Box][]) {
+  // E o que a faixa carrega continua inteiro na tela.
+  for (const sel of [".tut-passo", ".tut-pular", ".tut-voltar", ".rei-fala"]) {
+    const c = await boxOf(page.locator(sel), sel);
     expect(
-      insideViewport(caixa, vp, SUBPIXEL),
-      `[${proj} · ${vp.width}×${vp.height}] FORA DO VIEWPORT: ${nome} ${fmt(caixa)}`,
+      insideViewport(c, vp, SUBPIXEL),
+      `[${proj} · ${vp.width}×${vp.height}] FORA DO VIEWPORT: ${sel} ${fmt(c)}`,
     ).toBe(true);
   }
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   expect(overflow, "a página não pode rolar na horizontal").toBe(false);
+});
+
+/**
+ * O PROGRESSO E O PULAR PRECISAM SER VISTOS E TOCADOS.
+ *
+ * Os dois vinham como texto miúdo e cinza. "Pouco destaque" e "pouca presença visual" não são
+ * opinião quando a consequência é não saber em que etapa se está e não perceber que dá para sair.
+ * Aqui a régua é o dedo (44px) e a tela (contido no viewport).
+ */
+test("progresso e Pular: visíveis, legíveis e com alvo de dedo", async ({ page }, ti) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+  const vp = vpOf(page);
+
+  await expect(page.locator(".tut-passo")).toHaveText(/^1\/16$/);
+  await expect(page.locator(".tut-passo")).toHaveAttribute("aria-label", "Passo 1 de 16");
+
+  const pular = await boxOf(page.locator(".tut-pular"), "tut-pular");
+  expect(
+    Math.round(pular.height),
+    `[${ti.project.name} · ${vp.width}×${vp.height}] Pular com ${Math.round(pular.height)}px de altura`,
+  ).toBeGreaterThanOrEqual(44 - SUBPIXEL);
+  expect(insideViewport(pular, vp, SUBPIXEL), "Pular saiu da tela").toBe(true);
+
+  // O badge do passo tem de ser MAIS pesado que a fala: é a âncora de "onde estou".
+  const peso = await page.evaluate(() => {
+    const g = (s: string) => getComputedStyle(document.querySelector(s)!);
+    return {
+      passo: parseFloat(g(".tut-passo b").fontSize),
+      fala: parseFloat(g(".rei-fala").fontSize),
+      fundo: g(".tut-passo").backgroundImage + g(".tut-passo").backgroundColor,
+    };
+  });
+  expect(peso.passo, "o número do passo precisa ser maior que a fala").toBeGreaterThan(peso.fala);
+  expect(peso.fundo, "o passo precisa de fundo próprio, não ser só texto").not.toMatch(/^none *rgba\(0, 0, 0, 0\)$/);
 });
 
 test("dá para concluir do começo ao fim, sem ficar preso", async ({ page }) => {
@@ -274,178 +332,6 @@ test("com ÁUDIO E VIBRAÇÃO DESLIGADOS, nada depende do som", async ({ page })
   expect(erros, `erros de página: ${erros.join(" | ")}`).toEqual([]);
 });
 
-/* ══════════════════ AS DUAS ZONAS ══════════════════
- *
- * Duas correções da coroa passaram nos testes e foram reprovadas no iPhone. A razão do falso
- * verde está registrada aqui para não se repetir: media-se o DOMRect da COROA contra o card do
- * jogador. A coroa nunca cruzava. Mas a coroa mora dentro de `.tut-guia`, e o `.tut-guia` era
- * uma faixa da largura da tela, deitada por cima do card, com z-index maior e um degradê pintando
- * em cima dele. Medir o ícone e ignorar a camada é medir a coisa errada: quem olha a tela vê a
- * camada.
- *
- * Agora o contrato é entre CAIXAS DE CONTAINER, e é ele que estes testes prendem:
- *
- *   ZONA A — jogador local: `.youtag` (avatar, apelido, status)
- *   ZONA B — guia: `.tut-guia` (coroa, fala, progresso, Voltar, Avançar)
- *
- * Nenhuma das duas pode ocupar espaço da outra, e entre elas existe uma folga mínima declarada.
- */
-const FOLGA_MINIMA = 20;
-
-type Caixa = { x: number; y: number; width: number; height: number };
-
-const cruzam = (a: Caixa, b: Caixa) =>
-  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-
-const contido = (dentro: Caixa, fora: Caixa) =>
-  dentro.x >= fora.x - SUBPIXEL && dentro.y >= fora.y - SUBPIXEL &&
-  dentro.x + dentro.width <= fora.x + fora.width + SUBPIXEL &&
-  dentro.y + dentro.height <= fora.y + fora.height + SUBPIXEL;
-
-const desenha = (c: Caixa) =>
-  `x ${Math.round(c.x)}..${Math.round(c.x + c.width)} y ${Math.round(c.y)}..${Math.round(c.y + c.height)}`;
-
-async function caixaDe(page: Page, sel: string): Promise<Caixa> {
-  const b = await page.locator(sel).first().boundingBox();
-  if (!b) throw new Error(`${sel} sem caixa`);
-  return b;
-}
-
-/** Confere o contrato das duas zonas no estado atual da tela. Devolve a distância medida. */
-async function exigirZonasSeparadas(page: Page, onde: string, etiqueta: string): Promise<number> {
-  const guia = await caixaDe(page, ".tut-guia");
-  const card = await caixaDe(page, SEL.youtag);
-  const coroa = await caixaDe(page, ".rei-cara");
-  const vp = vpOf(page);
-  const cabecalho = `[${etiqueta} · ${vp.width}x${vp.height}] ${onde}`;
-
-  // 1. A COROA PERTENCE AO GUIA. Se ela escapar da caixa do container, voltou a ter vida própria.
-  expect(
-    contido(coroa, guia),
-    `${cabecalho}: a coroa saiu do container do guia\n   coroa: ${desenha(coroa)}\n   guia:  ${desenha(guia)}`,
-  ).toBe(true);
-
-  // 2. O CONTAINER DO GUIA NÃO INVADE O CARD DO JOGADOR. É a checagem que faltava.
-  expect(
-    cruzam(guia, card),
-    `${cabecalho}: o CONTAINER do guia invade o card do jogador\n` +
-    `   guia: ${desenha(guia)}\n   card: ${desenha(card)}`,
-  ).toBe(false);
-
-  // 3. E existe folga visível entre as duas zonas — encostar não é separar.
-  const distancia = Math.round(guia.x - (card.x + card.width));
-  expect(
-    distancia,
-    `${cabecalho}: folga de apenas ${distancia}px entre o card e o guia\n` +
-    `   guia: ${desenha(guia)}\n   card: ${desenha(card)}`,
-  ).toBeGreaterThanOrEqual(FOLGA_MINIMA);
-
-  // 4. E a coroa continua sem cruzar o resto da mesa.
-  for (const [nome, sel] of [
-    ["avatar do jogador local", `${SEL.youtag} .av`],
-    ["HUD do contrato", SEL.hud],
-    ["utilidades do topo", SEL.topbtn],
-  ] as [string, string][]) {
-    const alvo = await caixaDe(page, sel);
-    expect(
-      cruzam(coroa, alvo),
-      `${cabecalho}: a coroa cruza ${nome}\n   coroa: ${desenha(coroa)}\n   ${nome}: ${desenha(alvo)}`,
-    ).toBe(false);
-  }
-
-  expect(insideViewport(coroa as Box, vp), `${cabecalho}: a coroa saiu do viewport`).toBe(true);
-  return distancia;
-}
-
-test("as duas zonas não se cruzam — e é o CONTAINER do guia que é medido", async ({ page }, ti) => {
-  await primeiraVisita(page);
-  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
-  await exigirZonasSeparadas(page, "passo 1", ti.project.name);
-});
-
-/**
- * A separação vale NOS DEZESSEIS PASSOS, não na foto inicial.
- *
- * Importa porque a coroa já teve posição dependente do comprimento da fala: passo com frase curta
- * a empurrava para um lado, frase longa para o outro. Medir só o passo 1 deixaria passar
- * exatamente esse tipo de defeito — e foi assim que ele chegou ao aparelho.
- */
-test("as zonas continuam separadas do passo 1 ao 16 — e a coroa não se mexe", async ({ page }, ti) => {
-  await primeiraVisita(page);
-  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
-
-  const xDaCoroa: number[] = [];
-  const distancias: number[] = [];
-  const trilha: string[] = [];
-
-  for (let i = 0; i < 60; i++) {
-    if (!(await page.locator(".tut").count())) break;
-    const rotulo = (await page.locator(".tut-passo").textContent())?.trim() ?? "?";
-    distancias.push(await exigirZonasSeparadas(page, `passo ${rotulo}`, ti.project.name));
-    xDaCoroa.push(Math.round((await caixaDe(page, ".rei-cara")).x));
-
-    const ok = page.locator(".tut-ok");
-    const trunfo = page.locator(".trumpbtn").first();
-    const carta = page.locator(SEL.handCardLegal).first();
-    if (await ok.count()) { trilha.push(`${rotulo}:continuar`); await ok.click(); }
-    else if (await trunfo.count()) { trilha.push(`${rotulo}:trunfo`); await trunfo.click(); }
-    else if (await carta.count()) { trilha.push(`${rotulo}:carta`); await carta.click(); }
-    else throw new Error(`travou no passo ${rotulo}: ${trilha.join(" -> ")}`);
-    await page.waitForTimeout(120);
-  }
-
-  // percorreu os dezesseis
-  const vistos: string[] = [];
-  for (const t of trilha) {
-    const c = t.split(":")[0];
-    if (vistos.at(-1) !== c) vistos.push(c);
-  }
-  expect(vistos).toEqual(Array.from({ length: 16 }, (_, i) => `${i + 1}/16`));
-
-  // A COROA É ÂNCORA, não passageira: mesmo x do começo ao fim. Antes ela deslizava conforme o
-  // tamanho da fala — e um elemento que se move sozinho é o que vira colisão no aparelho.
-  const unicos = [...new Set(xDaCoroa)];
-  expect(
-    unicos.length,
-    `[${ti.project.name}] a coroa mudou de x durante o tutorial: ${unicos.join(", ")}`,
-  ).toBe(1);
-
-  expect(Math.min(...distancias)).toBeGreaterThanOrEqual(FOLGA_MINIMA);
-});
-
-/**
- * APELIDO NO LIMITE. O campo aceita 14 caracteres, e "W" é o glifo mais largo da fonte — este é o
- * pior card que o produto consegue produzir. Foi por aqui que a versão anterior furou: o card não
- * tinha teto e crescia com o texto, entrando na faixa que o guia julgava reservada.
- */
-test("com o apelido mais largo possível, as zonas continuam separadas", async ({ page }, ti) => {
-  await primeiraVisita(page);
-  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
-
-  await page.locator(`${SEL.youtag} .n`).evaluate((el) => { el.textContent = "WWWWWWWWWWWWWW"; });
-  await page.waitForTimeout(80);
-  const card = await caixaDe(page, SEL.youtag);
-
-  // A ZONA É UM TETO, e o teto é lido do próprio token — não de um número copiado para o teste.
-  // Se `--zonaJogador` mudar, esta conta muda junto; se o card passar dela, reprova aqui.
-  // `getComputedStyle` devolve a custom property como TEXTO ("calc(0px + clamp(...))"), não em px.
-  // Uma régua de mentira com a largura do token resolve: o próprio navegador faz a conta.
-  const zona = await page.evaluate(() => {
-    const regua = document.createElement("div");
-    regua.style.cssText = "position:absolute;visibility:hidden;width:var(--zonaJogador);";
-    document.body.appendChild(regua);
-    const w = regua.getBoundingClientRect().width;
-    regua.remove();
-    return w;
-  });
-  expect(
-    card.x + card.width,
-    `[${ti.project.name}] o card estourou a zona reservada (${zona}px): ${desenha(card)}`,
-  ).toBeLessThanOrEqual(zona + SUBPIXEL);
-
-  await exigirZonasSeparadas(page, "apelido de 14 caracteres", ti.project.name);
-});
-
 test("passo de AÇÃO se anuncia — o tutorial nunca parece travado", async ({ page }, ti) => {
   await primeiraVisita(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
@@ -488,24 +374,232 @@ test("VOLTAR relê a instrução anterior sem desfazer jogada", async ({ page })
   expect(await page.locator(".rei-fala").textContent()).toBe(falaDoDois);
 });
 
-test("VOLTAR depois de jogar não pede a jogada de novo", async ({ page }) => {
+/**
+ * VOLTAR PARA UM PASSO PRÁTICO JÁ CUMPRIDO, DENTRO DA MESMA MESA.
+ *
+ * O passo 4 (negar) e o 5 vivem na mesma cena. Voltar do 5 para o 4 não remonta nada: a carta que
+ * o aluno jogou continua jogada, e o motor não desfaz jogada. Então o passo revisitado tem de
+ * virar LEITURA. Se ele voltasse a exigir a carta, exigiria uma carta que não está mais na mão:
+ * o pedido impossível, que é o deadlock clássico deste tutorial.
+ */
+test("VOLTAR depois de jogar, na mesma mesa, não pede a jogada de novo", async ({ page }) => {
   await primeiraVisita(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
-  // chega ao passo de ação e cumpre
-  while (await page.locator(".tut-ok").count()) {
-    await page.locator(".tut-ok").click();
-    await page.waitForTimeout(100);
+  // até 4/16, o passo de negar
+  for (let i = 0; i < 12; i++) {
+    if ((await page.locator(".tut-passo").textContent())?.trim() === "4/16") break;
+    const ok = page.locator(".tut-ok"), carta = page.locator(SEL.handCardLegal).first();
+    if (await ok.count()) await ok.click(); else if (await carta.count()) await carta.click();
+    await page.waitForTimeout(110);
   }
-  const rotuloDaAcao = (await page.locator(".tut-passo").textContent())?.trim();
+  await expect(page.locator(".tut-passo")).toHaveText("4/16");
+  await expect(page.locator(".tut-acao")).toBeVisible();
+
   await page.locator(SEL.handCardLegal).first().click();
   await expect(page.locator(".tut-ok")).toBeVisible();
   await page.locator(".tut-ok").click();
+  await expect(page.locator(".tut-passo")).toHaveText("5/16");
 
-  // volta para o passo da ação: ele já foi cumprido, então NÃO pode voltar a exigir a carta —
-  // a jogada é irreversível no motor, e pedir de novo seria pedir o impossível.
   await page.locator(".tut-voltar").click();
-  await expect(page.locator(".tut-passo")).toHaveText(new RegExp(`^${rotuloDaAcao?.split("/")[0]}/`));
-  await expect(page.locator(".tut-acao")).toHaveCount(0);
+  await expect(page.locator(".tut-passo")).toHaveText("4/16");
+  await expect(page.locator(".tut-acao"), "voltou a pedir uma carta já jogada").toHaveCount(0);
   await expect(page.locator(".tut-ok")).toBeVisible();
+});
+
+/**
+ * E O CASO OPOSTO: voltar ATRAVESSANDO cena remonta a mesa, e aí o passo prático volta a ser
+ * prático — o que é correto, porque a carta voltou para a mão. O que não pode acontecer é pedir
+ * a ação sem ter como cumpri-la.
+ */
+test("VOLTAR para um passo prático de outra cena continua jogável", async ({ page }) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  // 3/16 é prático (servir) e 4/16 troca de cena
+  for (let i = 0; i < 8; i++) {
+    if ((await page.locator(".tut-passo").textContent())?.trim() === "3/16") break;
+    await page.locator(".tut-ok").click();
+    await page.waitForTimeout(110);
+  }
+  await page.locator(SEL.handCardLegal).first().click();
+  await page.locator(".tut-ok").click();
+  await expect(page.locator(".tut-passo")).toHaveText("4/16");
+
+  await page.locator(".tut-voltar").click();
+  await expect(page.locator(".tut-passo")).toHaveText("3/16");
+  // pede a carta de novo, e a carta ESTÁ lá: pedido possível, não deadlock
+  await expect(page.locator(".tut-acao")).toBeVisible();
+  const carta = page.locator(SEL.handCardLegal).first();
+  await expect(carta).toBeVisible();
+  await exigirAoAlcance(page, carta, "a carta legal depois de voltar", "3/16", []);
+  await carta.click();
+  await expect(page.locator(".tut-ok")).toBeVisible();
+});
+
+/* ══════════════════ O FLUXO INTEIRO, MEDIDO A CADA PASSO ══════════════════
+ *
+ * O teste de conclusão prova que dá para chegar ao fim. Este prova outra coisa, que é onde os
+ * defeitos reais moraram: que em NENHUM dos dezesseis passos a faixa encosta no jogo. Cada passo
+ * troca a fala, e vários trocam a mesa inteira (cada mão negativa monta a sua). Medir só a foto
+ * inicial deixaria passar exatamente o que o aparelho pegou.
+ */
+test("os dezesseis passos, um a um: sem colisão, sem clipping, sem travar", async ({ page }, ti) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+  const vp = vpOf(page);
+  const proj = ti.project.name;
+
+  const trilha: string[] = [];
+  const vistos: string[] = [];
+
+  for (let i = 0; i < 60; i++) {
+    if (!(await page.locator(".tut").count())) break;
+    const rotulo = (await page.locator(".tut-passo").textContent())?.trim() ?? "?";
+    if (vistos.at(-1) !== rotulo) vistos.push(rotulo);
+
+    // 1. a faixa não toca no jogo, neste passo, nesta mesa
+    const faixa = await boxOf(page.locator(".tut-faixa"), "tut-faixa");
+    const daMesa = new Map<string, Box>();
+    for (const [nome, sel] of [
+      ["hud", SEL.hud], ["youtag", SEL.youtag], ["topbtn", SEL.topbtn],
+      ["leque", ".hand"], ["vaza", ".trick"], ["adversário do topo", ".opp.top"],
+      ["adversário da esquerda", ".opp.left"], ["adversário da direita", ".opp.right"],
+    ] as [string, string][]) {
+      const alvo = await boxOf(page.locator(sel), sel);
+      daMesa.set(nome, alvo);
+      expect(
+        intersects(faixa, alvo, SUBPIXEL),
+        `[${proj} · ${vp.width}×${vp.height}] passo ${rotulo}: faixa × ${nome}\n` +
+        `   faixa: ${fmt(faixa)}\n   ${nome}: ${fmt(alvo)}`,
+      ).toBe(false);
+      expect(
+        insideViewport(alvo, vp, SUBPIXEL),
+        `[${proj} · ${vp.width}×${vp.height}] passo ${rotulo}: ${nome} cortado ${fmt(alvo)}`,
+      ).toBe(true);
+    }
+
+    // 1b. E A MESA CONTINUA COERENTE COM MENOS ALTURA. Mover o tutorial para o topo encurtou a
+    //     Mesa, e foi assim que o slot de trunfo passou a cobrir o adversário da esquerda na fase
+    //     positiva: a coluna esquerda é uma pilha, e a pilha não cabia mais.
+    if (await page.locator(".trumpslot").count()) {
+      const slot = await boxOf(page.locator(".trumpslot"), "trumpslot");
+      for (const nome of ["adversário da esquerda", "hud", "leque"]) {
+        expect(
+          intersects(slot, daMesa.get(nome)!, SUBPIXEL),
+          `[${proj} · ${vp.width}×${vp.height}] passo ${rotulo}: trunfo × ${nome}\n` +
+          `   trunfo: ${fmt(slot)}\n   ${nome}: ${fmt(daMesa.get(nome)!)}`,
+        ).toBe(false);
+      }
+    }
+
+    // 2. a instrução do passo está escrita, INTEIRA. Reticências no meio de uma regra é regra
+    //    não ensinada: a copy tem de caber na faixa, e quem não cabe é a copy, não o layout.
+    await expect(page.locator(".rei-fala"), `passo ${rotulo} sem fala`).toHaveText(/\S/);
+    const cortada = await page.locator(".rei-fala").evaluate((e) => ({
+      corta: e.scrollHeight > e.clientHeight + 1,
+      texto: (e.textContent ?? "").slice(0, 70),
+      s: e.scrollHeight, c: e.clientHeight,
+    }));
+    expect(
+      cortada.corta,
+      `[${proj} · ${vp.width}×${vp.height}] passo ${rotulo}: a fala está cortada ` +
+      `(${cortada.s}px de texto em ${cortada.c}px)\n   "${cortada.texto}..."`,
+    ).toBe(false);
+
+    // 3. e há um caminho adiante, alcançável por um dedo
+    const ok = page.locator(".tut-ok");
+    const trunfo = page.locator(".trumpbtn").first();
+    const carta = page.locator(SEL.handCardLegal).first();
+    if (await ok.count()) {
+      await exigirAoAlcance(page, ok, "o botao Avançar", rotulo, trilha);
+      trilha.push(`${rotulo}:continuar`); await ok.click();
+    } else if (await trunfo.count()) {
+      await exigirAoAlcance(page, trunfo, "o botao de trunfo", rotulo, trilha);
+      trilha.push(`${rotulo}:trunfo`); await trunfo.click();
+    } else if (await carta.count()) {
+      await exigirAoAlcance(page, carta, "a carta legal", rotulo, trilha);
+      trilha.push(`${rotulo}:carta`); await carta.click();
+    } else {
+      throw new Error(`TUTORIAL TRAVOU no passo ${rotulo}: ${trilha.join(" -> ")}`);
+    }
+    await page.waitForTimeout(120);
+  }
+
+  expect(vistos, `trilha: ${trilha.join(" -> ")}`)
+    .toEqual(Array.from({ length: 16 }, (_, i) => `${i + 1}/16`));
+  // e as cinco práticas aconteceram de verdade
+  expect(trilha.filter((t) => t.endsWith(":carta")).length).toBe(4);
+  expect(trilha.filter((t) => t.endsWith(":trunfo")).length).toBe(1);
+
+  await expect(page.locator(".home")).toBeVisible();
+  const salvo = await page.evaluate(() => window.localStorage.getItem("king:tutorial"));
+  expect(JSON.parse(salvo!).concluido, "tutorial_completed").toBe(true);
+});
+
+/**
+ * VOLTAR ATRAVESSANDO MICROCENÁRIO.
+ *
+ * O passo 6 vive na mesa do "negar" e o passo 7 monta a mão 2 do zero. Voltar do 7 para o 6
+ * desmonta uma cena e remonta outra, e é aí que um estado didático corrompido apareceria: passo
+ * pedindo ação já feita, mesa de uma mão com a fala de outra, ou nada clicável.
+ */
+test("VOLTAR entre microcenários não corrompe o estado", async ({ page }) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  // até 7/16, que é a primeira mão com cena própria (mão 2)
+  for (let i = 0; i < 20; i++) {
+    if ((await page.locator(".tut-passo").textContent())?.trim() === "7/16") break;
+    const ok = page.locator(".tut-ok"), carta = page.locator(SEL.handCardLegal).first();
+    if (await ok.count()) await ok.click(); else if (await carta.count()) await carta.click();
+    await page.waitForTimeout(110);
+  }
+  await expect(page.locator(".tut-passo")).toHaveText("7/16");
+  await expect(page.locator(SEL.hud)).toContainText("Mão 2");
+  const falaDo7 = await page.locator(".rei-fala").textContent();
+
+  await page.locator(".tut-voltar").click();
+  await expect(page.locator(".tut-passo")).toHaveText("6/16");
+  await expect(page.locator(SEL.hud)).toContainText("Mão 1");
+  await expect(page.locator(".tut-acao"), "passo de leitura não pode pedir ação").toHaveCount(0);
+  await expect(page.locator(".tut-ok")).toBeVisible();
+
+  await page.locator(".tut-ok").click();
+  await expect(page.locator(".tut-passo")).toHaveText("7/16");
+  await expect(page.locator(".rei-fala")).toHaveText(falaDo7!);
+  await expect(page.locator(SEL.hud)).toContainText("Mão 2");
+});
+
+/**
+ * A SEQUÊNCIA DAS MÃOS É A DO JOGO — e agora dá para ver isso na tela.
+ *
+ * A versão anterior explicava as mãos 2, 3, 4 e 6 com o card do contrato preso na mão 5. Quem
+ * olhava lia uma coisa e via outra, e a mão 5 parecia não existir na sequência. O card agora
+ * confirma o que o Rei diz, passo a passo.
+ */
+test("cada mão negativa é explicada com o card do contrato daquela mão", async ({ page }) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  const esperado: Record<string, string> = {
+    "6/16": "Mão 1", "7/16": "Mão 2", "8/16": "Mão 3",
+    "9/16": "Mão 4", "10/16": "Mão 5", "11/16": "Mão 6",
+  };
+  const vistos: string[] = [];
+
+  for (let i = 0; i < 40; i++) {
+    const rotulo = (await page.locator(".tut-passo").textContent())?.trim() ?? "";
+    if (esperado[rotulo] && !vistos.includes(rotulo)) {
+      vistos.push(rotulo);
+      await expect(page.locator(SEL.hud), `passo ${rotulo}`).toContainText(esperado[rotulo]);
+    }
+    if (rotulo === "12/16") break;
+    const ok = page.locator(".tut-ok"), carta = page.locator(SEL.handCardLegal).first();
+    if (await ok.count()) await ok.click(); else if (await carta.count()) await carta.click();
+    else throw new Error(`travou em ${rotulo}`);
+    await page.waitForTimeout(110);
+  }
+
+  expect(vistos).toEqual(["6/16", "7/16", "8/16", "9/16", "10/16", "11/16"]);
 });

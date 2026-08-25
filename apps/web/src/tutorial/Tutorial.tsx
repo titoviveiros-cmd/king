@@ -166,51 +166,54 @@ export function Tutorial({
         onOpenAudio={onOpenAudio}
       />
 
-      {/* TODA a cromagem do tutorial vive nesta faixa, alinhada à direita.
-          Não é estética: medido em 667×375, a barra no topo-esquerdo caía exatamente sobre o HUD
-          do contrato — o mesmo HUD que o passo 3 manda o jogador olhar — e a fala do Rei
-          encostava no card do jogador local. Um lugar só, à direita, resolve os dois. */}
-      <div className="tut-guia">
-        <div className="tut-barra">
-          <span className="tut-passo" aria-label={`Passo ${indice + 1} de ${TOTAL_DE_PASSOS}`}>
-            {indice + 1}/{TOTAL_DE_PASSOS}
-          </span>
-          <span className="tut-trilho" aria-hidden>
-            <i style={{ width: `${((indice + 1) / TOTAL_DE_PASSOS) * 100}%` }} />
-          </span>
-          <button className="tut-pular" onClick={() => { sfxTap(); setConfirmandoSaida(true); }}>
-            Pular
-          </button>
-        </div>
+      {/* A FAIXA. Uma fita no topo, com espaço próprio: a Mesa começa abaixo dela, então nada
+          aqui pode cair sobre carta, avatar ou HUD. Da esquerda para a direita, na ordem em que
+          se lê: onde estou, o que fazer, e como seguir. */}
+      <div className="tut-faixa">
+        <span className="tut-passo" aria-label={`Passo ${indice + 1} de ${TOTAL_DE_PASSOS}`}>
+          <b>{indice + 1}</b>
+          <i>/{TOTAL_DE_PASSOS}</i>
+        </span>
+        <span className="tut-trilho" aria-hidden>
+          <i style={{ width: `${((indice + 1) / TOTAL_DE_PASSOS) * 100}%` }} />
+        </span>
 
         <div className="tut-linha">
           <Rei fala={fala} humor={humor} />
+        </div>
 
-          <div className="tut-nav">
-            <button
-              className="btn ghost tut-voltar"
-              onClick={voltar}
-              disabled={indice === 0}
-              aria-label="Voltar para a instrução anterior"
-            >
-              Voltar
+        <div className="tut-nav">
+          <button
+            className="tut-pular"
+            onClick={() => { sfxTap(); setConfirmandoSaida(true); }}
+            aria-label="Pular o tutorial"
+          >
+            Pular
+          </button>
+
+          <button
+            className="btn ghost tut-voltar"
+            onClick={voltar}
+            disabled={indice === 0}
+            aria-label="Voltar para a instrução anterior"
+          >
+            Voltar
+          </button>
+
+          {/* ESTADO DE AÇÃO × ESTADO DE LEITURA.
+              Quando falta uma ação, "Avançar" não fica lá parado fingindo ser a saída: o pedido
+              toma o lugar dele e diz o que tocar. Sumir sem substituto deixaria a tela sem
+              nenhuma pista, que é exatamente a queixa que originou este estado. */}
+          {esperandoAcao ? (
+            <span className="tut-acao" role="status" aria-live="assertive">
+              <b>SUA VEZ</b>
+              <i>{PEDIDO[passo.acao as Exclude<Passo["acao"], "toque">]}</i>
+            </span>
+          ) : (
+            <button className="btn gold tut-ok" autoFocus onClick={avancar}>
+              {ultimo ? "Jogar!" : "Avançar"}
             </button>
-
-            {/* ESTADO DE AÇÃO × ESTADO DE LEITURA.
-                Quando falta uma ação, "Avançar" NÃO some — sumir deixaria a tela sem nenhuma
-                pista do que fazer, que é exatamente a queixa. Ele fica desabilitado e cede o
-                lugar visual para o pedido, que diz o que a pessoa precisa tocar. */}
-            {esperandoAcao ? (
-              <span className="tut-acao" role="status" aria-live="assertive">
-                <b>SUA VEZ</b>
-                <i>{PEDIDO[passo.acao as Exclude<Passo["acao"], "toque">]}</i>
-              </span>
-            ) : (
-              <button className="btn gold tut-ok" autoFocus onClick={avancar}>
-                {ultimo ? "Jogar!" : "Avançar"}
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
 

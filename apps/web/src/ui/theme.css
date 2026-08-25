@@ -96,6 +96,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
      estava encostando no limite inferior da tela. */
   --handcw:clamp(38px,min(7vw,calc(15.5 * var(--vh))),96px);
   --trickcw:calc(var(--handcw)*.84);
+  /* ── A COLUNA ESQUERDA É UMA PILHA ──
+     Contrato em cima, slot de trunfo embaixo dele e, mais abaixo ainda, o adversário da esquerda.
+     Enquanto cada andar carregava o próprio número mágico, mexer num quebrava o outro em
+     silêncio: bastou o card do contrato ganhar a linha "as 10 mãos" para o slot de trunfo subir
+     por cima dele. Agora os três leem a mesma conta. */
+  --hudAlt:calc(var(--ui) * 7.2);
+  --trunfoAlt:calc(var(--ui) * 6.1);
+  --colunaEsq:calc(var(--pad) + var(--st) + var(--hudAlt) + var(--trunfoAlt));
   /* `--corredor` vem do `:root`: é contrato compartilhado com a camada do tutorial. */
   --fanmax:min(calc(100vw - 2 * var(--corredor)),780px);
   --n:13;
@@ -121,8 +129,11 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    e um realce curto quando a mão vira, que é quando o objetivo muda. O halo em repouso fica
    discreto: chama atenção sem virar letreiro.
    Só cor e sombra mudam — nada aqui altera a caixa, para não mexer nas folgas medidas. */
+/* O HUD virou BOTÃO (abre "as 10 mãos"). Como elemento é `<button>`, precisa desfazer o que o
+   navegador dá de graça: fonte, alinhamento e a caixa de texto centrada. O visual não mudou. */
 .hud{position:absolute;top:calc(var(--pad) + var(--st));left:calc(var(--pad) + var(--sl));z-index:9;max-width:56vw;
   --fase:224,51,138; /* magenta, sobrescrito por .pos */
+  font:inherit;color:inherit;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent;
   background:rgba(14,7,26,.9);border:1px solid rgba(var(--fase),.78);border-radius:16px;
   padding:calc(var(--ui)*.62) calc(var(--ui)*.9);backdrop-filter:blur(8px);
   box-shadow:0 10px 28px -10px #000,0 0 0 2px rgba(var(--fase),.28),0 0 44px rgba(var(--fase),.55),inset 0 0 22px rgba(var(--fase),.16);
@@ -141,13 +152,71 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .hud .pen{color:#ffd24a;font-size:calc(var(--ui)*.98);}
 .hud .vz{color:#d6c9f0;font-size:calc(var(--ui)*.94);border-left:1px solid var(--line);padding-left:calc(var(--ui)*.7);}
 .hud .vz b{color:#fff;}
+/* A AFFORDANCE. Um card que abre algo precisa dizer que abre: sem isto o toque é um segredo que
+   só quem leu o passo 16 do tutorial conhece. Texto miúdo, na cor da fase, sem competir com o
+   nome do contrato. */
+.hud-lupa{display:block;margin-top:4px;font-family:var(--disp);font-weight:800;
+  font-size:calc(var(--ui)*.66);letter-spacing:.12em;text-transform:uppercase;
+  color:rgb(var(--fase));filter:brightness(1.3);opacity:.9;}
+.hud-lupa::before{content:"◇ ";}
+.hud:active{transform:scale(.985);}
+.hud:focus-visible{outline:2px solid var(--gold);outline-offset:3px;}
+
+/* ══════════════════ AS 10 MÃOS ══════════════════
+   Consulta rápida, em cima da Mesa. Landscape de celular é o caso difícil: pouca altura e muita
+   largura, então as duas fases ficam LADO A LADO e a rolagem, se precisar, é interna. */
+.dm-scrim{position:fixed;inset:0;z-index:30;height:var(--alturaUtil);
+  display:flex;align-items:center;justify-content:center;padding:calc(var(--pad) + var(--st)) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb)) calc(var(--pad) + var(--sl));
+  background:rgba(8,3,16,.78);backdrop-filter:blur(5px);}
+.dm{display:flex;flex-direction:column;min-height:0;
+  width:min(94vw,720px);max-height:100%;
+  background:linear-gradient(180deg,#1b0f33,#12081f);border:1px solid rgba(180,150,255,.34);
+  border-radius:18px;box-shadow:0 24px 60px -20px #000;overflow:hidden;}
+.dm-topo{flex:none;display:flex;align-items:center;justify-content:space-between;
+  gap:var(--ui);padding:calc(var(--ui)*.5) calc(var(--ui)*.5) calc(var(--ui)*.5) calc(var(--ui)*.95);
+  border-bottom:1px solid var(--line);}
+.dm-topo h2{margin:0;font-family:var(--disp);font-weight:800;color:#fff;
+  font-size:calc(var(--ui)*1.15);letter-spacing:.04em;}
+.dm-x{flex:none;min-width:44px;min-height:44px;display:grid;place-items:center;
+  background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:12px;
+  color:var(--ink);font-size:calc(var(--ui)*1.05);cursor:pointer;}
+.dm-x:active{background:rgba(255,255,255,.16);}
+.dm-x:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+.dm-corpo{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;
+  display:grid;grid-template-columns:1.35fr 1fr;gap:calc(var(--ui)*.7);
+  padding:calc(var(--ui)*.7) calc(var(--ui)*.95) calc(var(--ui)*.95);}
+@media (max-width:560px){ .dm-corpo{grid-template-columns:1fr;} }
+.dm-fase h3{margin:0 0 calc(var(--ui)*.4);font-family:var(--disp);font-weight:800;
+  font-size:calc(var(--ui)*.76);letter-spacing:.14em;text-transform:uppercase;}
+.dm-fase.neg h3{color:#ff6fb0;}
+.dm-fase.pos h3{color:var(--turq);}
+.dm-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
+.dm-item{display:flex;align-items:center;gap:calc(var(--ui)*.6);
+  padding:calc(var(--ui)*.34) calc(var(--ui)*.55);border-radius:12px;
+  background:rgba(255,255,255,.045);border:1.5px solid transparent;}
+.dm-n{flex:none;width:calc(var(--ui)*1.7);height:calc(var(--ui)*1.7);border-radius:50%;
+  display:grid;place-items:center;font-family:var(--disp);font-weight:800;
+  font-size:calc(var(--ui)*.86);color:#0e0722;background:#9284b8;}
+.dm-item.neg .dm-n{background:linear-gradient(135deg,#ff9ecb,var(--magenta));color:#fff;}
+.dm-item.pos .dm-n{background:linear-gradient(135deg,#7ef0dd,var(--turq));color:#0e0722;}
+.dm-txt{display:flex;flex-direction:column;min-width:0;flex:1 1 auto;}
+.dm-txt b{font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*.94);line-height:1.14;}
+.dm-txt i{font-style:normal;font-family:var(--body);font-weight:700;color:#ffd24a;
+  font-size:calc(var(--ui)*.8);line-height:1.2;}
+/* MÃO ATUAL: moldura + fundo + losango + a palavra. Quatro sinais, e nenhum deles é só a cor. */
+.dm-item.atual{border-color:var(--gold);background:rgba(244,197,66,.13);
+  box-shadow:0 0 18px -4px rgba(244,197,66,.5);}
+.dm-atual{flex:none;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.66);
+  letter-spacing:.12em;color:var(--gold);white-space:nowrap;}
+.dm-nota{margin:calc(var(--ui)*.55) 0 0;font-family:var(--body);font-weight:700;
+  color:var(--muted);font-size:calc(var(--ui)*.8);line-height:1.35;}
 .topbtn{position:absolute;top:calc(var(--pad) + var(--st));right:calc(var(--pad) + var(--sr));z-index:9;
   display:flex;gap:clamp(6px,1.2vw,10px);align-items:center;}
 
 /* Slot de trunfo (mãos 7–10). Fica logo abaixo do HUD, com o naipe GRANDE: é a informação
    mais consultada da mão positiva e antes vivia como texto miúdo dentro do HUD. */
 .trumpslot{position:absolute;z-index:9;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  left:calc(var(--pad) + var(--sl));top:calc(var(--pad) + var(--st) + var(--ui) * 6.1);
+  left:calc(var(--pad) + var(--sl));top:calc(var(--pad) + var(--st) + var(--hudAlt));
   width:calc(var(--ui)*5.2);padding:calc(var(--ui)*.34) 4px calc(var(--ui)*.44);
   background:rgba(14,7,26,.86);border:1px solid rgba(244,197,66,.45);border-radius:18px;
   box-shadow:0 6px 20px -6px #000,0 0 26px rgba(244,197,66,.22);backdrop-filter:blur(8px);}
@@ -171,6 +240,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .opp.left{left:calc(var(--pad) + var(--sl));top:52%;transform:translateY(-50%);}
 .opp.top{top:calc(var(--pad) + var(--st) + clamp(36px,7.5vh,62px));left:50%;transform:translateX(-50%);}
 .opp.right{right:calc(var(--pad) + var(--sr));top:52%;transform:translateY(-50%);}
+/* A COLUNA ESQUERDA É UMA PILHA: contrato, trunfo e, mais abaixo, o adversário da esquerda.
+   Centralizar os laterais em 52% funciona enquanto a Mesa é alta. Quando ela encurta (tutorial
+   com faixa no topo, ou navegador comendo altura), 52% sobe e o card do adversário entra por
+   baixo do slot de trunfo — foi o que apareceu na mão positiva a 667x375, com o nome "Bia"
+   metade escondido. O piso resolve sem breakpoint: os laterais nunca sobem acima do fim da
+   pilha, e continuam simétricos porque o mesmo piso vale para os dois. */
+.mesa.comtrunfo .opp.left,
+.mesa.comtrunfo .opp.right{top:max(52%, calc(var(--colunaEsq) + var(--ui) * 2.2));}
 .opp .av{width:calc(var(--ui)*2.5);height:calc(var(--ui)*2.5);border-radius:50%;display:grid;place-items:center;
   font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.15);border:2px solid var(--night2);flex:none;}
 
@@ -828,77 +905,102 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   text-transform:uppercase;color:var(--turq);background:none;border:none;cursor:pointer;padding:.2em;}
 
 /* ══════════════════════ APRENDA KING ══════════════════════
-   O tutorial é a Mesa de verdade com uma camada por cima. Duas regras de espaço:
-   a barra de progresso mora no topo-esquerdo (onde não há nada), e o Rei fala no
-   rodapé — acima do leque, nunca sobre ele. */
+   O tutorial é a Mesa DE VERDADE com uma faixa de instrução.
 
-.tut{position:fixed;inset:0;}
+   ══ POR QUE A FAIXA SUBIU, E POR QUE ELA RESERVA ESPAÇO ══
 
-/* Progresso + Pular. Fino de propósito: informa sem competir com o HUD do contrato — e por
-   isso NÃO fica no topo: lá ele cobria o HUD em landscape de celular. */
-.tut-barra{display:flex;align-items:center;gap:8px;width:100%;max-width:min(56vw,340px);
-  margin-left:auto;}
-.tut-passo{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.7);letter-spacing:.1em;
-  color:var(--faint);font-variant-numeric:tabular-nums;flex:none;}
-.tut-trilho{flex:1 1 auto;height:4px;min-width:60px;border-radius:999px;
-  background:rgba(255,255,255,.1);overflow:hidden;}
+   Três tentativas de conviver embaixo falharam no iPhone, sempre pelo mesmo motivo de fundo: a
+   faixa era uma CAMADA sobre a Mesa. Camada disputa espaço com o que está embaixo dela, e o que
+   está embaixo, no rodapé, é justamente o mais importante da tela: o leque do jogador e o card
+   dele. Empurrar a camada para um lado, mascarar, reservar corredor: tudo isso administra a
+   sobreposição em vez de eliminá-la.
+
+   Agora a faixa não é camada. Ela é uma FATIA da tela, no topo, e a Mesa recebe o que sobra:
+
+       .tut       →  altura útil inteira
+       .tut-faixa →  --faixaTut, do topo para baixo
+       .tut .mesa →  começa em --faixaTut e mede o resto
+
+   Não há sobreposição possível porque não há espaço compartilhado. E como `--vh` é recalculado
+   dentro do tutorial, as cartas se dimensionam pela altura que a Mesa REALMENTE tem: sem essa
+   linha o leque continuaria pensando que a tela é inteira e seria cortado na base, que é a
+   família de bug que originou tudo isto.
+
+   PRIORIDADE DE ESPAÇO, quando a altura aperta: cartas do jogador, vaza, ações, contrato,
+   jogadores, tutorial, decoração. A faixa é a penúltima da fila, então ela encolhe primeiro
+   (`clamp` com piso de 52px) e a coroa some antes de qualquer coisa do jogo ceder. */
+
+.tut{position:fixed;inset:0;height:var(--alturaUtil);
+  /* A faixa inclui o recorte do topo. A Mesa, já abaixo dele, zera `--st` para não descontar
+     duas vezes o mesmo notch. */
+  --faixaTut:calc(var(--st) + clamp(52px,14.5vh,80px));
+  --vh:calc((var(--alturaUtil) - var(--faixaTut)) / 100);}
+.tut .mesa{top:var(--faixaTut);height:calc(var(--alturaUtil) - var(--faixaTut));--st:0px;}
+
+.tut-faixa{position:absolute;z-index:12;top:0;left:0;right:0;height:var(--faixaTut);
+  display:flex;align-items:center;gap:clamp(8px,1.6vw,16px);
+  padding:var(--st) calc(var(--pad) + var(--sr)) 0 calc(var(--pad) + var(--sl));
+  background:linear-gradient(180deg,#1b0f33,#150a28 62%,rgba(16,8,30,.94));
+  border-bottom:1px solid rgba(180,150,255,.24);
+  box-shadow:0 10px 26px -14px #000;}
+
+/* PROGRESSO: pastilha, não legenda.
+   Antes era texto cinza de 0.7em ao lado de um trilho fino, e a queixa foi direta: não dá para
+   saber em que etapa se está. Agora é um badge dourado com o número grande e o total pequeno,
+   à esquerda de tudo, onde a leitura ocidental começa. */
+.tut-passo{flex:none;display:flex;align-items:baseline;gap:2px;
+  padding:calc(var(--ui)*.28) calc(var(--ui)*.6);border-radius:999px;
+  background:linear-gradient(135deg,#ffe27a,var(--gold));color:#231206;
+  font-family:var(--disp);font-weight:800;font-variant-numeric:tabular-nums;
+  box-shadow:0 4px 14px -6px rgba(244,197,66,.9);}
+.tut-passo b{font-size:calc(var(--ui)*1.12);line-height:1;}
+.tut-passo i{font-style:normal;font-size:calc(var(--ui)*.72);line-height:1;opacity:.72;}
+/* O TRILHO é o acompanhante do badge, e é a primeira coisa a sair da faixa. Em landscape de
+   celular a largura toda vai para a fala do Rei: com o trilho na tela a copy mais longa perdia
+   a última linha para as reticências, e o número na pastilha já responde "etapa X de 16". */
+.tut-trilho{display:none;flex:0 1 auto;height:4px;max-width:120px;border-radius:999px;
+  background:rgba(255,255,255,.12);overflow:hidden;}
+@media (min-width:900px){ .tut-trilho{display:block;min-width:60px;} }
 .tut-trilho i{display:block;height:100%;border-radius:999px;
   background:linear-gradient(90deg,var(--turq),var(--gold));transition:width .3s ease;}
-.tut-pular{flex:none;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.68);
-  letter-spacing:.12em;text-transform:uppercase;color:var(--faint);background:none;border:none;
-  cursor:pointer;padding:.2em .3em;}
-.tut-pular:active{color:var(--ink);}
 
-/* ══ O GUIA É UMA ZONA, NÃO UMA FAIXA ══
-   Duas correções anteriores foram reprovadas no aparelho real pelo mesmo motivo, e vale deixar
-   registrado: o guia era `left:0;right:0` — uma faixa da largura da tela — e o corredor da
-   esquerda era feito de PADDING. Padding afasta o CONTEÚDO; não tira a CAIXA do lugar. O container
-   do guia continuava deitado por cima do card do jogador, com o degradê pintando por cima dele e
-   z-index maior. No DOMRect da coroa não havia colisão nenhuma, e no iPhone havia — porque o que
-   a pessoa enxerga é a camada inteira, não o retângulo do ícone.
+/* PULAR: secundário, mas visivelmente clicável.
+   Era cinza (`--faint`) sem moldura e com 0.4em de área. Continua sendo a ação menor da faixa,
+   agora com contorno, contraste de texto real e 44px de alvo, que é a régua do dedo e não a do
+   ícone. Não vira CTA: sem preenchimento, sem dourado, sem peso de botão principal. */
+.tut-pular{flex:none;min-height:44px;padding:0 calc(var(--ui)*.7);
+  display:inline-flex;align-items:center;
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.72);
+  letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+  background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:12px;
+  cursor:pointer;}
+.tut-pular:active{color:#fff;background:rgba(255,255,255,.14);}
+.tut-pular:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 
-   Agora o guia COMEÇA onde a zona do jogador termina: `left: --zonaJogador + --folgaZonas`. A
-   caixa dele não alcança o card em largura nenhuma, e nada disso depende de padding, de breakpoint
-   nem de qual apelido a pessoa escolheu. Duas zonas sem interseção, por construção. */
-.tut-guia{position:absolute;z-index:12;
-  left:calc(var(--zonaJogador) + var(--folgaZonas));right:0;bottom:0;
-  display:flex;flex-direction:column;align-items:stretch;gap:calc(var(--ui)*.4);
-  padding:calc(var(--ui)*.7) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb)) 0;}
-
-/* O degradê mora num pseudo-elemento, e não no container, para poder DESVANECER na borda
-   esquerda. Sem isso a zona ganharia um corte vertical seco no meio da mesa — é o preço de tirar
-   a faixa da largura total, e ele se paga aqui. A máscara é só do fundo: o texto do Rei continua
-   com opacidade cheia. */
-.tut-guia::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
-  background:linear-gradient(180deg,rgba(10,4,20,0),rgba(10,4,20,.88) 42%);
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 clamp(28px,7vw,80px));
-          mask-image:linear-gradient(90deg,transparent,#000 clamp(28px,7vw,80px));}
-
-/* TUDO nesta camada é transparente ao toque, MENOS os botões.
-   Não é detalhe: a faixa atravessa a tela inteira por cima do leque, e o Playwright pegou a
-   consequência num clique real — a fala do Rei interceptava o toque na carta, e o jogador não
-   conseguia jogar. Texto não precisa ser clicável; botão precisa. */
-.tut-guia, .tut-guia *{pointer-events:none;}
-.tut-guia button{pointer-events:auto;}
-.tut-linha{display:flex;align-items:center;gap:clamp(8px,1.6vw,14px);width:100%;}
+/* O TEXTO cede antes de qualquer botão: é ele que tem `minmax(0,1fr)` e quebra em duas linhas.
+   Em altura muito curta a faixa some com a coroa antes de tocar no tamanho da letra. */
+.tut-linha{display:flex;align-items:center;gap:clamp(8px,1.6vw,14px);
+  flex:1 1 auto;min-width:0;}
+.tut-nav{display:flex;align-items:center;gap:clamp(6px,1.4vw,12px);flex:none;}
 .tut-ok{flex:none;}
 
 /* O Rei. Coroa + uma linha. Ele orienta, não domina: se a fala precisar de dois parágrafos,
    o problema é a fala.
 
-   GRID DE DUAS COLUNAS, e a primeira é só da coroa. Antes era flex com `margin-left:auto`, o que
-   fazia a coroa FLUTUAR: fala curta a empurrava para a direita, fala longa a puxava para a
-   esquerda — a posição dela era efeito colateral do comprimento do texto, e mudava a cada passo.
-   Agora ela ancora na borda esquerda da zona do guia e fica no mesmo x o tutorial inteiro.
-   Quando falta largura quem cede é o texto, que quebra dentro de `minmax(0,1fr)`; depois os gaps.
-   A coroa não cede — e também não avança, porque não tem para onde. */
+   GRID DE DUAS COLUNAS, e a primeira é só da coroa. A posição dela não pode ser efeito colateral
+   do comprimento do texto: dentro da faixa ela ancora à esquerda e fica no mesmo x os dezesseis
+   passos. Quando falta largura quem cede é o texto, que quebra dentro de `minmax(0,1fr)`. */
 .rei{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;
   gap:clamp(6px,1.4vw,12px);flex:1 1 auto;min-width:0;}
-.rei-cara{flex:none;display:grid;place-items:center;width:calc(var(--ui)*2.6);height:calc(var(--ui)*2.6);
+.rei-cara{flex:none;display:grid;place-items:center;width:calc(var(--ui)*2.3);height:calc(var(--ui)*2.3);
   border-radius:50%;background:radial-gradient(circle at 40% 30%,#3a1f66,#1b0d33);
   border:1.5px solid rgba(244,197,66,.45);box-shadow:0 6px 18px -8px #000;}
-.rei-fala{margin:0;font-family:var(--body);font-weight:700;color:#fff;line-height:1.32;
-  font-size:clamp(.78rem,1.9vh,.98rem);text-shadow:0 2px 8px rgba(0,0,0,.7);}
+.rei-cara svg{width:100%;height:100%;}
+.rei-fala{margin:0;font-family:var(--body);font-weight:700;color:#fff;line-height:1.26;
+  font-size:clamp(.74rem,1.75vh,.95rem);
+  /* Três linhas é o teto, e a faixa tem altura para elas. A quarta empurraria a Mesa, então o
+     roteiro tem um limite de comprimento próprio: quem não cabe é a copy, não o layout. */
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;}
 .rei.acerto .rei-cara{border-color:var(--turq);box-shadow:0 0 0 2px rgba(45,212,191,.35),0 6px 18px -8px #000;}
 .rei.erro .rei-cara{border-color:var(--magenta);box-shadow:0 0 0 2px rgba(224,51,138,.35),0 6px 18px -8px #000;}
 
@@ -988,7 +1090,6 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 /* ── Navegação do tutorial: VOLTAR · AVANÇAR · pedido de ação ──
    Alvos de toque de verdade (44px de altura), lado a lado, com hierarquia clara: Voltar é
    discreto, Avançar é a ação primária. Em altura compacta encolhe o GAP, nunca o alvo. */
-.tut-nav{display:flex;align-items:center;gap:clamp(6px,1.4vw,12px);flex:none;}
 .tut-voltar,.tut-ok{min-height:44px;}
 .tut-voltar:disabled{opacity:.4;cursor:default;}
 
@@ -1018,7 +1119,30 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 }
 @media (prefers-reduced-motion:reduce){ .tut.agindo .hand .card.legal{animation:none;} }
 
+/* ALTURA CURTA: a ordem de quem cede é a da prioridade declarada lá em cima.
+   A COROA SAI PRIMEIRO. Ela é identidade visual, e identidade visual não vale um milímetro de
+   carta. Depois apertam os gaps e o respiro dos botões. O texto, o progresso, o Pular e o
+   Avançar continuam todos na tela, porque sem eles o tutorial deixa de funcionar. */
 @media (max-height: 360px) {
   .tut-nav{gap:6px;}
   .tut-acao{padding:.24em .6em;}
+  .tut{--faixaTut:calc(var(--st) + 52px);}
+  .tut-faixa{gap:8px;}
+  .rei-cara{display:none;}
+  .tut-pular{padding:0 calc(var(--ui)*.5);}
+  .rei{grid-template-columns:minmax(0,1fr);}
+  .dm-corpo{grid-template-columns:1.35fr 1fr;}
+  .dm-item{padding:2px calc(var(--ui)*.5);}
+  /* Nome e penalidade lado a lado: dez linhas em vez de vinte, e as seis negativas param de
+     precisar de rolagem justamente onde rolar é mais incômodo. */
+  .dm-txt{flex-direction:row;align-items:baseline;gap:calc(var(--ui)*.45);}
+  .dm-fase h3{margin-bottom:2px;}
+  /* O SLOT DE TRUNFO DEITA. Ele é consultado o tempo todo e por isso nasceu grande, mas numa
+     Mesa de 300px a coluna esquerda inteira não cabe em pé, e quem paga é o adversário lateral.
+     Em linha ele custa um terço da altura e continua legível. */
+  .mesa{--trunfoAlt:calc(var(--ui) * 2.9);}
+  .trumpslot{flex-direction:row;align-items:baseline;gap:calc(var(--ui)*.42);
+    width:auto;padding:calc(var(--ui)*.22) calc(var(--ui)*.55);}
+  .trumpslot .sym{font-size:calc(var(--ui)*1.6);margin-top:0;}
+  .trumpslot .who{margin-top:0;}
 }

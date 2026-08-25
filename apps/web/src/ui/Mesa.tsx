@@ -17,6 +17,7 @@ import {
   AvisoDeRecusa, type MesaMultiplayer,
 } from "./MesaOnline.js";
 import { desenhoDoAvatar } from "./avatares.js";
+import { DezMaos } from "./DezMaos.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
 
@@ -87,6 +88,8 @@ export function Mesa({
   const hand = sortDisplay(game.view().yourHand);
 
   const coarse = useCoarsePointer();
+  // Consulta às 10 mãos. Estado de LEITURA e nada mais: não pausa, não cancela, não avança.
+  const [vendoAsMaos, setVendoAsMaos] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => { if (!humanTurn) setSelected(null); }, [humanTurn]);
 
@@ -189,21 +192,37 @@ export function Mesa({
   const oppName = (s: Seat) => players[s];
 
   return (
-    <div className={`mesa${shaking ? " shaking" : ""}`}>
+    // `comtrunfo` avisa ao CSS que a coluna esquerda ganhou mais um andar: com o slot de trunfo
+    // na tela, os adversários laterais precisam de um piso para não subirem por baixo dele.
+    <div className={`mesa${shaking ? " shaking" : ""}${contract?.isPositive && trump ? " comtrunfo" : ""}`}>
       <div className="inlay" />
 
       {/* HUD do contrato — é o objetivo da mão, a informação mais importante da tela.
           A classe da fase pinta o halo (magenta na negativa, turquesa na positiva) e a `key`
           remonta o card quando a mão vira, para o realce de atenção tocar de novo exatamente
           no momento em que o objetivo muda. */}
-      <div className={`hud ${contract?.isPositive ? "pos" : "neg"}`} key={contract?.hand ?? 0}>
+      {/* O CARD DO CONTRATO É UM BOTÃO. Ele já era o lugar para onde o olho vai quando a pergunta
+          é "o que vale agora?"; virou também a resposta para "e as outras?". Abrir o resumo não
+          toca no estado da partida: é leitura, e o motor nem fica sabendo. */}
+      <button
+        type="button"
+        className={`hud ${contract?.isPositive ? "pos" : "neg"}`}
+        key={contract?.hand ?? 0}
+        onClick={() => { sfxTap(); setVendoAsMaos(true); }}
+        aria-label={`Mão ${contract?.hand}: ${contractTitle(contract?.kind)}. Toque para ver as 10 mãos`}
+      >
         <div className="ph">{contract?.isPositive ? "Fase positiva" : "Fase negativa"} · Mão {contract?.hand}</div>
         <div className="c">{contractTitle(contract?.kind)}</div>
         <div className="r">
           <span className="pen">{penaltyText(contract?.kind)}</span>
           <span className="vz">Vaza <b>{Math.min(game.trickNumber(), 13)}</b>/13</span>
         </div>
-      </div>
+        <span className="hud-lupa" aria-hidden>as 10 mãos</span>
+      </button>
+
+      {vendoAsMaos && (
+        <DezMaos maoAtual={contract?.hand} onFechar={() => setVendoAsMaos(false)} />
+      )}
 
       {/* Slot de trunfo — só existe nas mãos positivas (Design System). Símbolo grande:
           é consultado o tempo todo durante a mão. */}
