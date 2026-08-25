@@ -194,6 +194,17 @@ test("dá para concluir do começo ao fim, sem ficar preso", async ({ page }) =>
   expect(trilha.filter((t) => t.endsWith(":carta")).length).toBeGreaterThanOrEqual(3);
   expect(trilha.some((t) => t.endsWith(":trunfo"))).toBe(true);
 
+  // OS DEZESSEIS, um a um. Chegar ao fim não prova que nenhum passo foi pulado — prova só que a
+  // saída existe. Aqui a trilha é conferida contador por contador: 1/16 até 16/16, na ordem e
+  // sem buraco. Um passo de AÇÃO aparece duas vezes na trilha, e é assim que tem de ser: uma
+  // para a carta ou o trunfo, outra para o Avançar que só surge depois da resposta do Rei.
+  const vistos: string[] = [];
+  for (const t of trilha) {
+    const c = t.split(":")[0];
+    if (vistos.at(-1) !== c) vistos.push(c);
+  }
+  expect(vistos).toEqual(Array.from({ length: 16 }, (_, i) => `${i + 1}/16`));
+
   const salvo = await page.evaluate(() => window.localStorage.getItem("king:tutorial"));
   expect(salvo && JSON.parse(salvo).concluido).toBe(true);
 });
