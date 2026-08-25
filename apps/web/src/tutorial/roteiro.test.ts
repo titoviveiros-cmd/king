@@ -44,14 +44,52 @@ describe("os dezesseis conceitos", () => {
       expect(p.fala, p.id).not.toMatch(/fase \d|milestone|MVP|assento \d|seat|bot normal/i);
     }
   });
+
+  // TRAVESSÃO É RECURSO DE REDAÇÃO, e numa faixa de tutorial ele vira ruído: quebra a leitura,
+  // come largura que não sobra e é a marca registrada de texto escrito por máquina. Vale para
+  // toda a microcopy do roteiro, não só para a fala.
+  it("nenhum texto do roteiro usa travessão", () => {
+    for (const p of ROTEIRO) {
+      const partes: [string, string | undefined][] =
+        [["fala", p.fala], ["acerto", p.acerto], ["erro", p.erro]];
+      for (const [onde, t] of partes) {
+        if (t) expect(t, `${p.id}.${onde}: ${t}`).not.toMatch(/[—–]/);
+      }
+    }
+  });
+
+  // O ERRO QUE ESTA AUDITORIA VEIO CORRIGIR: o roteiro dizia "cinco perigos" e pulava a mão 5.
+  it("as seis mãos negativas aparecem, na ordem, e nenhuma é pulada", () => {
+    const maos = ROTEIRO.map((p) => p.id).filter((id) => /^mao-\d$/.test(id));
+    expect(maos).toEqual(["mao-1", "mao-2", "mao-3", "mao-4", "mao-5", "mao-6"]);
+  });
+
+  it("nenhuma fala diz que os perigos são cinco", () => {
+    for (const p of ROTEIRO) expect(p.fala, p.id).not.toMatch(/cinco perigos|5 perigos/i);
+  });
+
+  // A regra oficial: nas quatro positivas a escolha RODA entre os quatro jogadores. Dizer
+  // "agora você escolhe o trunfo" como regra geral seria ensinar errado.
+  it("a fase positiva é apresentada como rotação entre jogadores, e cita Sem Trunfo", () => {
+    const p = ROTEIRO.find((x) => x.id === "positivas")!;
+    expect(p.fala).toMatch(/4 mãos positivas/);
+    expect(p.fala).toMatch(/um jogador diferente/i);
+    expect(p.fala).toMatch(/Sem Trunfo/);
+  });
+
+  it("o passo do trunfo contextualiza a vez do aluno sem virar regra geral", () => {
+    const p = ROTEIRO.find((x) => x.id === "trunfo")!;
+    expect(p.fala).toMatch(/nesta mão/i);
+    expect(p.fala).toMatch(/Sem Trunfo/);
+  });
 });
 
 describe("ensina JOGANDO, não lendo", () => {
   it("toda MECÂNICA é aprendida fazendo, não lendo", () => {
-    // A régua certa não é a proporção de passos — é ESTA lista. Servir, baldar, escapar do Rei,
+    // A régua certa não é a proporção de passos, é ESTA lista. Servir, negar, escapar do Rei,
     // escolher trunfo e ganhar vaza são as cinco coisas que a pessoa vai FAZER a partida inteira,
     // e nenhuma delas pode ser ensinada com um botão "próximo".
-    const mecanicas = ["servir", "negar", "king", "trunfo", "mais-25"];
+    const mecanicas = ["servir", "negar", "mao-5", "trunfo", "mais-25"];
     for (const id of mecanicas) {
       const p = ROTEIRO.find((x) => x.id === id)!;
       expect(p.acao, id).not.toBe("toque");

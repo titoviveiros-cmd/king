@@ -21,7 +21,8 @@ export const ALUNO: Seat = 0;
 
 export const JOGADORES_DO_TREINO = ["Você", "Bia", "Léo", "Nara"];
 
-export type CenaId = "servir" | "negar" | "king" | "positiva";
+export type CenaId =
+  | "servir" | "negar" | "copas" | "damas" | "reis-valetes" | "king" | "duas-ultimas" | "positiva";
 
 export interface DefinicaoDeCena {
   seed: number;
@@ -39,9 +40,25 @@ export const CENAS: Record<CenaId, DefinicaoDeCena> = {
   // Copas puxadas, o aluno não tem nenhuma: o leque inteiro acende. É o que NEGAR significa.
   negar: { seed: 26, mao: 1, porque: "negar quando falta o naipe puxado" },
 
+  // ── AS MÃOS QUE O ALUNO SÓ PRECISA RECONHECER ──
+  //
+  // Passos de leitura, e mesmo assim cada um monta a SUA mão. O motivo é uma queixa concreta: a
+  // versão anterior explicava as mãos 2, 3, 4 e 6 com o card do contrato mostrando "Mão 5" o
+  // tempo todo. O aluno lia uma coisa e via outra, e a mão 5 parecia não existir na sequência.
+  // Agora o card do canto mostra exatamente a mão de que o Rei está falando, e o aluno pode
+  // tocar nele para ver as dez de uma vez.
+  //
+  // Aqui a semente não precisa procurar situação nenhuma: ninguém joga nestes passos. O que
+  // importa é a mão certa, montada pelo motor, com a mesa coerente.
+  copas: { seed: 1, mao: 2, porque: "reconhecer a mão 2 no card do contrato" },
+  damas: { seed: 1, mao: 3, porque: "reconhecer a mão 3 no card do contrato" },
+  "reis-valetes": { seed: 1, mao: 4, porque: "reconhecer a mão 4 no card do contrato" },
+
   // 2♠ 10♠ K♥ na mesa. Sete espadas na mão: quatro comem o Rei de Copas, três escapam.
   // Decisão de verdade, com −160 em jogo e saída fácil para quem entendeu.
   king: { seed: 337, mao: 5, porque: "o Rei de Copas vale -160 e dá para não pegá-lo" },
+
+  "duas-ultimas": { seed: 1, mao: 6, porque: "reconhecer a mão 6 no card do contrato" },
 
   // Mão 7: a rotação do motor manda o assento 0 escolher o trunfo. Cinco PAUS com o Ás — e,
   // escolhido paus, a vaza seguinte vem com o Rei de paus na mesa: só o Ás ganha.

@@ -151,10 +151,10 @@ describe("terminologia oficial", () => {
 
   it("o conceito é NEGAR, e a mão 4 são REIS E VALETES", () => {
     const negar = ROTEIRO.find((p) => p.id === "negar")!;
-    expect(negar.fala).toMatch(/NEGA/);
-    const reis = ROTEIRO.find((p) => p.id === "homens" || p.id === "reis-valetes" || p.fala.includes("VALETE"))!;
-    expect(reis.fala).toMatch(/REI/);
-    expect(reis.fala).toMatch(/VALETE/);
+    expect(negar.fala).toMatch(/\bnegar\b/i);
+    const reis = ROTEIRO.find((p) => p.id === "mao-4")!;
+    expect(reis.fala).toMatch(/\bReis\b/);
+    expect(reis.fala).toMatch(/\bValetes\b/);
   });
 });
 
