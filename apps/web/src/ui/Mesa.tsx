@@ -33,6 +33,19 @@ const TRUMPS: { t: Trump; sym: string; label: string; red?: boolean }[] = [
 function sortDisplay(cards: Card[]): Card[] {
   return [...cards].sort((a, b) => (SUIT_ORDER[a.suit] - SUIT_ORDER[b.suit]) || (RANK_ORDER[b.rank] - RANK_ORDER[a.rank]));
 }
+/**
+ * Faixa de comprimento do apelido, para o card de trunfo escolher a tipografia.
+ *
+ * Os cortes são em CARACTERES, não em pixels, e é essa a diferença que importa: um limiar em px
+ * vale para um viewport e mente em todos os outros, enquanto "quantas letras" é a mesma pergunta
+ * em qualquer tela. Os números saem do campo de apelido, que aceita 14: até 8 cabe no corpo
+ * cheio, até 12 cabe reduzido, e o resto é nome extremo, onde as reticências entram.
+ */
+export function faixaDoNome(nome: string): "" | "medio" | "longo" {
+  const n = nome.trim().length;
+  return n <= 8 ? "" : n <= 12 ? "medio" : "longo";
+}
+
 const same = (a: Card, b: Card) => a.rank === b.rank && a.suit === b.suit;
 const cardKey = (c: Card) => c.rank + c.suit;
 const isRedSuit = (t: Trump) => t === "hearts" || t === "diamonds";
@@ -231,7 +244,9 @@ export function Mesa({
           <span className="lb">Trunfo</span>
           <span className="sym">{trumpLabel(trump)}</span>
           {game.trumpChooser() !== null && (
-            <span className="who">{players[game.trumpChooser() as Seat]}</span>
+            <span className={`who ${faixaDoNome(players[game.trumpChooser() as Seat])}`}>
+              {players[game.trumpChooser() as Seat]}
+            </span>
           )}
         </div>
       )}

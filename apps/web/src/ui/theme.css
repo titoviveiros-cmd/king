@@ -215,9 +215,24 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
 /* Slot de trunfo (mãos 7–10). Fica logo abaixo do HUD, com o naipe GRANDE: é a informação
    mais consultada da mão positiva e antes vivia como texto miúdo dentro do HUD. */
+/* ══ LARGURA EM CAMADAS ══
+   Numa partida real, "Christopher Silva" chegou ao slot e o nome saiu cortado quase inteiro. A
+   largura era fixa em `--ui * 5.2`, dimensionada para o símbolo, e o apelido tinha de caber no
+   que sobrasse. Agora a ordem é outra, e são quatro camadas, nesta sequência:
+
+     1. a largura é INTRÍNSECA (`width:auto`): o card nasce do conteúdo;
+     2. `min-width` mantém a presença do símbolo mesmo com "Leo";
+     3. `max-width` é o corredor lateral reservado, o MESMO contrato que o card do jogador
+        obedece, então crescer nunca invade a vaza, o leque ou os adversários;
+     4. só depois disso a tipografia do apelido cede, por faixas de comprimento (ver `.who.medio`
+        e `.who.longo` e a classe escolhida em Mesa.tsx), com piso de legibilidade;
+     5. e reticências ficam para o nome extremo, que é o único caso em que ainda falta espaço.
+
+   O símbolo do trunfo não participa de nenhuma dessas camadas: ele nunca encolhe e nunca some. */
 .trumpslot{position:absolute;z-index:9;display:flex;flex-direction:column;align-items:center;justify-content:center;
   left:calc(var(--pad) + var(--sl));top:calc(var(--pad) + var(--st) + var(--hudAlt));
-  width:calc(var(--ui)*5.2);padding:calc(var(--ui)*.34) 4px calc(var(--ui)*.44);
+  width:auto;min-width:calc(var(--ui)*5.2);max-width:calc(var(--corredor) - var(--pad));
+  padding:calc(var(--ui)*.34) calc(var(--ui)*.5) calc(var(--ui)*.44);
   background:rgba(14,7,26,.86);border:1px solid rgba(244,197,66,.45);border-radius:18px;
   box-shadow:0 6px 20px -6px #000,0 0 26px rgba(244,197,66,.22);backdrop-filter:blur(8px);}
 .trumpslot .lb{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.72);
@@ -228,6 +243,10 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .trumpslot .who{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.78);
   color:var(--muted);margin-top:calc(var(--ui)*.18);max-width:100%;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;}
+/* As faixas de comprimento. O piso é `--ui * .6`: abaixo disso o nome deixa de ser lido de
+   relance, e um nome que não se lê não vale o espaço que ocupa. */
+.trumpslot .who.medio{font-size:calc(var(--ui)*.7);}
+.trumpslot .who.longo{font-size:calc(var(--ui)*.6);letter-spacing:-.01em;}
 .trumpslot.red .sym{color:#ff5d86;}
 .trumpslot.black .sym{color:#fff;}
 .trumpslot.nt .sym{font-size:calc(var(--ui)*.8);color:var(--turq);letter-spacing:.02em;
