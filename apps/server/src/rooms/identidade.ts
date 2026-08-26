@@ -21,10 +21,10 @@ export const AVATARES = [
   "leao",     // O Soberano — a juba é a coroa; o padrão da casa
   "coruja",   // A Paciente — espera doze vazas para dar o bote
   "raposa",   // A Calculista — conta cartas e sorri quando você erra
-  "unicornio",// O Sonhador — joga pelo espetáculo, não pelo placar
+  "macaco",   // O Bagunceiro — manda "Essa doeu" antes de todo mundo
   "panda",    // O Tranquilo — leva -160 e ri
   "tucano",   // O Anunciador — fala primeiro, pensa depois
-  "capivara", // A Imperturbável — ganha sem levantar a sobrancelha
+  "unicornio",// O Sonhador — joga pelo espetáculo, não pelo placar
   "sapo",     // O Malandro — a ponte com o Verbete, em interpretação própria
 ] as const;
 

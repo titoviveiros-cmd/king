@@ -33,7 +33,7 @@ describe("avatar: conjunto fechado", () => {
 
   it("a coleção oficial tem os oito bichos aprovados — com Sapo, sem Tigre", () => {
     expect([...AVATARES]).toEqual(
-      ["leao", "coruja", "raposa", "unicornio", "panda", "tucano", "capivara", "sapo"],
+      ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "unicornio", "sapo"],
     );
     expect(AVATARES).toHaveLength(8);
     expect(AVATARES as readonly string[]).toContain("sapo");
@@ -122,5 +122,71 @@ describe("contrato com o cliente", () => {
 
     const padrao = /export const AVATAR_PADRAO: Avatar = "([^"]+)"/.exec(fonte);
     expect(padrao![1]).toBe(AVATAR_PADRAO);
+  });
+});
+
+/**
+ * A COLEÇÃO DEPOIS DA TROCA — capivara fora, unicórnio dentro, macaco de volta.
+ *
+ * O critério da remoção não foi o nome e sim a POSIÇÃO: o avatar imediatamente à esquerda do sapo
+ * no seletor, que desenha esta lista na ordem em que ela está escrita. Era a capivara, e ela
+ * parecia um mico porque capivara não tem emoji no Unicode: o marcador provisório era 🦫, o
+ * castor, que ao lado do 🐵 do macaco lia-se como um segundo primata menor.
+ */
+describe("a coleção depois da troca", () => {
+  it("são exatamente oito, e o número não muda em silêncio", () => {
+    expect(AVATARES).toHaveLength(8);
+    expect(new Set(AVATARES).size).toBe(8);
+  });
+
+  it("o macaco está de volta e a capivara saiu", () => {
+    expect(AVATARES as readonly string[]).toContain("macaco");
+    expect(AVATARES as readonly string[]).toContain("unicornio");
+    expect(AVATARES as readonly string[]).not.toContain("capivara");
+  });
+
+  it("quem está à esquerda do sapo é o unicórnio", () => {
+    const i = AVATARES.indexOf("sapo");
+    expect(AVATARES[i - 1]).toBe("unicornio");
+  });
+
+  it("o servidor RECUSA a etiqueta aposentada — conjunto fechado é conjunto fechado", () => {
+    // A tradução de `capivara` para `unicornio` é do cliente. Aqui, quem manda uma etiqueta que
+    // não existe recebe o padrão, como qualquer outro valor desconhecido.
+    expect(avatarValido("capivara")).toBe(AVATAR_PADRAO);
+    expect(avatarValido("mico")).toBe(AVATAR_PADRAO);
+  });
+
+  it("macaco e unicórnio são aceitos normalmente", () => {
+    expect(avatarValido("macaco")).toBe("macaco");
+    expect(avatarValido("unicornio")).toBe("unicornio");
+  });
+});
+
+describe("avatar de bot", () => {
+  it("qualquer assento recebe um avatar VÁLIDO", () => {
+    for (let seat = 0; seat < 8; seat++) {
+      expect(AVATARES as readonly string[]).toContain(avatarDeBot(seat));
+    }
+  });
+
+  it("nunca recebe a etiqueta removida", () => {
+    for (let seat = 0; seat < 8; seat++) {
+      expect(avatarDeBot(seat)).not.toBe("capivara");
+    }
+  });
+
+  it("macaco e unicórnio podem ser sorteados como qualquer outro", () => {
+    const todos = new Set<string>();
+    for (let seat = 0; seat < AVATARES.length; seat++) todos.add(avatarDeBot(seat));
+    expect(todos.has("macaco")).toBe(true);
+    expect(todos.has("unicornio")).toBe(true);
+  });
+
+  it("com a mesa quase cheia, ainda devolve algo válido em vez de repetir por acidente", () => {
+    const ocupados = ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "unicornio"];
+    const escolhido = avatarDeBot(0, ocupados);
+    expect(AVATARES as readonly string[]).toContain(escolhido);
+    expect(escolhido).toBe("sapo");
   });
 });

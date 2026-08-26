@@ -36,7 +36,7 @@ describe("desenho", () => {
 
   it("a coleção oficial: oito bichos, com Sapo e sem Tigre", () => {
     expect([...AVATARES]).toEqual(
-      ["leao", "coruja", "raposa", "unicornio", "panda", "tucano", "capivara", "sapo"],
+      ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "unicornio", "sapo"],
     );
     expect(AVATARES as readonly string[]).toContain("sapo");
     expect(AVATARES as readonly string[]).not.toContain("tigre");
@@ -49,9 +49,8 @@ describe("desenho", () => {
   });
 
   it("o desenho provisório se declara provisório onde o emoji não é o bicho", () => {
-    // tucano e capivara não existem em Unicode: ficam com o substituto mais próximo, marcado.
+    // tucano não existe em Unicode: fica com o substituto mais próximo, marcado como tal.
     expect(desenhoDoAvatar("tucano").aproximado).toBe(true);
-    expect(desenhoDoAvatar("capivara").aproximado).toBe(true);
     expect(desenhoDoAvatar("sapo").aproximado).toBeUndefined();
   });
 
@@ -97,26 +96,68 @@ describe("memória local da última escolha", () => {
  * ela guardada no aparelho. Descartar em silêncio joga a pessoa no padrão sem explicação, e ela
  * reabre o jogo achando que perdeu a escolha.
  */
-describe("etiquetas aposentadas", () => {
-  it("o unicórnio entrou e o macaco saiu da coleção", () => {
-    expect(AVATARES).toContain("unicornio");
-    expect(AVATARES as readonly string[]).not.toContain("macaco");
+describe("a coleção final: oito, com o Macaco e o Unicórnio", () => {
+  /**
+   * TRIPWIRE. A coleção é fechada em OITO, e o número não pode mudar em silêncio: cada avatar a
+   * mais é arte a mais no brief, uma linha a mais no seletor e um caso a mais no servidor.
+   */
+  it("são exatamente oito, na ordem oficial", () => {
+    expect(AVATARES).toEqual(
+      ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "unicornio", "sapo"],
+    );
     expect(AVATARES).toHaveLength(8);
   });
 
-  it("o unicórnio tem desenho, rótulo e persona como os outros sete", () => {
+  it("os IDs são únicos, e os rótulos também", () => {
+    expect(new Set(AVATARES).size).toBe(AVATARES.length);
+    const rotulos = AVATARES.map((id) => desenhoDoAvatar(id).rotulo);
+    expect(new Set(rotulos).size).toBe(rotulos.length);
+  });
+
+  it("o MACACO está na coleção — ele nunca foi o problema", () => {
+    expect(AVATARES as readonly string[]).toContain("macaco");
+    expect(desenhoDoAvatar("macaco").rotulo).toBe("Macaco");
+  });
+
+  it("o UNICÓRNIO entrou, com desenho, rótulo e persona como os outros sete", () => {
     const d = desenhoDoAvatar("unicornio");
-    expect(d.glifo.length).toBeGreaterThan(0);
+    expect(AVATARES as readonly string[]).toContain("unicornio");
     expect(d.rotulo).toBe("Unicórnio");
+    expect(d.glifo.length).toBeGreaterThan(0);
     expect(d.persona.length).toBeGreaterThan(0);
+    // Tem glifo próprio no Unicode: não é aproximação, e por isso não se confunde com ninguém.
+    expect(d.aproximado).toBeUndefined();
   });
 
-  it("quem tinha o macaco guardado reencontra o unicórnio, não o leão", () => {
-    expect(avatarValido("macaco")).toBe("unicornio");
+  it("o SAPO continua no fim, e quem está à esquerda dele agora é o Unicórnio", () => {
+    expect(AVATARES[AVATARES.length - 1]).toBe("sapo");
+    expect(AVATARES[AVATARES.length - 2]).toBe("unicornio");
   });
 
-  it("o `mico`, que foi como o bicho foi pedido, também cai no unicórnio", () => {
+  it("a CAPIVARA saiu da coleção visível", () => {
+    // Era ela quem ocupava o lugar à esquerda do Sapo, com 🦫 (castor) por não ter emoji próprio.
+    // Ao lado do 🐵 do macaco, o placeholder criava dois primatas pequenos na mesma fileira.
+    expect(AVATARES as readonly string[]).not.toContain("capivara");
+  });
+});
+
+describe("migração das etiquetas aposentadas", () => {
+  it("quem tinha a CAPIVARA reencontra o Unicórnio", () => {
+    expect(avatarValido("capivara")).toBe("unicornio");
+  });
+
+  it("o apelido `mico` também cai no Unicórnio", () => {
     expect(avatarValido("mico")).toBe("unicornio");
+  });
+
+  it("MACACO CONTINUA MACACO — nunca vira Unicórnio", () => {
+    // É a asserção central desta rodada: a versão anterior migrava o macaco por engano.
+    expect(avatarValido("macaco")).toBe("macaco");
+    expect(avatarValido("macaco")).not.toBe("unicornio");
+  });
+
+  it("todo avatar da coleção é devolvido intacto, sem passar pelo mapa de aposentados", () => {
+    for (const id of AVATARES) expect(avatarValido(id)).toBe(id);
   });
 
   it("etiqueta que nunca existiu continua caindo no padrão", () => {
@@ -125,8 +166,10 @@ describe("etiquetas aposentadas", () => {
     expect(avatarValido(undefined)).toBe(AVATAR_PADRAO);
   });
 
-  it("um avatar aposentado guardado no aparelho não quebra a leitura", () => {
-    try { localStorage.setItem("king:avatar", "macaco"); } catch { /* sem storage: segue */ }
-    expect(AVATARES as readonly string[]).toContain(avatarLembrado());
+  it("persistência antiga não quebra a leitura, seja qual for o valor guardado", () => {
+    for (const guardado of ["capivara", "mico", "macaco", "lixo", ""]) {
+      comArmazenamento({ "king:avatar": guardado });
+      expect(AVATARES as readonly string[], `guardado: "${guardado}"`).toContain(avatarLembrado());
+    }
   });
 });

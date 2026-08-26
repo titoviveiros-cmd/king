@@ -653,7 +653,7 @@ describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
   });
 
   it("o avatar SOBREVIVE ao reconnect, e continua igual para quem ficou", async () => {
-    const { dono, codigo } = await criarSala("Tito", "capivara");
+    const { dono, codigo } = await criarSala("Tito", "unicornio");
     const raiza = await entrar(codigo, "Raiza", "coruja");
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
     await addBot(dono, 2);
@@ -674,7 +674,7 @@ describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
     await ate(() => assentosDe(dono)[dela].connected, 8000, "reconectada");
     expect(assentosDe(dono)[dela].avatar).toBe("coruja");
     expect(assentosDe(volta)[dela].avatar).toBe("coruja");
-    expect(assentosDe(volta)[0].avatar).toBe("capivara");
+    expect(assentosDe(volta)[0].avatar).toBe("unicornio");
   }, 30_000);
 
   it("o assento liberado volta ao padrão — o avatar não fica de herança para o próximo", async () => {
