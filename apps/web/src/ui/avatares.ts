@@ -22,7 +22,7 @@
 
 /** As oito etiquetas. Espelha `AVATARES` de `apps/server/src/rooms/identidade.ts`. */
 export const AVATARES = [
-  "leao", "coruja", "raposa", "macaco", "panda", "tucano", "capivara", "sapo",
+  "leao", "coruja", "raposa", "unicornio", "panda", "tucano", "capivara", "sapo",
 ] as const;
 export type Avatar = (typeof AVATARES)[number];
 
@@ -43,7 +43,7 @@ const DESENHOS: Record<Avatar, Desenho> = {
   leao:     { glifo: "🦁", rotulo: "Leão",     persona: "O Soberano" },
   coruja:   { glifo: "🦉", rotulo: "Coruja",   persona: "A Paciente" },
   raposa:   { glifo: "🦊", rotulo: "Raposa",   persona: "A Calculista" },
-  macaco:   { glifo: "🐵", rotulo: "Macaco",   persona: "O Bagunceiro" },
+  unicornio:{ glifo: "🦄", rotulo: "Unicórnio", persona: "O Sonhador" },
   panda:    { glifo: "🐼", rotulo: "Panda",    persona: "O Tranquilo" },
   tucano:   { glifo: "🦜", rotulo: "Tucano",   persona: "O Anunciador", aproximado: true },
   capivara: { glifo: "🦫", rotulo: "Capivara", persona: "A Imperturbável", aproximado: true },
@@ -55,8 +55,27 @@ export function desenhoDoAvatar(id: string | undefined): Desenho {
   return DESENHOS[(id ?? "") as Avatar] ?? DESENHOS[AVATAR_PADRAO];
 }
 
-export const avatarValido = (id: unknown): Avatar =>
-  typeof id === "string" && (AVATARES as readonly string[]).includes(id) ? (id as Avatar) : AVATAR_PADRAO;
+/**
+ * ETIQUETAS APOSENTADAS, e para onde elas vão.
+ *
+ * O `macaco` saiu da coleção para o `unicornio` entrar. `mico` nunca chegou a existir no código,
+ * mas está aqui de propósito: é o nome pelo qual o bicho foi pedido, e uma etiqueta a mais no
+ * mapa não custa nada perto de alguém abrir o jogo e não achar o próprio avatar.
+ *
+ * Migração, e não descarte: quem escolheu o macaco reabre o KING e encontra o unicórnio
+ * selecionado, em vez de ser jogado no leão padrão sem explicação. O servidor continua recusando
+ * a etiqueta velha, que é o comportamento certo para um conjunto fechado — a tradução é local.
+ */
+const APOSENTADOS: Record<string, Avatar> = {
+  macaco: "unicornio",
+  mico: "unicornio",
+};
+
+export const avatarValido = (id: unknown): Avatar => {
+  if (typeof id !== "string") return AVATAR_PADRAO;
+  if ((AVATARES as readonly string[]).includes(id)) return id as Avatar;
+  return APOSENTADOS[id] ?? AVATAR_PADRAO;
+};
 
 /** Onde a última escolha do jogador é lembrada. Conveniência local — NUNCA a fonte da verdade. */
 const CHAVE = "king:avatar";

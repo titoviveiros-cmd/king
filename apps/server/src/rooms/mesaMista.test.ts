@@ -679,7 +679,7 @@ describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
 
   it("o assento liberado volta ao padrão — o avatar não fica de herança para o próximo", async () => {
     const { dono, codigo } = await criarSala("Tito", "panda");
-    const raiza = await entrar(codigo, "Raiza", "macaco");
+    const raiza = await entrar(codigo, "Raiza", "unicornio");
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
     const dela = raiza.boasVindas!.you.seat;
 

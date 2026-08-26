@@ -33,7 +33,7 @@ describe("avatar: conjunto fechado", () => {
 
   it("a coleção oficial tem os oito bichos aprovados — com Sapo, sem Tigre", () => {
     expect([...AVATARES]).toEqual(
-      ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "capivara", "sapo"],
+      ["leao", "coruja", "raposa", "unicornio", "panda", "tucano", "capivara", "sapo"],
     );
     expect(AVATARES).toHaveLength(8);
     expect(AVATARES as readonly string[]).toContain("sapo");

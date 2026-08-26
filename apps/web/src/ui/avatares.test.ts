@@ -36,7 +36,7 @@ describe("desenho", () => {
 
   it("a coleção oficial: oito bichos, com Sapo e sem Tigre", () => {
     expect([...AVATARES]).toEqual(
-      ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "capivara", "sapo"],
+      ["leao", "coruja", "raposa", "unicornio", "panda", "tucano", "capivara", "sapo"],
     );
     expect(AVATARES as readonly string[]).toContain("sapo");
     expect(AVATARES as readonly string[]).not.toContain("tigre");
@@ -87,5 +87,46 @@ describe("memória local da última escolha", () => {
   it("sem armazenamento nenhum (aba anônima travada) não explode: só não lembra", () => {
     expect(() => lembrarAvatar("panda")).not.toThrow();
     expect(avatarLembrado()).toBe(AVATAR_PADRAO);
+  });
+});
+
+/**
+ * A TROCA DO MACACO PELO UNICÓRNIO, sem deixar ninguém para trás.
+ *
+ * Trocar uma etiqueta de conjunto fechado tem um custo escondido: quem já escolheu a antiga tem
+ * ela guardada no aparelho. Descartar em silêncio joga a pessoa no padrão sem explicação, e ela
+ * reabre o jogo achando que perdeu a escolha.
+ */
+describe("etiquetas aposentadas", () => {
+  it("o unicórnio entrou e o macaco saiu da coleção", () => {
+    expect(AVATARES).toContain("unicornio");
+    expect(AVATARES as readonly string[]).not.toContain("macaco");
+    expect(AVATARES).toHaveLength(8);
+  });
+
+  it("o unicórnio tem desenho, rótulo e persona como os outros sete", () => {
+    const d = desenhoDoAvatar("unicornio");
+    expect(d.glifo.length).toBeGreaterThan(0);
+    expect(d.rotulo).toBe("Unicórnio");
+    expect(d.persona.length).toBeGreaterThan(0);
+  });
+
+  it("quem tinha o macaco guardado reencontra o unicórnio, não o leão", () => {
+    expect(avatarValido("macaco")).toBe("unicornio");
+  });
+
+  it("o `mico`, que foi como o bicho foi pedido, também cai no unicórnio", () => {
+    expect(avatarValido("mico")).toBe("unicornio");
+  });
+
+  it("etiqueta que nunca existiu continua caindo no padrão", () => {
+    expect(avatarValido("dragao")).toBe(AVATAR_PADRAO);
+    expect(avatarValido(42)).toBe(AVATAR_PADRAO);
+    expect(avatarValido(undefined)).toBe(AVATAR_PADRAO);
+  });
+
+  it("um avatar aposentado guardado no aparelho não quebra a leitura", () => {
+    try { localStorage.setItem("king:avatar", "macaco"); } catch { /* sem storage: segue */ }
+    expect(AVATARES as readonly string[]).toContain(avatarLembrado());
   });
 });

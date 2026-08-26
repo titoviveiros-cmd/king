@@ -21,7 +21,7 @@ export const AVATARES = [
   "leao",     // O Soberano — a juba é a coroa; o padrão da casa
   "coruja",   // A Paciente — espera doze vazas para dar o bote
   "raposa",   // A Calculista — conta cartas e sorri quando você erra
-  "macaco",   // O Bagunceiro — manda "Essa doeu" antes de todo mundo
+  "unicornio",// O Sonhador — joga pelo espetáculo, não pelo placar
   "panda",    // O Tranquilo — leva -160 e ri
   "tucano",   // O Anunciador — fala primeiro, pensa depois
   "capivara", // A Imperturbável — ganha sem levantar a sobrancelha
@@ -58,7 +58,7 @@ export const NOMES_DE_BOT = [
   "Baralhado",      // baralho + atrapalhado
   "Mão Fria",       // "mão" é a mão de cartas E o sangue-frio
   "Fura-Vaza",      // quem entra na vaza que era sua
-  "Seu Trunfo",     // o "seu" de mesa de família
+  "Sr. Trunfo",     // o tratamento de mesa de família, por extenso
   "Zé do Naipe",    // o sujeito que sempre tem o naipe que falta
 ] as const;
 
