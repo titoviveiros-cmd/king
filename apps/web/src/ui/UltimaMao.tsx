@@ -13,14 +13,21 @@
 //      partida e por mão, guardada em ref, não em estado que remonta.
 //   3. NÃO DEPENDE DE MOVIMENTO NEM DE SOM. Com movimento reduzido, o giro sai e fica o fade; com
 //      áudio desligado, o texto diz tudo. Nenhuma informação mora só na animação.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Crown } from "./Crown.js";
 import { sfxUltimaMao } from "../audio/sounds.js";
 
-/** Quanto tempo o anúncio fica sozinho na tela. Um toque encurta; nada o prolonga. */
-const DURACAO_MS = 1900;
+/**
+ * Quanto tempo o anúncio fica sozinho na tela. Um toque encurta; nada o prolonga.
+ *
+ * Eram 1,9s, e no teste manual a pessoa não conseguiu ler: a entrada sozinha come meio segundo,
+ * então sobrava pouco mais de um segundo de leitura para duas linhas. Agora são 2,6s de
+ * permanência mais 0,42s de saída, o que dá cerca de 3s de presença total — tempo de ler,
+ * registrar e seguir. Continua saindo sozinho, e o toque continua encurtando.
+ */
+const DURACAO_MS = 2600;
 /** Fade de saída. Par do `.um.saindo` no theme.css. */
-const SAIDA_MS = 320;
+const SAIDA_MS = 420;
 
 export function UltimaMao({ onFim }: { onFim: () => void }) {
   const [saindo, setSaindo] = useState(false);
@@ -50,9 +57,19 @@ export function UltimaMao({ onFim }: { onFim: () => void }) {
       role="status"
       aria-live="polite"
     >
+      {/* As faíscas são seis, saem da coroa e somem. Nenhuma depende de biblioteca: são seis
+          `<i>` com uma animação CSS e um ângulo próprio, o mesmo princípio do burst do Placar
+          Final. Somem inteiras com movimento reduzido. */}
+      {!reduzido && (
+        <div className="um-faiscas" aria-hidden>
+          {Array.from({ length: 6 }, (_, i) => (
+            <i key={i} style={{ "--ang": `${i * 60 + 15}deg`, "--atraso": `${0.24 + i * 0.045}s` } as CSSProperties} />
+          ))}
+        </div>
+      )}
       <div className="um-selo">
-        <Crown size={72} />
-        <b>ÚLTIMA MÃO DO JOGO!</b>
+        <span className="um-coroa"><Crown size={72} /></span>
+        <b>ÚLTIMA MÃO</b>
         <i>Tudo pode mudar agora.</i>
       </div>
     </div>

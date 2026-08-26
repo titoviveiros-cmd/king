@@ -44,7 +44,7 @@ test("aparece na mão 10, some sozinho e não deixa nada interceptando", async (
 
   const selo = page.locator(".um-selo");
   await expect(selo).toBeVisible({ timeout: 15_000 });
-  await expect(selo).toContainText("ÚLTIMA MÃO DO JOGO");
+  await expect(selo).toContainText("ÚLTIMA MÃO");
   await expect(selo).toContainText("Tudo pode mudar");
 
   // Cabe na tela em qualquer viewport.
@@ -54,7 +54,12 @@ test("aparece na mão 10, some sozinho e não deixa nada interceptando", async (
     `[${ti.project.name} · ${vp.width}×${vp.height}] o anúncio saiu da tela`,
   ).toBe(true);
 
-  // SAI SOZINHO. Nada de exigir toque.
+  // FICA TEMPO DE LER. Eram 1,9s e no teste manual não deu para ler; agora são ~3s de presença
+  // (2,6s de permanência + 0,42s de saída). O teste cobra o piso: ainda na tela depois de 2s.
+  await page.waitForTimeout(2000);
+  await expect(page.locator(".um-selo"), "sumiu antes de dar para ler").toBeVisible();
+
+  // E SAI SOZINHO. Nada de exigir toque.
   await expect(page.locator(".um")).toHaveCount(0, { timeout: 8000 });
 
   // E não sobra camada nenhuma sobre a Mesa: o leque volta a receber toque.
@@ -97,7 +102,7 @@ test("com MOVIMENTO REDUZIDO a informação continua inteira", async ({ page }, 
 
   const selo = page.locator(".um-selo");
   await expect(selo).toBeVisible({ timeout: 15_000 });
-  await expect(selo).toContainText("ÚLTIMA MÃO DO JOGO");
+  await expect(selo).toContainText("ÚLTIMA MÃO");
   // sem giro: a classe `calmo` troca a animação por fade + escala
   await expect(page.locator(".um.calmo")).toHaveCount(1);
   await expect(page.locator(".um")).toHaveCount(0, { timeout: 8000 });
