@@ -527,9 +527,15 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    Ordem escolhida pela pergunta que cada uma responde, da mais para a menos urgente: "como ele
    está" (posição), "quanto tem" (saldo), "o que aconteceu agora" (delta da mão) e só então "onde
    está no leque" (cartas). O delta é o único que some quando não tem o que dizer. */
-.opp .m,.youtag .m{font-size:calc(var(--ui)*.9);font-weight:800;margin-top:3px;
-  display:flex;align-items:baseline;gap:calc(var(--ui)*.42);white-space:nowrap;}
-.opp .m .cc{color:#9d92bd;font-size:calc(var(--ui)*.82);}
+/* O CORPO É O DO PIOR CASO, não o do caso comum.
+   A linha carrega até três números com sinal, e o pior deles é real: −240 é o que um assento
+   perde levando os oito Reis e Valetes da mão 4. Dimensionada para o caso confortável, ela ficava
+   com 9px de folga no card mais estreito — e 9px é sorte, não margem: o CI, com as fontes do
+   Linux, encontrou o vazamento que a máquina local não via. Um ponto menor troca uma diferença
+   que ninguém percebe por uma folga que não depende de qual fonte o sistema resolveu usar. */
+.opp .m,.youtag .m{font-size:calc(var(--ui)*.82);font-weight:800;margin-top:3px;
+  display:flex;align-items:baseline;gap:calc(var(--ui)*.34);white-space:nowrap;}
+.opp .m .cc{color:#9d92bd;font-size:calc(var(--ui)*.76);}
 /* NO SEU CARD A CONTAGEM SAI. Quantas cartas os outros têm é informação que só o card dá; quantas
    VOCÊ tem está no leque, aberto na tela, a dois centímetros dali. Mantê-la custava a terceira
    informação da linha e fazia o card quebrar em duas — dentro de um corredor que tem largura
@@ -537,14 +543,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .youtag .m .cc{display:none;}
 .opp .m .pt,.youtag .m .pt{color:#ffd24a;}
 .opp .m .ps,.youtag .m .ps{font-family:var(--disp);color:#fff;
-  background:rgba(255,255,255,.1);border-radius:6px;padding:0 .32em;font-size:calc(var(--ui)*.8);}
+  background:rgba(255,255,255,.1);border-radius:6px;padding:0 .28em;font-size:calc(var(--ui)*.74);}
 /* O delta da mão é o dado NOVO na tela, e o único com cor semântica: verde ganhou, rosa perdeu.
    A CLASSE CHAMA-SE `mdelta`, e o nome tem história. Ela era `dm` — a mesma classe do painel
    "As 10 mãos", que declara `width:min(94vw,720px)`. O chip herdava a largura do MODAL: num
    viewport de 667px ele virava uma barra rosa de 627px que rasgava o card do jogador e
    atravessava a mesa inteira. Duas coisas sem relação nenhuma dividindo um nome de duas letras. */
-.opp .m .mdelta,.youtag .m .mdelta{font-family:var(--disp);font-size:calc(var(--ui)*.84);
-  padding:0 .3em;border-radius:6px;}
+.opp .m .mdelta,.youtag .m .mdelta{font-family:var(--disp);font-size:calc(var(--ui)*.78);
+  padding:0 .26em;border-radius:6px;}
 .opp .m .mdelta.pos,.youtag .m .mdelta.pos{color:#0e0722;background:var(--turq);}
 .opp .m .mdelta.neg,.youtag .m .mdelta.neg{color:#fff;background:rgba(224,51,138,.85);}
 
@@ -554,7 +560,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    não segura nada. Com ele, o nome trunca e a contagem de cartas cede, nessa ordem, que é a da
    importância: posição, saldo e delta são o que se lê de relance. */
 .opp > div,.youtag > div{min-width:0;}
-.opp .m,.youtag .m{min-width:0;}
+/* `overflow:hidden` aqui é a GARANTIA DURA, e não um curativo: com ele a linha nunca pinta fora
+   do card, em fonte nenhuma. Não corta informação relevante porque a ORDEM do DOM é a ordem da
+   importância — posição, saldo, delta, e por último a contagem de cartas, que é a única com
+   `flex:0 1 auto` e a primeira a ceder. O que sobraria para cortar já cedeu antes.
+   Isto existe porque a folga medida na máquina local (9 a 11px) era sorte: o CI, com as fontes do
+   Linux, encontrou o vazamento que aqui não aparecia. Margem que depende de qual fonte o sistema
+   escolheu não é margem. */
+.opp .m,.youtag .m{min-width:0;overflow:hidden;}
 .opp .m > *,.youtag .m > *{flex:none;}
 .opp .m .cc,.youtag .m .cc{flex:0 1 auto;min-width:0;overflow:hidden;}
 .opp.active{box-shadow:0 0 0 2px var(--gold),0 0 22px rgba(244,197,66,.55);animation:pulse 1.8s ease-in-out infinite;}
