@@ -273,24 +273,25 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
 /* Slot de trunfo (mãos 7–10). Fica logo abaixo do HUD, com o naipe GRANDE: é a informação
    mais consultada da mão positiva e antes vivia como texto miúdo dentro do HUD. */
-/* ══ LARGURA EM CAMADAS ══
-   Numa partida real, "Christopher Silva" chegou ao slot e o nome saiu cortado quase inteiro. A
-   largura era fixa em `--ui * 5.2`, dimensionada para o símbolo, e o apelido tinha de caber no
-   que sobrasse. Agora a ordem é outra, e são quatro camadas, nesta sequência:
+/* ══ LARGURA FIXA ══
+   A versão anterior deixava o card crescer com o apelido. Funcionava e ainda assim foi rejeitada
+   em uso, por uma razão que só aparece jogando: o card MUDAVA DE TAMANHO conforme quem tinha
+   escolhido o trunfo. A cada mão positiva a coluna esquerda tinha uma largura diferente, e uma
+   informação que se consulta o tempo todo passava a morar num lugar que se move.
 
-     1. a largura é INTRÍNSECA (`width:auto`): o card nasce do conteúdo;
-     2. `min-width` mantém a presença do símbolo mesmo com "Leo";
-     3. `max-width` é o corredor lateral reservado, o MESMO contrato que o card do jogador
-        obedece, então crescer nunca invade a vaza, o leque ou os adversários;
-     4. só depois disso a tipografia do apelido cede, por faixas de comprimento (ver `.who.medio`
-        e `.who.longo` e a classe escolhida em Mesa.tsx), com piso de legibilidade;
-     5. e reticências ficam para o nome extremo, que é o único caso em que ainda falta espaço.
+   Agora a caixa é FIXA e o conteúdo é que se acomoda dentro dela:
 
-   O símbolo do trunfo não participa de nenhuma dessas camadas: ele nunca encolhe e nunca some. */
+     • a largura é uma só, derivada de `--ui`, então escala com a tela e não com o nome;
+     • o símbolo do trunfo tem linha própria e nunca cede nada;
+     • o apelido tem a largura do card e reduz a tipografia por faixa de comprimento;
+     • reticências só no extremo, quando nem reduzido cabe.
+
+   O card não cresce por causa de ninguém. Com "Leo" ou com o apelido de 14 caracteres, a Mesa é
+   a mesma. */
 .trumpslot{position:absolute;z-index:9;display:flex;flex-direction:column;align-items:center;justify-content:center;
   left:calc(var(--pad) + var(--sl));top:calc(var(--pad) + var(--st) + var(--hudAlt));
-  width:auto;min-width:calc(var(--ui)*5.2);max-width:calc(var(--corredor) - var(--pad));
-  padding:calc(var(--ui)*.34) calc(var(--ui)*.5) calc(var(--ui)*.44);
+  width:calc(var(--ui)*6.4);
+  padding:calc(var(--ui)*.34) calc(var(--ui)*.3) calc(var(--ui)*.44);
   background:rgba(14,7,26,.86);border:1px solid rgba(244,197,66,.45);border-radius:18px;
   box-shadow:0 6px 20px -6px #000,0 0 26px rgba(244,197,66,.22);backdrop-filter:blur(8px);}
 .trumpslot .lb{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.72);
@@ -301,10 +302,10 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .trumpslot .who{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.78);
   color:var(--muted);margin-top:calc(var(--ui)*.18);max-width:100%;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;}
-/* As faixas de comprimento. O piso é `--ui * .6`: abaixo disso o nome deixa de ser lido de
-   relance, e um nome que não se lê não vale o espaço que ocupa. */
-.trumpslot .who.medio{font-size:calc(var(--ui)*.7);}
-.trumpslot .who.longo{font-size:calc(var(--ui)*.6);letter-spacing:-.01em;}
+/* As faixas de comprimento, agora dentro de uma caixa que não se mexe. O piso é `--ui * .58`:
+   abaixo disso o nome deixa de ser lido de relance, e um nome que não se lê não vale o espaço. */
+.trumpslot .who.medio{font-size:calc(var(--ui)*.68);}
+.trumpslot .who.longo{font-size:calc(var(--ui)*.58);letter-spacing:-.02em;}
 .trumpslot.red .sym{color:#ff5d86;}
 .trumpslot.black .sym{color:#fff;}
 .trumpslot.nt .sym{font-size:calc(var(--ui)*.8);color:var(--turq);letter-spacing:.02em;
@@ -1241,8 +1242,13 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
      Mesa de 300px a coluna esquerda inteira não cabe em pé, e quem paga é o adversário lateral.
      Em linha ele custa um terço da altura e continua legível. */
   .mesa{--trunfoAlt:calc(var(--ui) * 2.9);}
+  /* Deitado, mas ainda de largura FIXA: a promessa do card é não mudar de tamanho por causa do
+     nome, e ela não pode valer só nas telas altas. Aqui a caixa é mais larga porque o conteúdo
+     está em linha, e o apelido continua sendo quem cede dentro dela. */
   .trumpslot{flex-direction:row;align-items:baseline;gap:calc(var(--ui)*.42);
-    width:auto;padding:calc(var(--ui)*.22) calc(var(--ui)*.55);}
+    width:calc(var(--ui)*9.4);justify-content:flex-start;
+    padding:calc(var(--ui)*.22) calc(var(--ui)*.5);}
+  .trumpslot .who{flex:1 1 auto;min-width:0;text-align:left;}
   .trumpslot .sym{font-size:calc(var(--ui)*1.6);margin-top:0;}
   .trumpslot .who{margin-top:0;}
 }

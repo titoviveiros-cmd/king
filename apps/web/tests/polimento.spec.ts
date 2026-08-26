@@ -95,29 +95,30 @@ test.describe("card de trunfo", () => {
     }
   });
 
-  test("nome longo cresce o card, mas nunca além do corredor reservado", async ({ page }) => {
+  test("o card NÃO muda de tamanho, qualquer que seja o nome", async ({ page }, ti) => {
     await mesaComTrunfo(page);
-
     const alvo = page.locator(".trumpslot .who");
-    await alvo.evaluate((el) => { el.textContent = "Leo"; });
-    await page.waitForTimeout(60);
-    const curto = await boxOf(page.locator(".trumpslot"), "trumpslot");
 
-    await alvo.evaluate((el) => { el.textContent = "Christopher"; });
-    await page.waitForTimeout(60);
-    const longo = await boxOf(page.locator(".trumpslot"), "trumpslot");
+    // A largura fixa é o ponto do item: a coluna esquerda não pode mudar de tamanho a cada mão
+    // positiva, conforme quem escolheu o trunfo. Medir todos os nomes e exigir UMA largura.
+    const larguras: number[] = [];
+    const alturas: number[] = [];
+    for (const nome of NOMES) {
+      await alvo.evaluate((el, n) => { el.textContent = n; }, nome);
+      await page.waitForTimeout(60);
+      const c = await boxOf(page.locator(".trumpslot"), "trumpslot");
+      larguras.push(Math.round(c.width));
+      alturas.push(Math.round(c.height));
+    }
 
-    // cresceu (ou já estava no teto), e o teto é o corredor lateral
-    expect(longo.width).toBeGreaterThanOrEqual(curto.width);
-    const teto = await page.evaluate(() => {
-      const r = document.createElement("div");
-      r.style.cssText = "position:absolute;visibility:hidden;width:calc(var(--corredor) - var(--pad));";
-      document.body.appendChild(r);
-      const w = r.getBoundingClientRect().width;
-      r.remove();
-      return w;
-    });
-    expect(Math.round(longo.width)).toBeLessThanOrEqual(Math.round(teto) + SUBPIXEL);
+    expect(
+      new Set(larguras).size,
+      `[${ti.project.name}] o card mudou de largura: ${larguras.join(", ")}`,
+    ).toBe(1);
+    expect(
+      new Set(alturas).size,
+      `[${ti.project.name}] o card mudou de altura: ${alturas.join(", ")}`,
+    ).toBe(1);
   });
 });
 
