@@ -83,13 +83,34 @@ function remota(m: MatchState, eu: Seat, cause: Causa = "CARD_PLAYED"): PartidaR
   return new PartidaRemota(u, eu, noop);
 }
 
-/** Toda carta desenhada na tela, pelo `aria-label` do CardView. */
+/**
+ * Toda carta desenhada na tela, pelo `aria-label` do CardView (`"K de hearts"`).
+ *
+ * O padrão casa com o FORMATO EXATO da etiqueta de carta, e não com qualquer texto que contenha
+ * " de ". A versão larga era um coador furado ao contrário: quando os cards de jogador viraram
+ * botões, "Ver o perfil de Bia" passou a ser lido como uma carta chamada "Ver o perfil" de naipe
+ * "Bia". Nenhuma carta escapa desta versão, porque `CardView` é o único lugar que desenha carta e
+ * ele sempre escreve `rank de <naipe>`.
+ */
+const ETIQUETA_DE_CARTA = /^(?:[2-9]|10|[JQKA]) de (hearts|diamonds|clubs|spades)$/;
+
 function cartasDesenhadas(root: HTMLElement): string[] {
   return root.querySelectorAll("[aria-label]")
     .map((n) => n.getAttribute("aria-label") ?? "")
-    .filter((t) => / de /.test(t))
+    .filter((t) => ETIQUETA_DE_CARTA.test(t))
     .map((t) => { const [rank, suit] = t.split(" de "); return cardId({ rank, suit } as never); });
 }
+
+/**
+ * O MESMO relógio que o componente usa.
+ *
+ * Não é detalhe de teste: `ChipDoRelogio` conta com uma régua MONOTÔNICA, e carimbar a chegada
+ * com `Date.now()` aqui misturaria duas escalas (hora do mundo e tempo desde o carregamento da
+ * página). O resultado seria um "restante" de milhões de segundos, que foi exatamente o que estes
+ * testes passaram a mostrar quando a régua mudou. As duas pontas leem a mesma fonte.
+ */
+const agoraMonotonico = () =>
+  typeof performance !== "undefined" ? performance.now() : Date.now();
 
 const nomeEm = (root: HTMLElement, sel: string) => root.querySelector(sel)?.text?.trim() ?? "";
 
@@ -203,7 +224,7 @@ describe("indicações que só existem no multiplayer", () => {
 
   it("o relógio da decisão vem do servidor e mostra os segundos restantes", () => {
     const m = partidaEmCurso();
-    const relogio = { tipo: "PLAY" as const, seat: 0 as Seat, fase: "NORMAL" as const, restanteMs: 22_000, recebidoEm: Date.now() };
+    const relogio = { tipo: "PLAY" as const, seat: 0 as Seat, fase: "NORMAL" as const, restanteMs: 22_000, recebidoEm: agoraMonotonico() };
     const root = render(remota(m, 0), contexto(0, { relogio }));
     const chip = root.querySelector(".mprelogio")!;
     expect(chip.getAttribute("class")).toContain("normal");
@@ -215,7 +236,7 @@ describe("indicações que só existem no multiplayer", () => {
 
   it("aos 10 segundos entra o ESTADO CRITICO — cor, TEXTO e aria, nao so cor", () => {
     const m = partidaEmCurso();
-    const relogio = { tipo: "PLAY" as const, seat: 0 as Seat, fase: "WARNING" as const, restanteMs: 8000, recebidoEm: Date.now() };
+    const relogio = { tipo: "PLAY" as const, seat: 0 as Seat, fase: "WARNING" as const, restanteMs: 8000, recebidoEm: agoraMonotonico() };
     const root = render(remota(m, 0), contexto(0, { relogio }));
     const chip = root.querySelector(".mprelogio")!;
 
@@ -229,7 +250,7 @@ describe("indicações que só existem no multiplayer", () => {
 
   it("no turno DOS OUTROS o relogio fica critico, mas sem texto dirigido a mim", () => {
     const m = partidaEmCurso();
-    const relogio = { tipo: "PLAY" as const, seat: 2 as Seat, fase: "CRITICAL" as const, restanteMs: 6000, recebidoEm: Date.now() };
+    const relogio = { tipo: "PLAY" as const, seat: 2 as Seat, fase: "CRITICAL" as const, restanteMs: 6000, recebidoEm: agoraMonotonico() };
     const root = render(remota(m, 0), contexto(0, { relogio }));
     const chip = root.querySelector(".mprelogio")!;
     expect(chip.getAttribute("class")).toContain("critico");
@@ -240,13 +261,13 @@ describe("indicações que só existem no multiplayer", () => {
 
   it("prazo esgotado some da tela — quem age por estouro e o servidor", () => {
     const m = partidaEmCurso();
-    const relogio = { tipo: "PLAY" as const, seat: 0 as Seat, fase: "CRITICAL" as const, restanteMs: 0, recebidoEm: Date.now() };
+    const relogio = { tipo: "PLAY" as const, seat: 0 as Seat, fase: "CRITICAL" as const, restanteMs: 0, recebidoEm: agoraMonotonico() };
     expect(render(remota(m, 0), contexto(0, { relogio })).querySelectorAll(".mprelogio")).toHaveLength(0);
   });
 
   it("o relógio de READY não vira chip: quem trata disso é o Placar", () => {
     const m = partidaEmCurso();
-    const relogio = { tipo: "READY" as const, seat: null, fase: "NORMAL" as const, restanteMs: 20000, recebidoEm: Date.now() };
+    const relogio = { tipo: "READY" as const, seat: null, fase: "NORMAL" as const, restanteMs: 20000, recebidoEm: agoraMonotonico() };
     expect(render(remota(m, 0), contexto(0, { relogio })).querySelectorAll(".mprelogio")).toHaveLength(0);
   });
 

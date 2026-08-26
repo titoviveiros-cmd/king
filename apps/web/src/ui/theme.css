@@ -210,6 +210,64 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   letter-spacing:.12em;color:var(--gold);white-space:nowrap;}
 .dm-nota{margin:calc(var(--ui)*.55) 0 0;font-family:var(--body);font-weight:700;
   color:var(--muted);font-size:calc(var(--ui)*.8);line-height:1.35;}
+
+/* ══════════════════ MINI PERFIL ══════════════════
+   Compacto e de jogo, não painel de administração: um cartão com a cara da pessoa, o saldo dela
+   nesta partida e o que ela fez nas mãos que já fecharam. Em landscape de celular o que sobra é
+   largura, então ele é largo e baixo. */
+.pf-scrim{position:fixed;inset:0;z-index:30;height:var(--alturaUtil);
+  display:flex;align-items:center;justify-content:center;
+  padding:calc(var(--pad) + var(--st)) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb)) calc(var(--pad) + var(--sl));
+  background:rgba(8,3,16,.76);backdrop-filter:blur(5px);}
+.pf{position:relative;display:flex;flex-direction:column;gap:calc(var(--ui)*.55);min-height:0;
+  width:min(90vw,460px);max-height:100%;overflow-y:auto;overscroll-behavior:contain;
+  padding:calc(var(--ui)*.85) calc(var(--ui)*.95);
+  background:linear-gradient(180deg,#1b0f33,#12081f);border:1px solid rgba(180,150,255,.34);
+  border-radius:18px;box-shadow:0 24px 60px -20px #000;}
+.pf-x{position:absolute;top:calc(var(--ui)*.3);right:calc(var(--ui)*.3);
+  min-width:44px;min-height:44px;display:grid;place-items:center;
+  background:none;border:none;color:var(--faint);font-size:calc(var(--ui)*1.05);cursor:pointer;}
+.pf-x:active{color:#fff;}
+.pf-x:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+.pf-topo{display:flex;align-items:center;gap:calc(var(--ui)*.7);padding-right:44px;}
+.pf-av{width:calc(var(--ui)*3);height:calc(var(--ui)*3);border-radius:50%;flex:none;
+  display:grid;place-items:center;font-size:calc(var(--ui)*1.5);border:2px solid var(--night2);}
+.pf-id{min-width:0;flex:1 1 auto;}
+.pf-id b{display:flex;align-items:baseline;gap:calc(var(--ui)*.4);
+  font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*1.2);line-height:1.1;}
+.pf-voce{font-style:normal;font-size:calc(var(--ui)*.66);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--gold);}
+.pf-situacao{display:block;margin-top:2px;font-family:var(--body);font-weight:700;
+  font-size:calc(var(--ui)*.76);color:var(--faint);}
+.pf-saldo{flex:none;display:flex;flex-direction:column;align-items:flex-end;
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.35);color:var(--ink);line-height:1;}
+.pf-saldo.pos{color:var(--turq);} .pf-saldo.neg{color:#ff6fb0;}
+.pf-saldo i{font-style:normal;font-size:calc(var(--ui)*.62);letter-spacing:.1em;text-transform:uppercase;
+  color:var(--faint);margin-top:3px;}
+.pf-linhas{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;}
+.pf-linhas li{display:flex;align-items:baseline;justify-content:space-between;gap:calc(var(--ui)*.6);
+  padding:calc(var(--ui)*.32) calc(var(--ui)*.55);border-radius:10px;background:rgba(255,255,255,.045);}
+.pf-linhas span{font-family:var(--body);font-weight:700;color:var(--muted);font-size:calc(var(--ui)*.82);}
+.pf-linhas b{font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*.88);
+  white-space:nowrap;}
+.pf-vazio{margin:0;font-family:var(--body);font-weight:700;color:var(--faint);
+  font-size:calc(var(--ui)*.8);line-height:1.35;}
+/* A progressão só é desenhada quando existir de verdade. Ver o cabeçalho de PerfilJogador.tsx. */
+.pf-progresso{border-top:1px solid var(--line);padding-top:calc(var(--ui)*.5);
+  display:flex;flex-direction:column;gap:4px;}
+.pf-nivel{display:flex;align-items:baseline;justify-content:space-between;}
+.pf-nivel b{font-family:var(--disp);font-weight:800;color:var(--gold);font-size:calc(var(--ui)*.95);}
+.pf-nivel span{font-family:var(--body);font-weight:700;color:var(--faint);font-size:calc(var(--ui)*.76);}
+.pf-barra{display:block;height:6px;border-radius:999px;background:rgba(255,255,255,.1);overflow:hidden;}
+.pf-barra i{display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg,var(--turq),var(--gold));}
+.pf-hist{display:flex;gap:calc(var(--ui)*.8);font-family:var(--body);font-weight:700;
+  color:var(--muted);font-size:calc(var(--ui)*.78);}
+@media (max-height:360px){
+  .pf{gap:calc(var(--ui)*.4);padding:calc(var(--ui)*.6) calc(var(--ui)*.8);}
+  .pf-linhas li{padding:2px calc(var(--ui)*.5);}
+  .pf-av{width:calc(var(--ui)*2.4);height:calc(var(--ui)*2.4);font-size:calc(var(--ui)*1.2);}
+}
 .topbtn{position:absolute;top:calc(var(--pad) + var(--st));right:calc(var(--pad) + var(--sr));z-index:9;
   display:flex;gap:clamp(6px,1.2vw,10px);align-items:center;}
 
@@ -252,6 +310,15 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .trumpslot.nt .sym{font-size:calc(var(--ui)*.8);color:var(--turq);letter-spacing:.02em;
   margin-top:6px;text-align:center;line-height:1.15;}
 
+/* Os cards de jogador são BOTÕES (abrem o mini perfil). Como `<button>`, precisam desfazer o
+   que o navegador dá de graça: fonte, alinhamento e o realce de toque do celular. */
+.opp,.youtag{font:inherit;color:inherit;text-align:left;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;}
+.opp:focus-visible,.youtag:focus-visible{outline:2px solid var(--gold);outline-offset:3px;}
+/* O retorno do toque NÃO pode ser `transform`: os laterais já usam `translateY(-50%)` e o do topo
+   `translateX(-50%)` para se posicionar, e sobrescrever isso faria o card pular de lugar ao ser
+   tocado. Brilho resolve, e não mexe em geometria nenhuma. */
+.opp:active,.youtag:active{filter:brightness(1.28);}
 .opp{position:absolute;z-index:7;display:flex;align-items:center;gap:calc(var(--ui)*.6);max-width:32vw;
   background:rgba(18,9,32,.72);border:1px solid rgba(180,150,255,.3);border-radius:16px;
   padding:calc(var(--ui)*.5) calc(var(--ui)*.78);backdrop-filter:blur(6px);transition:box-shadow .3s;

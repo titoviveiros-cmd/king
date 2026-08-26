@@ -18,6 +18,7 @@ import {
 } from "./MesaOnline.js";
 import { desenhoDoAvatar } from "./avatares.js";
 import { DezMaos } from "./DezMaos.js";
+import { PerfilJogador } from "./PerfilJogador.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
 
@@ -103,6 +104,8 @@ export function Mesa({
   const coarse = useCoarsePointer();
   // Consulta às 10 mãos. Estado de LEITURA e nada mais: não pausa, não cancela, não avança.
   const [vendoAsMaos, setVendoAsMaos] = useState(false);
+  // Mini perfil. Mesma natureza: abre, lê, fecha. Não toca em turno, carta, relógio nem socket.
+  const [vendoPerfil, setVendoPerfil] = useState<Seat | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => { if (!humanTurn) setSelected(null); }, [humanTurn]);
 
@@ -237,6 +240,15 @@ export function Mesa({
         <DezMaos maoAtual={contract?.hand} onFechar={() => setVendoAsMaos(false)} />
       )}
 
+      {vendoPerfil !== null && (
+        <PerfilJogador
+          game={game}
+          assento={vendoPerfil}
+          sala={mp?.sala?.seats}
+          onFechar={() => setVendoPerfil(null)}
+        />
+      )}
+
       {/* Slot de trunfo — só existe nas mãos positivas (Design System). Símbolo grande:
           é consultado o tempo todo durante a mão. */}
       {contract?.isPositive && trump && (
@@ -277,9 +289,12 @@ export function Mesa({
         const pos = slotDe(s, eu);
         const assento = mp?.sala?.seats[s];
         return (
-          <div
+          <button
+            type="button"
             key={s}
             className={`opp ${pos === "l" ? "left" : pos === "t" ? "top" : "right"}${turn === s && phase === "play" ? " active" : ""}${assento && !assento.connected ? " ausente" : ""}`}
+            onClick={() => { sfxTap(); setVendoPerfil(s); }}
+            aria-label={`Ver o perfil de ${oppName(s)}`}
           >
             <Insignia seat={s} avatar={assento?.avatar} nome={oppName(s)} />
             <div>
@@ -289,7 +304,7 @@ export function Mesa({
               <div className="m"><span className="cc">🂠 {counts[s]}</span><span className="pt">{scores[s]} pts</span></div>
             </div>
             {mp && <BalaoSocial mensagem={mp.mensagens[s]} />}
-          </div>
+          </button>
         );
       })}
 
@@ -303,14 +318,21 @@ export function Mesa({
       </div>
 
       {/* jogador local */}
-      <div className={`youtag ${humanTurn ? "active" : ""}`}>
+      {/* O card do jogador local abre o MESMO mini perfil dos adversários. Uma tela só: duplicar
+          a arquitetura de perfil para "eu" e para "os outros" criaria duas verdades para manter. */}
+      <button
+        type="button"
+        className={`youtag ${humanTurn ? "active" : ""}`}
+        onClick={() => { sfxTap(); setVendoPerfil(eu); }}
+        aria-label={`Ver o seu perfil, ${players[eu]}`}
+      >
         <Insignia seat={eu} avatar={mp?.sala?.seats[eu]?.avatar} nome={players[eu]} />
         <div>
           <div className="n">{players[eu]}<SeloDeAssistencia assento={mp?.sala?.seats[eu]} /></div>
           <div className="m">🂠 {counts[eu]} · {scores[eu]} pts</div>
         </div>
         {mp && <BalaoSocial mensagem={mp.mensagens[eu]} />}
-      </div>
+      </button>
       {/* Selo do castigo: a mesa para e todos veem QUEM pegou a bucha e QUANTO custou.
           Antes a vaza penalizada era recolhida em 1,15s sem nome nem número — ninguém
           acompanhava quem tinha se dado mal, que é justamente a graça das mãos negativas. */}
