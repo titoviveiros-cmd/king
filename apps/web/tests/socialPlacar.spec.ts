@@ -29,6 +29,22 @@ const SUBPIXEL = 1;
  */
 const VIEWPORT_DE_REFERENCIA = "667x375";
 
+/**
+ * O elemento é quem está POR CIMA no próprio ponto central?
+ *
+ * `toBeVisible()` responde "tem caixa e não está com display:none". Não responde "dá para ver".
+ * Um elemento perfeitamente renderizado atrás de um overlay passa por visível, e foi assim que um
+ * defeito P0 atravessou a suíte inteira e só apareceu na mão de uma pessoa.
+ */
+async function noTopo(page: Page, seletor: string): Promise<boolean> {
+  return page.locator(seletor).first().evaluate((el) => {
+    const b = el.getBoundingClientRect();
+    if (b.width === 0 || b.height === 0) return false;
+    const noPonto = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+    return !!noPonto && (el.contains(noPonto) || noPonto.contains(el));
+  });
+}
+
 
 /**
  * Joga a mão inteira pelas duas telas, até o Placar entre-mãos aparecer.
@@ -121,9 +137,22 @@ test("no Placar entre-mãos: a mensagem atravessa e o cooldown continua valendo"
 
     // A etiqueta viaja pela rede; o texto é desenhado por cada cliente da própria tabela. Se as
     // duas pontas mostram a mesma frase, é o mesmo catálogo dos dois lados.
-    await expect(convidado.locator(".balao").first(), "a mensagem não chegou ao outro cliente")
-      .toBeVisible({ timeout: 10_000 });
-    await expect(convidado.locator(".balao").first()).toHaveText(texto);
+    // O balão que importa é o DA CAMADA DE CIMA. Existe um em cada uma — o dos cards da Mesa e o
+    // das linhas do Placar — porque o intervalo pode acabar a qualquer momento e a mensagem tem
+    // de continuar visível dos dois lados da transição.
+    const naTela = convidado.locator(".placarov .balao").first();
+    await expect(naTela, "a mensagem não chegou ao outro cliente").toBeVisible({ timeout: 10_000 });
+    await expect(naTela).toHaveText(texto);
+
+    // ── E ESTÁ REALMENTE À VISTA ──
+    //
+    // Esta checagem existe porque a versão anterior deste teste passou verde enquanto o defeito
+    // estava na tela de um iPhone. `toBeVisible()` do Playwright olha CSS e tamanho, NÃO olha
+    // oclusão: o balão renderizava nos cards da Mesa, o Placar é um overlay por cima da Mesa, e o
+    // teste dizia "visível" para um elemento que nenhum humano conseguia ver. A pergunta certa é
+    // se o balão é quem está no topo no próprio ponto central.
+    expect(await noTopo(convidado, ".placarov .balao"),
+      "o balão está na tela mas COBERTO por outra camada").toBe(true);
 
     // ── O LIMITE DO SERVIDOR CONTINUA VALENDO ──
     // Dar uma porta nova não pode dar um caminho novo para spam. Uma segunda mensagem, imediata:
@@ -131,7 +160,7 @@ test("no Placar entre-mãos: a mensagem atravessa e o cooldown continua valendo"
     await gatilho.click();
     await anfitriao.locator(".placarov .socbtn").nth(1).click();
     await anfitriao.waitForTimeout(400);
-    const baloes = await convidado.locator(".opp .balao, .youtag .balao").count();
+    const baloes = await convidado.locator(".placarov .balao").count();
     expect(baloes, "mais de um balão simultâneo para o mesmo assento").toBeLessThanOrEqual(1);
 
     // ── E o Placar continua servindo para o que ele existe ──

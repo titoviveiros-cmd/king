@@ -2,7 +2,9 @@ import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
 import {
   contractTitle, penaltyTextLong, trumpLabel, earlyEndText, unitsText, fmtSigned, ordinal,
 } from "./contractText.js";
-import { BotaoSocial, ConsensoDaProximaMao, type MesaMultiplayer } from "./MesaOnline.js";
+import {
+  BalaoSocial, BotaoSocial, ConsensoDaProximaMao, type MesaMultiplayer,
+} from "./MesaOnline.js";
 
 /**
  * PLACAR ENTRE-MÃOS — o que aconteceu na mão que acabou, quanto cada um somou,
@@ -82,6 +84,13 @@ export function Placar({
                 </span>
                 <span className={`pl-delta ${deltaClass(b.points)}`}>{fmtSigned(b.points)}</span>
                 <span className="pl-total">{fmtSigned(r.score)}</span>
+                {/* A MENSAGEM APARECE AQUI TAMBÉM, e é a correção do bug que o aparelho achou.
+                    A mensagem sempre foi entregue: o servidor difundia, o cliente recebia, o
+                    balão renderizava. Só que o balão mora nos cards da MESA, e o Placar é um
+                    overlay POR CIMA da Mesa. Quem estava no intervalo mandava, o outro recebia, e
+                    ninguém via nada — porque o balão nascia atrás da tela que os dois estavam
+                    olhando. O mesmo `mp.mensagens`, desenhado na camada certa. */}
+                {mp && <BalaoSocial mensagem={mp.mensagens[r.seat]} />}
               </div>
             );
           })}

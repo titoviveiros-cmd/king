@@ -605,6 +605,12 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .pl-rows .pl-row:nth-child(3){animation-delay:.15s;} .pl-rows .pl-row:nth-child(4){animation-delay:.2s;}
 .pl-row.lead{background:linear-gradient(90deg,rgba(244,197,66,.16),rgba(244,197,66,.04));border-color:rgba(244,197,66,.35);}
 .pl-row.you{box-shadow:inset 3px 0 0 0 var(--gold);}
+/* O balão da mensagem no Placar. A linha vira âncora para ele poder pousar acima, colado ao
+   jogador que falou, sem empurrar a tabela nem cobrir o saldo. */
+.pl-row{position:relative;}
+.pl-row .balao{left:auto;right:clamp(8px,1.4vw,12px);transform:none;bottom:calc(100% - 4px);
+  z-index:3;max-width:min(60vw,300px);}
+.pl-row .balao::after{left:auto;right:22px;transform:none;}
 .pl-pos{font-family:var(--disp);font-weight:800;color:var(--gold);font-size:calc(var(--ui)*1.06);}
 .pl-pos i{font-style:normal;color:var(--faint);font-size:.7em;margin-left:2px;}
 .pl-mov{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.86);}
