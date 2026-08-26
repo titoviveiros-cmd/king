@@ -28,21 +28,29 @@ export interface DadosDoCompartilhamento {
   empate: boolean;
 }
 
-/** Abertura por posição. É o que muda o tom da mensagem inteira. */
-const ABERTURA: Record<number, (nome: string) => string> = {
-  1: (n) => `🥇 ${n} venceu a mesa!`,
-  2: (n) => `🥈 ${n} ficou a um passo do topo.`,
-  3: (n) => `🥉 ${n} segurou o terceiro lugar.`,
-  4: (n) => `🃏 ${n} pagou a rodada dessa vez.`,
+/**
+ * Manchete por posição. É a linha que decide se alguém lê o resto.
+ *
+ * Do campeão para o último a energia cai, mas nunca vira humilhação: quem terminou em quarto
+ * mandou a mensagem, e a mensagem é dele também.
+ */
+const MANCHETE: Record<number, (nome: string) => string> = {
+  1: (n) => `🏆 ${n.toUpperCase()} É O CAMPEÃO!`,
+  2: (n) => `🥈 ${n.toUpperCase()} FICOU A UM PASSO!`,
+  3: (n) => `🥉 ${n.toUpperCase()} SEGUROU O PÓDIO!`,
+  4: (n) => `🎲 ${n.toUpperCase()} JOGA A PRÓXIMA COM SEDE!`,
 };
 
 /** Fecho por posição. Convida a próxima partida sem pedir nada. */
 const FECHO: Record<number, string> = {
   1: "👑 Quem encara a próxima?",
-  2: "👑 Semana que vem eu levo essa.",
+  2: "👑 Na próxima essa é minha.",
   3: "👑 Bora de novo?",
   4: "👑 Revanche. Agora.",
 };
+
+/** A medalha de cada posição, na coluna do placar. */
+const MEDALHA: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉", 4: "4️⃣" };
 
 /**
  * UMA estatística, e só se for verdade.
@@ -93,24 +101,36 @@ export function textoDoCompartilhamento(d: DadosDoCompartilhamento): string {
   const nome = d.players[d.eu];
   const campeoes = d.finais.filter((r) => r.position === 1);
 
-  const abertura = d.empate && eu.position === 1
-    ? `🤝 ${campeoes.map((c) => d.players[c.seat]).join(" e ")} dividiram o topo!`
-    : (ABERTURA[eu.position] ?? ABERTURA[4])(nome);
+  const manchete = d.empate && eu.position === 1
+    ? `🤝 ${campeoes.map((c) => d.players[c.seat]).join(" E ").toUpperCase()} DIVIDIRAM O TOPO!`
+    : (MANCHETE[eu.position] ?? MANCHETE[4])(nome);
 
-  const placar = d.finais
-    .map((r) => `${r.position}º ${d.players[r.seat]} ${fmtSigned(r.score)}`)
-    .join("  ");
+  // PLACAR VERTICAL, e é a diferença que faz a mensagem funcionar no celular.
+  //
+  // Numa linha só ("1º Tito +215  2º Sr. Trunfo +5  3º ..."), o WhatsApp quebra onde couber e o
+  // resultado vira um parágrafo de números que ninguém lê. Empilhado, cada jogador tem a própria
+  // linha, a medalha ancora o olho e o saldo fica embaixo do nome: dá para varrer sem ler.
+  const placar = d.finais.flatMap((r) => [
+    `${MEDALHA[r.position] ?? "▫️"} ${d.players[r.seat]}`,
+    fmtSigned(r.score),
+    "",
+  ]);
+  placar.pop(); // a última linha em branco quem coloca é o bloco seguinte
 
   const destaque = destaqueReal(d);
 
   return [
     "👑 KING",
     "",
-    abertura,
-    `🏆 ${fmtSigned(eu.score)} em 10 mãos`,
+    manchete,
+    `🔥 ${fmtSigned(eu.score)} pontos`,
     "",
-    placar,
-    ...(destaque ? ["", destaque] : []),
+    "📊 PLACAR FINAL",
+    "",
+    ...placar,
+    ...(destaque ? ["", "✨ DESTAQUE DA PARTIDA", destaque] : []),
+    "",
+    "🎴 10 mãos. 4 jogadores.",
     "",
     d.empate && eu.position === 1 ? "👑 Desempate na próxima?" : (FECHO[eu.position] ?? FECHO[4]),
   ].join("\n");

@@ -45,7 +45,7 @@ function dados(parcial: Partial<DadosDoCompartilhamento> = {}): DadosDoCompartil
 }
 
 describe("cada posição recebe a sua mensagem", () => {
-  const posicoes: [Seat, string][] = [[0, "🥇"], [1, "🥈"], [2, "🥉"], [3, "🃏"]];
+  const posicoes: [Seat, string][] = [[0, "🥇"], [1, "🥈"], [2, "🥉"], [3, "🎲"]];
 
   it.each(posicoes)("assento %i abre com a medalha da posição dele", (eu, medalha) => {
     const t = textoDoCompartilhamento(dados({ eu }));
@@ -58,8 +58,11 @@ describe("cada posição recebe a sua mensagem", () => {
     expect(new Set(textos).size).toBe(4);
   });
 
-  it("o último lugar não recebe a mensagem de campeão", () => {
-    expect(textoDoCompartilhamento(dados({ eu: 3 }))).not.toContain("venceu a mesa");
+  it("o último lugar não recebe a mensagem de campeão, nem leva humilhação", () => {
+    const t = textoDoCompartilhamento(dados({ eu: 3 }));
+    expect(t).not.toMatch(/CAMPEÃO/);
+    // a manchete do quarto aponta para a próxima partida, não para o fracasso
+    expect(t).toMatch(/PRÓXIMA/);
   });
 
   it("empate na liderança não diz que alguém venceu", () => {
@@ -67,18 +70,44 @@ describe("cada posição recebe a sua mensagem", () => {
       finais: finaisCom([120, 120, -100, -140]), eu: 0, empate: true,
     }));
     expect(t).not.toMatch(/venceu/i);
-    expect(t).toContain("dividiram o topo");
+    expect(t).toContain("DIVIDIRAM O TOPO");
     expect(t).toContain("Bia");
   });
 
   it("o placar real da mesa aparece, com o sinal certo", () => {
     const t = textoDoCompartilhamento(dados());
-    expect(t).toContain("1º Tito +185");
-    expect(t).toContain("4º Nara −165");
+    expect(t).toContain("🥇 Tito\n+185");
+    expect(t).toContain("4️⃣ Nara\n−165");
+  });
+
+  // A DIFERENÇA QUE FAZ A MENSAGEM FUNCIONAR NO CELULAR.
+  // Numa linha só, o WhatsApp quebra onde couber e o placar vira um parágrafo de números.
+  it("o placar é VERTICAL: um jogador por linha, saldo embaixo do nome", () => {
+    const linhas = textoDoCompartilhamento(dados()).split("\n");
+    for (const nome of ["Tito", "Bia", "Léo", "Nara"]) {
+      const i = linhas.findIndex((l) => l.includes(nome) && /[🥇🥈🥉4]/u.test(l));
+      expect(i, `${nome} não tem linha própria no placar`).toBeGreaterThan(-1);
+      expect(linhas[i + 1], `o saldo de ${nome} não vem logo abaixo`).toMatch(/^[+−]\d+$/);
+    }
+  });
+
+  it("tem cabeçalho de placar e fecho de partida", () => {
+    const t = textoDoCompartilhamento(dados());
+    expect(t).toContain("📊 PLACAR FINAL");
+    expect(t).toContain("🎴 10 mãos. 4 jogadores.");
+  });
+
+  // Texto que sai do aparelho não pode depender de caractere exótico: o que atravessa WhatsApp,
+  // Telegram e SMS são emoji comuns, quebra de linha e pontuação.
+  it("só usa caracteres que qualquer app de mensagem carrega", () => {
+    const t = textoDoCompartilhamento(dados({ eu: 0, stats: { ...statsVazias(), margin: 20 } }));
+    expect(t, "caractere de controle").not.toMatch(new RegExp("[\u0000-\u0008\u000B-\u001F\u007F]"));
+    expect(t, "caractere de largura zero").not.toMatch(new RegExp("[\u200B-\u200D\uFEFF]"));
+    expect(t, "tabulação").not.toMatch(new RegExp("\t"));
   });
 
   it("o saldo de quem compartilha é o dele, não o do campeão", () => {
-    expect(textoDoCompartilhamento(dados({ eu: 2 }))).toContain("−60 em 10 mãos");
+    expect(textoDoCompartilhamento(dados({ eu: 2 }))).toContain("🔥 −60 pontos");
   });
 });
 
@@ -145,8 +174,9 @@ describe("forma da mensagem", () => {
   it("cabe numa prévia de WhatsApp", () => {
     for (const eu of [0, 1, 2, 3] as Seat[]) {
       const t = textoDoCompartilhamento(dados({ eu, stats: { ...statsVazias(), margin: 20 } }));
-      expect(t.length, `posição ${eu + 1}: ${t.length} caracteres`).toBeLessThanOrEqual(320);
-      expect(t.split("\n").length, `posição ${eu + 1}`).toBeLessThanOrEqual(12);
+      // O placar vertical custa linhas, e vale: o teto é a prévia do WhatsApp, não a contagem.
+      expect(t.length, `posição ${eu + 1}: ${t.length} caracteres`).toBeLessThanOrEqual(420);
+      expect(t.split("\n").length, `posição ${eu + 1}`).toBeLessThanOrEqual(26);
     }
   });
 
@@ -159,13 +189,16 @@ describe("forma da mensagem", () => {
   it("abre com a marca e fecha convidando outra partida", () => {
     const t = textoDoCompartilhamento(dados({ eu: 1 }));
     expect(t.startsWith("👑 KING")).toBe(true);
-    expect(t.trimEnd().endsWith("levo essa.")).toBe(true);
+    expect(t.trimEnd().endsWith("essa é minha.")).toBe(true);
   });
 
-  it("o nome de quem compartilha aparece uma vez na abertura, não repetido", () => {
+  it("o nome de quem compartilha aparece na manchete e na linha dele do placar", () => {
     const t = textoDoCompartilhamento(dados({ eu: 0 }));
-    // uma na abertura + uma na linha do placar
-    expect(t.split("Tito").length - 1).toBe(2);
+    // A manchete usa MAIÚSCULAS e o placar usa o nome como a pessoa escreveu: são ocorrências
+    // diferentes de propósito, e nenhuma delas é repetição da outra.
+    expect(t).toContain("🏆 TITO É O CAMPEÃO!");
+    expect(t).toContain("🥇 Tito");
+    expect(t.split("Tito").length - 1).toBe(1); // só a do placar preserva a caixa original
   });
 });
 
