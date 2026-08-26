@@ -133,7 +133,12 @@ export function Placar({
                   : <button className="btn gold" autoFocus onClick={onRestart}>Nova partida</button>}
               </>
             ) : mp ? (
-              <ConsensoDaProximaMao mp={mp} players={game.players()} onAdvance={onAdvance} />
+              <ConsensoDaProximaMao
+                mp={mp}
+                players={game.players()}
+                onAdvance={onAdvance}
+                onCancelar={mp.onCancelarProximaMao}
+              />
             ) : (
               <button className="btn gold" autoFocus onClick={onAdvance}>Próxima mão ▸</button>
             )}

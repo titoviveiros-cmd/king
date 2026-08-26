@@ -338,6 +338,12 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     bump();
   }, [bump]);
 
+  /** Desfaz o voto. Mesma natureza do de cima: é um pedido, e quem decide é o servidor. */
+  const cancelarProximaMao = useCallback(() => {
+    partida.current?.cancelarProximaMao();
+    bump();
+  }, [bump]);
+
   const goHome = useCallback(() => sairDaSala(), [sairDaSala]);
 
   return {
@@ -347,7 +353,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     reviewing: emLeitura(),
     shake: ap.shake,
     castigo: ap.castigo,
-    playCard, chooseTrump, advanceHand, goHome,
+    playCard, chooseTrump, advanceHand, cancelarProximaMao, goHome,
 
     // ---- só multiplayer ----
     sala,

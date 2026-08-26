@@ -39,6 +39,8 @@ export interface MesaMultiplayer {
   /** Mensagem social em cartaz por assento. Efêmera: não é estado de jogo, não sobrevive à queda. */
   mensagens: Partial<Record<Seat, { id: string; nonce: number }>>;
   onEnviarMensagem: (id: string) => void;
+  /** Desfaz o pedido da próxima mão. O servidor continua sendo quem decide. */
+  onCancelarProximaMao: () => void;
 }
 
 /**
@@ -136,11 +138,13 @@ export function AvisoDeRecusa({ recusa }: { recusa: { mensagem: string; nonce: n
  * permanecem intactos; isto entra apenas no lugar do botão.
  */
 export function ConsensoDaProximaMao({
-  mp, players, onAdvance,
+  mp, players, onAdvance, onCancelar,
 }: {
   mp: MesaMultiplayer;
   players: string[];
   onAdvance: () => void;
+  /** Desfaz o pedido. Ausente = sem volta (modo local não tem consenso). */
+  onCancelar?: () => void;
 }) {
   const assentos = mp.sala?.seats ?? [];
   const faltam = players
@@ -165,14 +169,28 @@ export function ConsensoDaProximaMao({
           );
         })}
       </div>
+      {/* PRONTO É REVERSÍVEL.
+          Antes, confirmar virava um aviso de espera e acabava ali: quem tocasse por engano ficava
+          preso olhando os outros. Agora o mesmo lugar da tela é o caminho de volta, com o estado
+          dito por extenso ("✓ Pronto") e o que fazer para desfazer logo abaixo. Quem manda
+          continua sendo o servidor: isto envia `ready:false`, e a lista de prontos que todos veem
+          vem do `READY_STATE` dele. */}
       {mp.pediProximaMao ? (
-        <span className="pl-aguardando" role="status">
-          Pronto · {faltam.length === 0
-            ? "começando…"
-            : faltam.length === 1
-              ? `aguardando ${faltam[0].nome}`
-              : `aguardando ${faltam.length} jogadores`}
-        </span>
+        <button
+          className="btn ghost pl-desfazer"
+          onClick={onCancelar}
+          disabled={!onCancelar || faltam.length === 0}
+          aria-label="Desfazer o pedido da próxima mão"
+        >
+          <b>✓ Pronto</b>
+          <i>
+            {faltam.length === 0
+              ? "começando…"
+              : faltam.length === 1
+                ? `aguardando ${faltam[0].nome} · toque para desfazer`
+                : `aguardando ${faltam.length} jogadores · toque para desfazer`}
+          </i>
+        </button>
       ) : (
         <button className="btn gold" autoFocus onClick={onAdvance}>Próxima mão ▸</button>
       )}

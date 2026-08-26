@@ -421,3 +421,73 @@ describe("consenso entre-mãos (READY_NEXT_HAND)", () => {
     expect(a.estadoAutoritativo()!.handNumber).toBe(2);
   });
 });
+
+/**
+ * PRONTO É REVERSÍVEL — e a autoridade continua sendo do servidor.
+ *
+ * Tocar "Estou pronto" por engano deixava a pessoa presa: o botão virava aviso de espera e não
+ * havia caminho de volta. A janela de arrependimento é a mesma da decisão — enquanto a mão não
+ * virou, desfazer é legítimo; depois disso não há o que desfazer.
+ */
+describe("consenso da próxima mão: pedir e desfazer", () => {
+  /** Uma partida com a mão encerrada, pronta para o consenso. */
+  function comMaoEncerrada(): AutoridadeDaPartida {
+    const a = nova();
+    // 13 vazas com a primeira carta legal de cada um. A mão 1 é negativa: não há trunfo a pedir.
+    for (let i = 0; i < 60 && a.estadoAutoritativo()!.hand!.handScores === null; i++) jogarLegal(a);
+    expect(a.estadoAutoritativo()!.hand!.handScores).not.toBeNull();
+    return a;
+  }
+
+  it("`ready:false` desfaz o pedido", () => {
+    const a = comMaoEncerrada();
+    a.marcarPronto(0, P[0], { actionId: "a1" });
+    expect(a.prontos).toContain(0);
+
+    a.marcarPronto(0, P[0], { actionId: "a2", ready: false });
+    expect(a.prontos).not.toContain(0);
+  });
+
+  it("ausência do campo continua valendo PRONTO — cliente antigo não muda de comportamento", () => {
+    const a = comMaoEncerrada();
+    a.marcarPronto(1, P[1], { actionId: "b1" });
+    expect(a.prontos).toContain(1);
+  });
+
+  it("pedir, desfazer e pedir de novo funciona", () => {
+    const a = comMaoEncerrada();
+    a.marcarPronto(2, P[2], { actionId: "c1" });
+    a.marcarPronto(2, P[2], { actionId: "c2", ready: false });
+    a.marcarPronto(2, P[2], { actionId: "c3" });
+    expect(a.prontos).toContain(2);
+  });
+
+  it("desfazer de um assento não mexe nos outros", () => {
+    const a = comMaoEncerrada();
+    a.marcarPronto(0, P[0], { actionId: "d1" });
+    a.marcarPronto(1, P[1], { actionId: "d2" });
+    a.marcarPronto(0, P[0], { actionId: "d3", ready: false });
+    expect(a.prontos).toEqual([1]);
+  });
+
+  it("desfazer impede o avanço que os quatro já tinham liberado", () => {
+    const a = comMaoEncerrada();
+    for (const s of [0, 1, 2, 3] as Seat[]) a.marcarPronto(s, P[s], { actionId: `e${s}` });
+    expect(a.prontos).toHaveLength(4);
+
+    a.marcarPronto(3, P[3], { actionId: "e-desfaz", ready: false });
+    // Com três, o avanço tem de ser recusado: a decisão deixou de existir.
+    expect(a.avancarMao().ok).toBe(false);
+  });
+
+  it("depois da mão virar, o consenso é de OUTRA mão e desfazer não ressuscita a anterior", () => {
+    const a = comMaoEncerrada();
+    for (const s of [0, 1, 2, 3] as Seat[]) a.marcarPronto(s, P[s], { actionId: `f${s}` });
+    expect(a.avancarMao().ok).toBe(true);
+
+    // A mão virou. Agora o consenso está zerado e um "desfazer" atrasado não tem efeito colateral.
+    const r = a.marcarPronto(0, P[0], { actionId: "f-tarde", ready: false });
+    expect(r.ok).toBe(false); // a mão nova ainda não acabou: não há consenso a mexer
+    expect(a.prontos).toEqual([]);
+  });
+});

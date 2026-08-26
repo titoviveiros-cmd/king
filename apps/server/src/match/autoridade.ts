@@ -60,6 +60,11 @@ export interface Intencao {
   actionId: string;
   /** Opcional. Se vier, precisa bater com a versão corrente — ver `verificarVersao`. */
   expectedStateVersion?: number;
+  /**
+   * Só no consenso da próxima mão: `false` desfaz o pedido. Ausente vale `true`, que é como todo
+   * cliente antigo se comporta.
+   */
+  ready?: boolean;
 }
 
 export class AutoridadeDaPartida {
@@ -199,7 +204,17 @@ export class AutoridadeDaPartida {
       this.#prontos.clear();
       this.#maoDoConsenso = m.hand.handNumber;
     }
-    this.#prontos.add(seat);
+    // PEDIR E DESFAZER, os dois pelo mesmo caminho.
+    //
+    // Antes só existia `add`: quem tocasse "Estou pronto" por engano ficava presa esperando os
+    // outros, sem nada a fazer. O campo `ready` é opcional e ausente vale `true`, então cliente
+    // antigo continua se comportando igual.
+    //
+    // A janela de arrependimento é a mesma da decisão: as guardas acima já recusam quando a mão
+    // ainda não acabou, quando a partida terminou, ou quando o consenso é de outra mão. Passou
+    // daqui, a transição não foi consumada, e desfazer é legítimo.
+    if (acao.ready === false) this.#prontos.delete(seat);
+    else this.#prontos.add(seat);
     // Registrar a actionId SEM avançar versão: pedir a próxima não altera o estado da partida.
     this.#aplicadas.set(this.#chave(playerId, acao.actionId), this.#stateVersion);
 

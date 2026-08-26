@@ -200,7 +200,16 @@ export interface EscolherTrunfo extends IntencaoBase {
 }
 
 /** "Estou pronto para a próxima mão." Só o consenso dos quatro avança a partida. */
-export type ProntoParaProximaMao = IntencaoBase;
+export interface ProntoParaProximaMao extends IntencaoBase {
+  /**
+   * `false` DESFAZ o pedido da próxima mão. Ausente vale `true`, que é como todo cliente antigo
+   * se comporta — o campo é aditivo e não quebra nenhuma versão já publicada.
+   *
+   * Desfazer só vale enquanto a transição não foi consumada. Depois que a mão virou, não há o
+   * que desfazer: o servidor recusa, e é ele quem sabe, não a tela.
+   */
+  ready?: boolean;
+}
 
 /** Quem já pediu a próxima mão. O Placar entre-mãos usa isto para dizer "aguardando Bia…". */
 export interface EstadoDeConsenso {

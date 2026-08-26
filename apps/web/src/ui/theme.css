@@ -631,6 +631,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   text-transform:uppercase;color:var(--turq);}
 .pl-next span{font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*1.02);}
 .pl-actions{display:flex;gap:10px;align-items:center;margin-left:auto;}
+/* "✓ Pronto" é BOTÃO, não aviso: é por ele que se desfaz. O estado em cima, o caminho de volta
+   embaixo, e alvo de dedo de verdade — quem tocou por engano não pode ficar preso. */
+.pl-desfazer{display:flex;flex-direction:column;align-items:flex-start;gap:1px;
+  min-height:44px;padding:.32em .8em;line-height:1.15;}
+.pl-desfazer b{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.92);color:var(--turq);}
+.pl-desfazer i{font-style:normal;font-family:var(--body);font-weight:700;
+  font-size:calc(var(--ui)*.72);color:var(--faint);white-space:nowrap;}
+.pl-desfazer:disabled{opacity:.7;cursor:default;}
 
 /* telas muito baixas (celular deitado): comprime o placar para caber sem rolagem */
 @media (max-height:430px){

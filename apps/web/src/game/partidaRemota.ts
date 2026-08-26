@@ -119,6 +119,28 @@ export class PartidaRemota extends LeituraDaPartida {
     this.#enviar("CLIENT_READY_NEXT_HAND", {
       actionId: novaAcao(),
       expectedStateVersion: this.#stateVersion,
+      ready: true,
+    });
+  }
+
+  /**
+   * DESFAZ o pedido da próxima mão.
+   *
+   * Existe porque tocar "Estou pronto" por engano deixava a pessoa presa: o botão virava um aviso
+   * de espera e não havia caminho de volta. Enquanto a mão não virou, arrepender-se é legítimo.
+   *
+   * A marca local cai na hora para o botão responder ao dedo, mas ela é só otimismo de
+   * apresentação: a lista de quem está pronto continua vindo do `READY_STATE` do servidor, e é
+   * ela que todos os clientes desenham. Se o servidor recusar (a transição já foi consumada, por
+   * exemplo), o próximo `READY_STATE` corrige a tela sozinho.
+   */
+  cancelarProximaMao(): void {
+    if (!this.handOver() || !this.#pediProximaMao) return;
+    this.#pediProximaMao = false;
+    this.#enviar("CLIENT_READY_NEXT_HAND", {
+      actionId: novaAcao(),
+      expectedStateVersion: this.#stateVersion,
+      ready: false,
     });
   }
 }

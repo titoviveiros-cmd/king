@@ -65,6 +65,7 @@ export default function ModoOnline({
     pediProximaMao: g.game.pediProximaMao(),
     mensagens: g.mensagens,
     onEnviarMensagem: g.enviarMensagem,
+    onCancelarProximaMao: g.cancelarProximaMao,
   };
 
   return (

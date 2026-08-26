@@ -64,7 +64,7 @@ function contexto(eu: Seat, over: Partial<MesaMultiplayer> = {}): MesaMultiplaye
   return {
     eu, sala: sala(), conexao: "conectado", relogio: null, prontos: [],
     recusa: null, emVoo: null, aguardando: false, pediProximaMao: false,
-    mensagens: {}, onEnviarMensagem: noop, ...over,
+    mensagens: {}, onEnviarMensagem: noop, onCancelarProximaMao: noop, ...over,
   };
 }
 
@@ -326,16 +326,27 @@ describe("Placar entre-mãos no multiplayer", () => {
     expect(root.querySelectorAll(".pl-pronto.ok")).toHaveLength(0);
   });
 
-  it("depois de votar, diz que confirmou e por quem está esperando", () => {
+  it("depois de votar, diz que confirmou, por quem espera — e como desfazer", () => {
     const m = maoTerminada();
     const root = render(remota(m, 0), contexto(0, { prontos: [0, 1, 2], pediProximaMao: true }));
-    const aviso = root.querySelector(".pl-aguardando")!;
-    expect(aviso.text).toContain("Pronto");
-    expect(aviso.text).toContain("Nara"); // o único que falta
-    expect(root.querySelectorAll(".pl-consenso .btn")).toHaveLength(0);
+    // O aviso virou BOTÃO: confirmar deixou de ser uma porta sem volta.
+    const desfazer = root.querySelector(".pl-desfazer")!;
+    expect(desfazer.tagName).toBe("BUTTON");
+    expect(desfazer.text).toContain("Pronto");
+    expect(desfazer.text).toContain("Nara");        // o único que falta
+    expect(desfazer.text).toContain("desfazer");    // e o caminho de volta está escrito
+    expect(desfazer.getAttribute("aria-label")).toContain("Desfazer");
     // e o estado visual dos quatro participantes
     expect(root.querySelectorAll(".pl-pronto")).toHaveLength(4);
     expect(root.querySelectorAll(".pl-pronto.ok")).toHaveLength(3);
+  });
+
+  it("com os quatro prontos não há mais o que desfazer: a mão já vai virar", () => {
+    const m = maoTerminada();
+    const root = render(remota(m, 0), contexto(0, { prontos: [0, 1, 2, 3], pediProximaMao: true }));
+    const desfazer = root.querySelector(".pl-desfazer")!;
+    expect(desfazer.getAttribute("disabled")).not.toBeNull();
+    expect(desfazer.text).toContain("começando");
   });
 
   it("no modo local o Placar mantém o botão de sempre", () => {
