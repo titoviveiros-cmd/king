@@ -19,6 +19,7 @@ import {
 import { desenhoDoAvatar } from "./avatares.js";
 import { DezMaos } from "./DezMaos.js";
 import { PerfilJogador } from "./PerfilJogador.js";
+import { UltimaVaza } from "./UltimaVaza.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
 
@@ -106,6 +107,9 @@ export function Mesa({
   const [vendoAsMaos, setVendoAsMaos] = useState(false);
   // Mini perfil. Mesma natureza: abre, lê, fecha. Não toca em turno, carta, relógio nem socket.
   const [vendoPerfil, setVendoPerfil] = useState<Seat | null>(null);
+  // Consulta à última vaza. Idem: leitura de estado público que o cliente já tem.
+  const [vendoUltimaVaza, setVendoUltimaVaza] = useState(false);
+  const temVazaAnterior = game.completedTrickCount() > 0;
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => { if (!humanTurn) setSelected(null); }, [humanTurn]);
 
@@ -249,6 +253,8 @@ export function Mesa({
         />
       )}
 
+      {vendoUltimaVaza && <UltimaVaza game={game} onFechar={() => setVendoUltimaVaza(false)} />}
+
       {/* Slot de trunfo — só existe nas mãos positivas (Design System). Símbolo grande:
           é consultado o tempo todo durante a mão. */}
       {contract?.isPositive && trump && (
@@ -279,6 +285,19 @@ export function Mesa({
       )}
 
       <div className="topbtn">
+        {/* ÚLTIMA VAZA — discreto de propósito.
+            É consulta, não ação de jogo: fica junto das utilidades do topo, longe do leque, e não
+            depende de quem está na vez. Antes da primeira vaza fechar não há o que consultar, e o
+            botão diz isso ficando desabilitado em vez de abrir uma tela vazia. */}
+        <button
+          className="btn ghost topvaza"
+          onClick={() => { sfxTap(); setVendoUltimaVaza(true); }}
+          disabled={!temVazaAnterior}
+          aria-label="Ver a última vaza"
+          title="Última vaza"
+        >
+          <b aria-hidden>↺</b><i>Última vaza</i>
+        </button>
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
         <button className="btn ghost" onClick={() => { sfxTap(); onHome(); }}>Sair</button>

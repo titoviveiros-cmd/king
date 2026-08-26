@@ -270,6 +270,64 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 }
 .topbtn{position:absolute;top:calc(var(--pad) + var(--st));right:calc(var(--pad) + var(--sr));z-index:9;
   display:flex;gap:clamp(6px,1.2vw,10px);align-items:center;}
+/* ÚLTIMA VAZA — descobrível sem ser dominante.
+   Em telas largas mostra o texto; abaixo de 800px vira só o símbolo, e o `aria-label` continua
+   dizendo o que é. A alternativa seria roubar largura do que já está no topo, e nada aqui vale
+   mais que o botão de sair. */
+.topvaza{display:inline-flex;align-items:center;gap:.4em;min-height:34px;}
+.topvaza b{font-size:calc(var(--ui)*1.05);line-height:1;}
+.topvaza i{font-style:normal;}
+@media (max-width:800px){ .topvaza i{display:none;} .topvaza{padding-inline:.55em;} }
+.topvaza:disabled{opacity:.38;cursor:default;}
+
+/* ══════════════════ A ÚLTIMA VAZA ══════════════════
+   Quatro cartas em linha, na ordem em que foram jogadas, com o nome de quem jogou cada uma. */
+.uv-scrim{position:fixed;inset:0;z-index:30;height:var(--alturaUtil);
+  display:flex;align-items:center;justify-content:center;
+  padding:calc(var(--pad) + var(--st)) calc(var(--pad) + var(--sr)) calc(var(--pad) + var(--sb)) calc(var(--pad) + var(--sl));
+  background:rgba(8,3,16,.78);backdrop-filter:blur(5px);}
+.uv{position:relative;display:flex;flex-direction:column;gap:calc(var(--ui)*.5);min-height:0;
+  max-width:min(94vw,620px);max-height:100%;overflow-y:auto;overscroll-behavior:contain;
+  padding:calc(var(--ui)*.7) calc(var(--ui)*.9) calc(var(--ui)*.85);
+  background:linear-gradient(180deg,#1b0f33,#12081f);border:1px solid rgba(180,150,255,.34);
+  border-radius:18px;box-shadow:0 24px 60px -20px #000;}
+.uv-topo{display:flex;align-items:center;justify-content:space-between;gap:var(--ui);}
+.uv-topo h2{margin:0;font-family:var(--disp);font-weight:800;color:#fff;
+  font-size:calc(var(--ui)*1.05);letter-spacing:.04em;}
+.uv-x{min-width:44px;min-height:44px;display:grid;place-items:center;margin:calc(var(--ui)*-.4) calc(var(--ui)*-.4) 0 0;
+  background:none;border:none;color:var(--faint);font-size:calc(var(--ui)*1.05);cursor:pointer;}
+.uv-x:active{color:#fff;}
+.uv-x:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+.uv-cartas{list-style:none;margin:0;padding:0;display:flex;gap:calc(var(--ui)*.55);justify-content:center;}
+.uv-carta{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0;
+  --cw:clamp(40px,min(9vw,12vh),74px);}
+.uv-carta .card{--cw:clamp(40px,min(9vw,12vh),74px);}
+/* O selo da ordem fica ACIMA da carta, no fluxo, e não por cima dela.
+   Na primeira versão ele era absoluto no canto superior esquerdo — exatamente onde a carta
+   desenha o próprio número. O naipe aparecia e o valor sumia: a informação mais básica da carta
+   coberta pela numeração da ordem. */
+.uv-ordem{flex:none;min-width:calc(var(--ui)*1.25);height:calc(var(--ui)*1.25);padding-inline:calc(var(--ui)*.3);
+  border-radius:999px;display:grid;place-items:center;background:var(--night2);color:var(--muted);
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.64);border:1px solid var(--line);}
+.uv-quem{display:flex;flex-direction:column;align-items:center;max-width:calc(var(--ui)*6);
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.78);color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.uv-carta.venceu .uv-quem{color:var(--gold);}
+.uv-carta.venceu .card{box-shadow:0 0 0 2px var(--gold),0 0 18px -2px rgba(244,197,66,.6);}
+.uv-quem i{font-style:normal;font-size:calc(var(--ui)*.62);letter-spacing:.1em;text-transform:uppercase;
+  color:var(--gold);}
+.uv-fim{display:flex;align-items:center;justify-content:center;gap:calc(var(--ui)*.7);
+  border-top:1px solid var(--line);padding-top:calc(var(--ui)*.5);flex-wrap:wrap;}
+.uv-fim b{font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*.98);}
+.uv-pontos{display:flex;align-items:baseline;gap:calc(var(--ui)*.35);
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.18);}
+.uv-pontos.pos{color:var(--turq);} .uv-pontos.neg{color:#ff6fb0;}
+.uv-pontos i{font-style:normal;font-family:var(--body);font-weight:700;
+  font-size:calc(var(--ui)*.74);color:var(--faint);}
+@media (max-height:360px){
+  .uv{gap:calc(var(--ui)*.35);padding:calc(var(--ui)*.5) calc(var(--ui)*.7);}
+  .uv-carta,.uv-carta .card{--cw:clamp(38px,10vh,58px);}
+}
 
 /* Slot de trunfo (mãos 7–10). Fica logo abaixo do HUD, com o naipe GRANDE: é a informação
    mais consultada da mão positiva e antes vivia como texto miúdo dentro do HUD. */
