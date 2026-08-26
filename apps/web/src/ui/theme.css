@@ -413,8 +413,26 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .opp .av, .youtag .av, .castigo .av, .pl-av, .sl-av{background:var(--ident);color:var(--ident-tinta);}
 .opp .n{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.08);color:#fff;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;}
-.opp .m{font-size:calc(var(--ui)*.9);font-weight:800;margin-top:3px;display:flex;gap:calc(var(--ui)*.62);}
-.opp .m .cc{color:#dcd2f2;} .opp .m .pt{color:#ffd24a;}
+/* A LINHA DE SITUAÇÃO: posição, saldo, o que ele fez NESTA mão, e quantas cartas restam.
+   Ordem escolhida pela pergunta que cada uma responde, da mais para a menos urgente: "como ele
+   está" (posição), "quanto tem" (saldo), "o que aconteceu agora" (delta da mão) e só então "onde
+   está no leque" (cartas). O delta é o único que some quando não tem o que dizer. */
+.opp .m,.youtag .m{font-size:calc(var(--ui)*.9);font-weight:800;margin-top:3px;
+  display:flex;align-items:baseline;gap:calc(var(--ui)*.42);white-space:nowrap;}
+.opp .m .cc{color:#9d92bd;font-size:calc(var(--ui)*.82);}
+/* NO SEU CARD A CONTAGEM SAI. Quantas cartas os outros têm é informação que só o card dá; quantas
+   VOCÊ tem está no leque, aberto na tela, a dois centímetros dali. Mantê-la custava a terceira
+   informação da linha e fazia o card quebrar em duas — dentro de um corredor que tem largura
+   máxima justamente para não invadir a mesa. */
+.youtag .m .cc{display:none;}
+.opp .m .pt,.youtag .m .pt{color:#ffd24a;}
+.opp .m .ps,.youtag .m .ps{font-family:var(--disp);color:#fff;
+  background:rgba(255,255,255,.1);border-radius:6px;padding:0 .32em;font-size:calc(var(--ui)*.8);}
+/* O delta da mão é o dado NOVO na tela, e o único com cor semântica: verde ganhou, rosa perdeu. */
+.opp .m .dm,.youtag .m .dm{font-family:var(--disp);font-size:calc(var(--ui)*.84);
+  padding:0 .3em;border-radius:6px;}
+.opp .m .dm.pos,.youtag .m .dm.pos{color:#0e0722;background:var(--turq);}
+.opp .m .dm.neg,.youtag .m .dm.neg{color:#fff;background:rgba(224,51,138,.85);}
 .opp.active{box-shadow:0 0 0 2px var(--gold),0 0 22px rgba(244,197,66,.55);animation:pulse 1.8s ease-in-out infinite;}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 2px var(--gold),0 0 14px rgba(244,197,66,.45);}50%{box-shadow:0 0 0 2px var(--gold),0 0 26px rgba(244,197,66,.75);}}
 

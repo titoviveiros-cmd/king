@@ -17,7 +17,9 @@ import { Mesa } from "./Mesa.js";
 
 const noop = () => {};
 const norm = (t: string | null | undefined) => (t ?? "").replace(/−/g, "-");
-const parsePts = (t: string | null | undefined) => { const m = norm(t).match(/(-?\d+)\s*pts/); return m ? +m[1] : null; };
+// O card deixou de escrever "pts": o saldo agora vem com sinal (`+40`, `−165`, `0`) ao lado da
+// posição e do delta da mão. O que se lê aqui é o `.pt`, e só ele.
+const parsePts = (t: string | null | undefined) => { const m = norm(t).match(/^\s*([+-]?\d+)\s*$/); return m ? +m[1] : null; };
 const parseTot = (t: string | null | undefined) => { const m = norm(t).match(/(-?\d+)/); return m ? +m[1] : null; };
 
 /** Joga a mão corrente até o fim usando SÓ a API pública do adaptador (nenhuma regra replicada). */
@@ -53,7 +55,7 @@ function renderMesaRoot(game: KingGame): HTMLElement {
 /** Score exibido em cada card da Mesa, por ASSENTO (0 = Você, 1 esq, 2 topo, 3 dir). */
 function mesaScoresBySeat(root: HTMLElement): (number | null)[] {
   return [
-    parsePts(root.querySelector(".youtag .m")?.text),
+    parsePts(root.querySelector(".youtag .pt")?.text),
     parsePts(root.querySelector(".opp.left .pt")?.text),
     parsePts(root.querySelector(".opp.top .pt")?.text),
     parsePts(root.querySelector(".opp.right .pt")?.text),

@@ -48,6 +48,9 @@ export function faixaDoNome(nome: string): "" | "medio" | "longo" {
   return n <= 8 ? "" : n <= 12 ? "medio" : "longo";
 }
 
+/** Saldo com sinal, no formato curto do card. O menos é o de verdade, não o hífen. */
+const fmtPts = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "0");
+
 const same = (a: Card, b: Card) => a.rank === b.rank && a.suit === b.suit;
 const cardKey = (c: Card) => c.rank + c.suit;
 const isRedSuit = (t: Trump) => t === "hearts" || t === "diamonds";
@@ -110,6 +113,25 @@ export function Mesa({
   // Consulta à última vaza. Idem: leitura de estado público que o cliente já tem.
   const [vendoUltimaVaza, setVendoUltimaVaza] = useState(false);
   const temVazaAnterior = game.completedTrickCount() > 0;
+
+  /**
+   * O QUE CADA CARD DIZ, e por que só isso.
+   *
+   * Numa partida real ficou claro que o card respondia "quanto ele tem" e não respondia "como ele
+   * está". Saldo sem posição não situa ninguém: +40 pode ser primeiro ou último, e a diferença é
+   * a partida inteira. E o desempenho da MÃO EM CURSO é o que muda de vaza em vaza — era a
+   * informação que faltava, e é a que se lê num relance.
+   *
+   * Tudo sai do motor: `rankings` para a posição, `liveScores` para o saldo (já com o parcial da
+   * mão) e `handBreakdownSoFar` para o que cada um pegou até aqui. Nada é acumulado no cliente,
+   * nada é estimado.
+   *
+   * O delta da mão só entra quando NÃO É ZERO. Escrever "0" em três cards enquanto a mão está
+   * limpa é ruído puro, e ruído numa Mesa cheia custa a leitura dos quatro.
+   */
+  const posicoes = new Map(game.rankings().map((r) => [r.seat, r.position]));
+  const daMao = game.handBreakdownSoFar();
+  const deltaDaMao = (s: Seat): number => daMao?.rows[s]?.points ?? 0;
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => { if (!humanTurn) setSelected(null); }, [humanTurn]);
 
@@ -320,7 +342,14 @@ export function Mesa({
               <div className="n">
                 {oppName(s)}<SeloDeBot assento={assento} /><SeloDeAssistencia assento={assento} />
               </div>
-              <div className="m"><span className="cc">🂠 {counts[s]}</span><span className="pt">{scores[s]} pts</span></div>
+              <div className="m">
+                <span className="ps">{posicoes.get(s)}º</span>
+                <span className="pt">{fmtPts(scores[s])}</span>
+                {deltaDaMao(s) !== 0 && (
+                  <span className={`dm ${deltaDaMao(s) > 0 ? "pos" : "neg"}`}>{fmtPts(deltaDaMao(s))}</span>
+                )}
+                <span className="cc">🂠 {counts[s]}</span>
+              </div>
             </div>
             {mp && <BalaoSocial mensagem={mp.mensagens[s]} />}
           </button>
@@ -348,7 +377,14 @@ export function Mesa({
         <Insignia seat={eu} avatar={mp?.sala?.seats[eu]?.avatar} nome={players[eu]} />
         <div>
           <div className="n">{players[eu]}<SeloDeAssistencia assento={mp?.sala?.seats[eu]} /></div>
-          <div className="m">🂠 {counts[eu]} · {scores[eu]} pts</div>
+          <div className="m">
+            <span className="ps">{posicoes.get(eu)}º</span>
+            <span className="pt">{fmtPts(scores[eu])}</span>
+            {deltaDaMao(eu) !== 0 && (
+              <span className={`dm ${deltaDaMao(eu) > 0 ? "pos" : "neg"}`}>{fmtPts(deltaDaMao(eu))}</span>
+            )}
+            <span className="cc">🂠 {counts[eu]}</span>
+          </div>
         </div>
         {mp && <BalaoSocial mensagem={mp.mensagens[eu]} />}
       </button>

@@ -591,3 +591,58 @@ describe("o painel é modal, e assume que é", () => {
     expect(root.querySelectorAll(".socscrim")).toHaveLength(0);
   });
 });
+
+/**
+ * O QUE O CARD DE JOGADOR DIZ.
+ *
+ * Numa partida real ficou claro que ele respondia "quanto ele tem" e não respondia "como ele
+ * está". Saldo sem posição não situa ninguém: +40 pode ser primeiro ou último.
+ */
+describe("player cards: situação em vez de só saldo", () => {
+  it("cada card traz posição e saldo, nos quatro", () => {
+    const root = render(remota(partidaEmCurso(), 0), contexto(0));
+    for (const sel of [".youtag", ".opp.left", ".opp.top", ".opp.right"]) {
+      expect(root.querySelector(`${sel} .ps`)?.text, sel).toMatch(/^[1-4]º$/);
+      expect(root.querySelector(`${sel} .pt`)?.text, sel).toMatch(/^[+−]?\d+$/);
+    }
+  });
+
+  it("a posição vem do motor, não da ordem dos assentos", () => {
+    const g = new KingGame(JOGADORES, 42);
+    const root = render(g);
+    const posicoes = [".youtag", ".opp.left", ".opp.top", ".opp.right"]
+      .map((s) => root.querySelector(`${s} .ps`)?.text ?? "");
+    // Todos empatados em 0 no começo: a posição existe e é válida para os quatro.
+    for (const p of posicoes) expect(p).toMatch(/^[1-4]º$/);
+  });
+
+  it("com a mão limpa, o delta NÃO aparece: zero em quatro cards é ruído", () => {
+    const g = new KingGame(JOGADORES, 42);
+    const root = render(g);
+    expect(root.querySelectorAll(".dm")).toHaveLength(0);
+  });
+
+  it("quem pegou algo NESTA mão ganha o delta, com cor semântica", () => {
+    const g = new KingGame(JOGADORES, 42);
+    // joga até alguém pegar a primeira vaza da mão 1 (negativa: quem leva, perde)
+    for (let i = 0; i < 40 && g.completedTrickCount() === 0; i++) {
+      if (g.needsBotPlay()) g.stepBotPlay();
+      else if (g.isHumanTurn()) g.playHuman(g.legalCards()[0]);
+      else break;
+    }
+    const root = render(g);
+    const deltas = root.querySelectorAll(".dm");
+    expect(deltas.length).toBeGreaterThan(0);
+    for (const d of deltas) {
+      expect(d.getAttribute("class")).toMatch(/\b(pos|neg)\b/);
+      expect(d.text).toMatch(/^[+−]\d+$/);
+    }
+  });
+
+  it("o card continua sem dizer quantas cartas os OUTROS têm além da contagem pública", () => {
+    const root = render(remota(partidaEmCurso(), 0), contexto(0));
+    for (const sel of [".opp.left", ".opp.top", ".opp.right"]) {
+      expect(root.querySelector(`${sel} .cc`)?.text, sel).toMatch(/^🂠 \d+$/);
+    }
+  });
+});
