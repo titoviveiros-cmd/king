@@ -759,9 +759,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 /* O balão da mensagem no Placar. A linha vira âncora para ele poder pousar acima, colado ao
    jogador que falou, sem empurrar a tabela nem cobrir o saldo. */
 .pl-row{position:relative;}
-.pl-row .balao{left:auto;right:clamp(8px,1.4vw,12px);transform:none;bottom:calc(100% - 4px);
-  z-index:3;max-width:min(60vw,300px);}
-.pl-row .balao::after{left:auto;right:22px;transform:none;}
+/* O balão entra NO FLUXO da linha, como uma etiqueta ao lado do saldo.
+   A primeira versão o fazia flutuar acima da linha, e ele ficava coberto: cada `.pl-row` tem
+   `animation ... both`, o que cria contexto de empilhamento próprio e prende o z-index dentro da
+   linha. Flutuar exigiria brigar com isso; estar no fluxo simplesmente não tem como ser coberto. */
+.pl-row .balao{position:static;transform:none;animation:none;
+  margin-left:calc(var(--ui)*.5);padding:.14em .5em;font-size:calc(var(--ui)*.76);
+  max-width:min(42vw,220px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pl-row .balao::after{display:none;}
 .pl-pos{font-family:var(--disp);font-weight:800;color:var(--gold);font-size:calc(var(--ui)*1.06);}
 .pl-pos i{font-style:normal;color:var(--faint);font-size:.7em;margin-left:2px;}
 .pl-mov{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.86);}
@@ -1041,8 +1046,11 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    Uma linha só: rótulo, duas amostras e, para quem não é anfitrião, a nota de quem manda.
    As amostras são o PANO de verdade, montado com os mesmos tokens da Mesa: quem escolhe vê a
    cor que vai jogar, não um quadradinho aproximado. */
-.sl-mesa{display:flex;align-items:center;justify-content:center;gap:calc(var(--ui)*.5);
-  flex-wrap:wrap;flex:none;}
+/* Ele mora DENTRO da linha de ações, e não numa faixa própria. A primeira versão tinha banda
+   exclusiva e custou ~38px de altura — o suficiente para o quarto lugar sair da tela em três
+   viewports. A prioridade desta tela já estava decidida: ver a mesa inteira é a função dela, e um
+   cosmético não passa à frente dos quatro assentos. */
+.sl-mesa{display:flex;align-items:center;gap:calc(var(--ui)*.4);flex:none;}
 .sl-mesa-lb{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.7);
   letter-spacing:.14em;text-transform:uppercase;color:var(--faint);}
 .sl-mesa-ops{display:flex;gap:calc(var(--ui)*.4);}

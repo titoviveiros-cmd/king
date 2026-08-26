@@ -129,36 +129,36 @@ export function Sala({
 
       {erro && <div className="sl-erro" role="alert">{erro}</div>}
 
-      {/* A MESA DA SALA.
-          Aparece para todo mundo, porque saber em que mesa se vai jogar é do grupo; só o anfitrião
-          consegue mexer, e quem garante isso é o servidor — o `disabled` aqui é apresentação, não
-          autorização. Quem não é anfitrião lê a escolha e vê de quem ela é. */}
-      <div className="sl-mesa">
-        <span className="sl-mesa-lb">Mesa</span>
-        <div className="sl-mesa-ops" role="radiogroup" aria-label="Cor da mesa">
-          {MESAS.map((m) => {
-            const escolhida = temaAtual === m.id;
-            return (
-              <button
-                key={m.id}
-                type="button"
-                role="radio"
-                aria-checked={escolhida}
-                className={`sl-mesa-op ${m.id}${escolhida ? " on" : ""}`}
-                disabled={!podeMexer}
-                onClick={() => { sfxTap(); onEscolherMesa(m.id); }}
-                title={m.nome}
-              >
-                <i aria-hidden />
-                <span>{m.nome}</span>
-              </button>
-            );
-          })}
-        </div>
-        {!souAnfitriao && <span className="sl-mesa-nota">quem escolhe é o anfitrião</span>}
-      </div>
-
       <div className="row">
+        {/* A MESA DA SALA.
+            Aparece para todo mundo, porque saber em que mesa se vai jogar é do grupo; só o anfitrião
+            consegue mexer, e quem garante isso é o servidor — o `disabled` aqui é apresentação, não
+            autorização. Quem não é anfitrião lê a escolha e vê de quem ela é. */}
+        <div className="sl-mesa">
+          <span className="sl-mesa-lb">Mesa</span>
+          <div className="sl-mesa-ops" role="radiogroup" aria-label="Cor da mesa">
+            {MESAS.map((m) => {
+              const escolhida = temaAtual === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={escolhida}
+                  className={`sl-mesa-op ${m.id}${escolhida ? " on" : ""}`}
+                  disabled={!podeMexer}
+                  onClick={() => { sfxTap(); onEscolherMesa(m.id); }}
+                  title={m.nome}
+                >
+                  <i aria-hidden />
+                  <span>{m.nome}</span>
+                </button>
+              );
+            })}
+          </div>
+          {!souAnfitriao && <span className="sl-mesa-nota">quem escolhe é o anfitrião</span>}
+        </div>
+
         <button
           className={`btn ${pronto ? "violet" : "gold"}`}
           disabled={!meu || conexao === "erro" || conexao === "encerrada"}
