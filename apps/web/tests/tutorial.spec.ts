@@ -603,3 +603,103 @@ test("cada mão negativa é explicada com o card do contrato daquela mão", asyn
 
   expect(vistos).toEqual(["6/16", "7/16", "8/16", "9/16", "10/16", "11/16"]);
 });
+
+/* ══════════════════ O TRUNFO APARECE QUANDO SERVE ══════════════════
+ *
+ * Achado em uso e reportado duas rodadas antes de poder ser corrigido: os cinco naipes de trunfo
+ * ficavam na tela UM PASSO ANTES do passo que pede a escolha, e clicar neles não fazia nada.
+ *
+ * A causa não era a Mesa, que estava certa: ela mostra o painel quando o motor diz que o assento
+ * humano tem trunfo a escolher. Era o roteiro, que montava a mão 7 um passo cedo — e a mão 7 nasce
+ * esperando a escolha.
+ *
+ * Estes testes cobram os três momentos, e o do meio é o que faltava.
+ */
+test("os controles de trunfo só existem no passo que os pede", async ({ page }, ti) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+  const vp = vpOf(page);
+
+  // ── ANTES: passo a passo até o 12, sem nenhum controle de trunfo em lugar nenhum ──
+  const antes: string[] = [];
+  for (let i = 0; i < 40; i++) {
+    const rotulo = (await page.locator(".tut-passo").textContent())?.trim() ?? "?";
+    if (rotulo === "13/16") break;
+    antes.push(rotulo);
+
+    expect(
+      await page.locator(".trumpbtn").count(),
+      `[${ti.project.name}] passo ${rotulo}: controle de trunfo na tela antes da hora`,
+    ).toBe(0);
+    // e nem a affordance enganosa do painel, nem o aviso de "alguém escolhendo"
+    expect(await page.locator(".trumpov").count(), `passo ${rotulo}: painel de trunfo`).toBe(0);
+    expect(await page.locator(".pickmsg").count(), `passo ${rotulo}: aviso de escolha`).toBe(0);
+
+    const ok = page.locator(".tut-ok");
+    const carta = page.locator(SEL.handCardLegal).first();
+    if (await ok.count()) await ok.click();
+    else if (await carta.count()) await carta.click();
+    else throw new Error(`travou no passo ${rotulo}`);
+    await page.waitForTimeout(110);
+  }
+  expect(antes, "não chegou ao passo do trunfo").toContain("12/16");
+
+  // ── NO PASSO: exatamente cinco opções, todas alcançáveis ──
+  await expect(page.locator(".tut-passo")).toHaveText("13/16");
+  const opcoes = page.locator(".trumpbtn");
+  await expect(opcoes).toHaveCount(5);
+
+  const rotulos = (await opcoes.allTextContents()).map((t) => t.replace(/[^\p{L} ]/gu, "").trim());
+  for (const esperado of ["Copas", "Ouros", "Paus", "Espadas", "Sem Trunfo"]) {
+    expect(rotulos, `falta a opção ${esperado}`).toContain(esperado);
+  }
+
+  for (let i = 0; i < 5; i++) {
+    const c = await boxOf(opcoes.nth(i), `trunfo ${i}`);
+    expect(
+      insideViewport(c, vp, SUBPIXEL),
+      `[${ti.project.name} · ${vp.width}×${vp.height}] a opção ${rotulos[i]} está fora da tela`,
+    ).toBe(true);
+    await exigirAoAlcance(page, opcoes.nth(i), `a opção ${rotulos[i]}`, "13/16", []);
+  }
+
+  // e o passo se anuncia como AÇÃO, em vez de parecer leitura
+  await expect(page.locator(".tut-acao")).toBeVisible();
+
+  // ── DEPOIS: a escolha vale, o tutorial anda, e não sobra controle nenhum ──
+  await opcoes.first().click();
+  await page.waitForTimeout(160);
+
+  await expect(page.locator(".trumpbtn"), "sobrou controle de trunfo depois da escolha").toHaveCount(0);
+  await expect(page.locator(".trumpslot"), "a escolha não ficou refletida na Mesa").toBeVisible();
+  await expect(page.locator(".tut-ok"), "o tutorial não liberou o avanço").toBeVisible();
+
+  await page.locator(".tut-ok").click();
+  await expect(page.locator(".tut-passo")).toHaveText("14/16");
+});
+
+test("um toque onde o painel de trunfo ficava não faz nada antes da hora", async ({ page }) => {
+  await primeiraVisita(page);
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
+
+  // até o passo 12, o que anunciava as positivas
+  for (let i = 0; i < 40; i++) {
+    if ((await page.locator(".tut-passo").textContent())?.trim() === "12/16") break;
+    const ok = page.locator(".tut-ok");
+    const carta = page.locator(SEL.handCardLegal).first();
+    if (await ok.count()) await ok.click(); else if (await carta.count()) await carta.click();
+    await page.waitForTimeout(110);
+  }
+  await expect(page.locator(".tut-passo")).toHaveText("12/16");
+
+  // O centro da mesa é onde o painel morava. Tocar ali agora não pode produzir efeito nenhum:
+  // nem escolher trunfo, nem avançar o passo, nem jogar carta.
+  const antes = await page.locator(SEL.handCard).count();
+  const vp = vpOf(page);
+  await page.mouse.click(vp.width / 2, vp.height * 0.42);
+  await page.waitForTimeout(250);
+
+  await expect(page.locator(".tut-passo")).toHaveText("12/16");
+  expect(await page.locator(SEL.handCard).count()).toBe(antes);
+  expect(await page.locator(".trumpslot").count(), "escolheu trunfo sem pedir").toBe(0);
+});

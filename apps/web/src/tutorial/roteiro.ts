@@ -126,12 +126,22 @@ export const ROTEIRO: readonly Passo[] = [
   // ───────── As quatro positivas, a rotação do trunfo e o +25 ─────────
   {
     id: "positivas",
-    cena: "positiva",
-    fala: "Agora as 4 mãos positivas. Em cada uma delas, um jogador diferente escolhe o trunfo ou joga Sem Trunfo.",
+    // SEM CENA PRÓPRIA, e é a correção de um defeito achado em uso.
+    //
+    // Este passo montava a mão 7. Só que a mão 7 NASCE esperando o trunfo do aluno: o painel dos
+    // cinco naipes aparecia aqui, um passo antes do passo que pede a escolha, e clicar nele não
+    // fazia nada — o tutorial só aceita a ação no passo dela. Um controle que parece acionável e
+    // não responde é pior que controle nenhum.
+    //
+    // A correção não é esconder o painel: é não criar a situação. Este passo ANUNCIA o que vem
+    // pela frente e continua na mesa da mão 6, onde não há trunfo a escolher. A cena positiva
+    // entra no passo seguinte, junto com o pedido — e aí o painel aparece já utilizável.
+    fala: "Depois começam as 4 mãos positivas. Em cada uma, um jogador diferente escolhe o trunfo ou joga Sem Trunfo.",
     acao: "toque",
   },
   {
     id: "trunfo",
+    cena: "positiva",
     fala: "Nesta mão é a sua vez de escolher. Pegue um naipe para trunfo, ou jogue Sem Trunfo.",
     acao: "trunfo",
     trunfoAlvo: "clubs",
