@@ -171,6 +171,23 @@ export function sfxCrownLand(): void {
   audio.vibrate([60, 40, 140]);
 }
 
+/**
+ * ÚLTIMA MÃO DO JOGO — o motivo da coroa, uma vez por partida.
+ *
+ * Toca exatamente uma vez em dez mãos, então pode ser o gesto mais cheio do jogo sem cansar
+ * ninguém: a tríade sobe, o grave assenta embaixo e a vibração faz o "tum-tá" curto do anúncio.
+ * Com efeitos desligados, `audio.tone` sai cedo e o anúncio continua inteiro na tela — o texto é
+ * que carrega a informação; isto aqui é a moldura.
+ */
+export function sfxUltimaMao(): void {
+  audio.duck(0.16, 1.6);
+  audio.tone({ freq: 392.00, dur: 0.5, gain: 0.075, wave: "triangle", cutoff: 2600, attack: 0.005, sustain: 0.35, space: 0.5 });
+  audio.tone({ freq: 493.88, dur: 0.55, gain: 0.065, wave: "triangle", cutoff: 2800, attack: 0.006, delay: 0.09, sustain: 0.4, space: 0.55 });
+  audio.tone({ freq: 587.33, dur: 0.8, gain: 0.07, wave: "sine", cutoff: 3200, attack: 0.006, delay: 0.18, sustain: 0.45, space: 0.65 });
+  audio.tone({ freq: 146.83, dur: 1.0, gain: 0.11, wave: "sine", cutoff: 420, attack: 0.01, sustain: 0.4, space: 0.4 });
+  audio.vibrate([40, 60, 90]);
+}
+
 /** É a sua vez. Discreto — toca muitas vezes por partida. */
 export function sfxYourTurn(): void {
   audio.tone({ freq: 880, dur: 0.09, gain: 0.055, wave: "sine", space: 0.3 });

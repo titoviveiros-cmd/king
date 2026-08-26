@@ -20,6 +20,7 @@ import { desenhoDoAvatar } from "./avatares.js";
 import { DezMaos } from "./DezMaos.js";
 import { PerfilJogador } from "./PerfilJogador.js";
 import { UltimaVaza } from "./UltimaVaza.js";
+import { UltimaMao } from "./UltimaMao.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
 
@@ -132,6 +133,25 @@ export function Mesa({
   const posicoes = new Map(game.rankings().map((r) => [r.seat, r.position]));
   const daMao = game.handBreakdownSoFar();
   const deltaDaMao = (s: Seat): number => daMao?.rows[s]?.points ?? 0;
+
+  /**
+   * O ANÚNCIO DA MÃO 10, e a disciplina que o mantém inofensivo.
+   *
+   * A visibilidade é DERIVADA, não disparada: `mão 10 e ainda não dispensada`. Ninguém "abre" o
+   * anúncio, então nenhum redesenho pode reabri-lo — e a Mesa redesenha a cada passo de bot e a
+   * cada tique do relógio. Quem reconecta no meio da mão 10 vê o anúncio uma vez e pronto; se
+   * já tinha dispensado, não vê de novo, porque quem manda é o estado, não um evento perdido.
+   *
+   * O que se guarda é o NÚMERO da mão dispensada, não um booleano: uma revanche volta para a
+   * mão 1 com o mesmo componente montado, e o zero devolve o anúncio para a partida seguinte.
+   */
+  const maoAtual = contract?.hand ?? 0;
+  const [dispensadaEm, setDispensadaEm] = useState(0);
+  const anunciandoUltimaMao = maoAtual === 10 && dispensadaEm !== 10;
+  useEffect(() => {
+    // Revanche: a partida nova volta para a mão 1, e o anúncio fica disponível de novo.
+    if (maoAtual > 0 && maoAtual < 10) setDispensadaEm(0);
+  }, [maoAtual]);
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => { if (!humanTurn) setSelected(null); }, [humanTurn]);
 
@@ -276,6 +296,8 @@ export function Mesa({
       )}
 
       {vendoUltimaVaza && <UltimaVaza game={game} onFechar={() => setVendoUltimaVaza(false)} />}
+
+      {anunciandoUltimaMao && <UltimaMao onFim={() => setDispensadaEm(10)} />}
 
       {/* Slot de trunfo — só existe nas mãos positivas (Design System). Símbolo grande:
           é consultado o tempo todo durante a mão. */}

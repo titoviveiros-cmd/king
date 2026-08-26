@@ -23,6 +23,25 @@ function seedDaUrl(): number | null {
 }
 
 /**
+ * `?mao=10` começa a partida LOCAL naquela mão.
+ *
+ * Mesma natureza do `?seed=`: serve para rever uma tela específica sem jogar nove mãos até ela. E
+ * é o que torna o anúncio da mão 10 testável no navegador de verdade — pelo caminho real, com o
+ * componente montado, em vez de só por render estático.
+ *
+ * NÃO MUDA REGRA NENHUMA. Quem monta a mão é `startNextHand`, do motor, exatamente como no
+ * tutorial: o contrato, a distribuição, o dealer e a rotação do trunfo saem todos dele. E existe
+ * só no modo local contra bots — no multiplayer quem decide a mão é o servidor, e ele não lê a
+ * URL de ninguém.
+ */
+function maoDaUrl(): number | null {
+  const v = new URLSearchParams(window.location.search).get("mao");
+  if (v === null) return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
+}
+
+/**
  * MODO LOCAL. Liga o adaptador KingGame ao React: força re-render, dá o timing das jogadas dos
  * bots, uma pausa para ler a vaza resolvida e dispara os sons/haptics de cada evento.
  * Nenhuma regra aqui — só orquestração, UX e feedback.
@@ -41,7 +60,12 @@ export function useKingGame() {
     // uma partida COMEÇOU. O botão que a pediu é dado da própria tela, não deste hook.
     analytics.track("match_started", { modo: "local", bots: 3 });
     audio.unlock(); // 1º gesto real do usuário: iOS só libera áudio aqui
-    ref.current = new KingGame(["Você", "Bia", "Léo", "Nara"], seedDaUrl() ?? Math.floor(Math.random() * 1e9));
+    ref.current = new KingGame(
+      ["Você", "Bia", "Léo", "Nara"],
+      seedDaUrl() ?? Math.floor(Math.random() * 1e9),
+      0,
+      maoDaUrl() ?? 1,
+    );
     limpar();
     setScreen("mesa");
     bump();

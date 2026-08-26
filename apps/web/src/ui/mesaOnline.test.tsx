@@ -646,3 +646,61 @@ describe("player cards: situação em vez de só saldo", () => {
     }
   });
 });
+
+/**
+ * ÚLTIMA MÃO DO JOGO — presentation pura, e o teste existe para provar que é só isso.
+ *
+ * O risco de um anúncio de meio de partida não é ele ser feio: é ele bloquear, repetir, ou
+ * aparecer na mão errada. Os três são verificáveis por render.
+ */
+describe("o anúncio da mão 10", () => {
+  /** Uma Mesa na mão `n`, montada pelo motor. */
+  function naMao(n: number): KingGame {
+    const g = new KingGame(JOGADORES, 42);
+    for (let mao = 1; mao < n; mao++) {
+      for (let i = 0; i < 3000 && g.phase() !== "handEnd"; i++) {
+        if (g.needsBotTrump()) g.stepBotTrump();
+        else if (g.needsBotPlay()) g.stepBotPlay();
+        else if (g.phase() === "trump") g.chooseTrumpHuman("spades");
+        else if (g.isHumanTurn()) g.playHuman(g.legalCards()[0]);
+        else break;
+      }
+      g.advanceHand();
+    }
+    return g;
+  }
+
+  it("aparece na mão 10", () => {
+    const root = render(naMao(10));
+    expect(root.querySelectorAll(".um")).toHaveLength(1);
+    expect(root.querySelector(".um-selo b")?.text).toContain("ÚLTIMA MÃO DO JOGO");
+  });
+
+  it("NÃO aparece na mão 9", () => {
+    expect(render(naMao(9)).querySelectorAll(".um")).toHaveLength(0);
+  });
+
+  it("NÃO aparece na mão 1", () => {
+    expect(render(new KingGame(JOGADORES, 42)).querySelectorAll(".um")).toHaveLength(0);
+  });
+
+  it("a informação não depende da animação: o texto está escrito", () => {
+    const root = render(naMao(10));
+    // Com movimento reduzido ou áudio desligado, é isto que continua na tela.
+    expect(root.querySelector(".um-selo b")?.text.trim().length).toBeGreaterThan(10);
+    expect(root.querySelector(".um-selo i")?.text).toContain("Tudo pode mudar");
+    // e é anunciado por leitor de tela
+    expect(root.querySelector(".um")?.getAttribute("role")).toBe("status");
+  });
+
+  it("não muda a partida: o contrato da mão 10 continua sendo o do motor", () => {
+    const g = naMao(10);
+    const root = render(g);
+    expect(g.contract()?.hand).toBe(10);
+    expect(g.contract()?.isPositive).toBe(true);
+    // e a Mesa por baixo continua inteira — o anúncio é uma camada, não uma tela
+    expect(root.querySelectorAll(".hud")).toHaveLength(1);
+    expect(root.querySelectorAll(".opp")).toHaveLength(3);
+    expect(root.querySelectorAll(".youtag")).toHaveLength(1);
+  });
+});

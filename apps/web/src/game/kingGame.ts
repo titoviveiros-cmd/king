@@ -12,9 +12,17 @@ import { LeituraDaPartida } from "./leituraDaPartida.js";
 
 export type { Phase } from "./leituraDaPartida.js";
 
-/** A partida já começa com a primeira mão distribuída — é o estado inicial da Mesa. */
-function partidaNova(players: string[], seed: number): MatchState {
+/**
+ * A partida já começa com a primeira mão distribuída — é o estado inicial da Mesa.
+ *
+ * `maoInicial` existe para QA e é a mesma técnica que o tutorial usa: adiantar o contador e
+ * deixar `startNextHand` montar. Quem decide contrato, distribuição, dealer e rotação do trunfo
+ * continua sendo o motor; a única coisa escolhida aqui é POR QUAL MÃO COMEÇAR. Vale só no modo
+ * local contra bots.
+ */
+function partidaNova(players: string[], seed: number, maoInicial = 1): MatchState {
   const m = createMatch(players, seed);
+  m.handNumber = Math.max(1, maoInicial) - 1;
   startNextHand(m);
   return m;
 }
@@ -25,8 +33,8 @@ export class KingGame extends LeituraDaPartida {
    * assento do jogador para suportar o multiplayer. No modo local ele continua sendo 0 — o
    * comportamento é idêntico ao de antes, byte a byte.
    */
-  constructor(players: string[], seed: number, humanSeat: Seat = 0) {
-    super(partidaNova(players, seed), humanSeat);
+  constructor(players: string[], seed: number, humanSeat: Seat = 0, maoInicial = 1) {
+    super(partidaNova(players, seed, maoInicial), humanSeat);
   }
 
   // ---- ações do humano ----
