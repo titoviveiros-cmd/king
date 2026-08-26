@@ -380,7 +380,9 @@ function construirDestaques(
   }
   if (stats.kingTaker !== null && stats.kingTaker !== eu) {
     candidatos.push({
-      titulo: "Fugiu do Rei de Copas",
+      // O título diz de quem é a notícia; a linha de baixo diz QUEM levou, e quem determina isso
+      // continua sendo `stats.kingTaker`, do motor. Só o rótulo mudou.
+      titulo: "Quem não conseguiu fugir do K de Copas:",
       texto: `${nome(stats.kingTaker)} levou os −160 da Mão 5`,
       peso: 70,
     });

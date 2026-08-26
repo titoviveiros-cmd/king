@@ -79,7 +79,7 @@ export const ROTEIRO: readonly Passo[] = [
   },
   {
     id: "maior-vence",
-    fala: "Sem trunfo, vence a maior carta do naipe que abriu a vaza.",
+    fala: "Vence a maior carta do naipe que abriu a vaza.",
     acao: "toque",
   },
 
@@ -113,7 +113,7 @@ export const ROTEIRO: readonly Passo[] = [
     fala: "Mão 5. Fuja do K de Copas. Quem capturar essa carta recebe −160. Ele está na mesa agora.",
     acao: "jogar",
     alvo: (m) => legaisQueEscapam(m),
-    acerto: "Perfeito. Carta baixa, a vaza fica com outro, e o Rei é problema dele.",
+    acerto: "Perfeito. Carta baixa, a vaza fica com outro, e o Rei de Copas é problema dele.",
     erro: "Levou a vaza com o Rei de Copas dentro: −160 de uma vez. É a carta mais cara do jogo.",
   },
   {
