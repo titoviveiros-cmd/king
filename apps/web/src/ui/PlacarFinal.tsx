@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RankRow, Seat } from "@king/engine";
 import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
+import { textoDoCompartilhamento } from "./compartilhar.js";
 import { Crown } from "./Crown.js";
 import { contractTitle, trumpLabel, fmtSigned, ordinal } from "./contractText.js";
 import { audio } from "../audio/engine.js";
@@ -237,7 +238,17 @@ export function PlacarFinal({
   );
 }
 
-/** Botão de compartilhar: usa a folha do sistema quando existe; senão copia para a área de transferência. */
+/**
+ * Botão de compartilhar.
+ *
+ * TRÊS CAMINHOS, e nenhum deles é obrigatório: a folha do sistema quando o aparelho oferece, a
+ * área de transferência quando não, e um aviso honesto quando as duas falham. A Web Share API
+ * não existe em desktop nem em todo navegador móvel, então tratá-la como dependência deixaria o
+ * botão morto justamente para quem joga no computador.
+ *
+ * Cancelar a folha do sistema NÃO é erro: o `AbortError` é a pessoa desistindo, e responder
+ * "não foi possível compartilhar" a uma desistência é mentir sobre o que aconteceu.
+ */
 function Compartilhar({
   game, finais, campeoes, empate,
 }: {
@@ -247,13 +258,12 @@ function Compartilhar({
   empate: boolean;
 }) {
   const [aviso, setAviso] = useState<string | null>(null);
-  const texto = useMemo(() => {
-    const cab = empate
-      ? `Empate entre ${campeoes.map((c) => c.player).join(" e ")}`
-      : `${campeoes[0].player} venceu`;
-    const linhas = finais.map((r) => `${ordinal(r.position)} ${r.player} ${fmtSigned(r.score)}`).join(" · ");
-    return `KING 👑 — ${cab}!\n${linhas}\n10 mãos · 4 jogadores`;
-  }, [finais, campeoes, empate]);
+  const texto = useMemo(
+    () => textoDoCompartilhamento({
+      finais, eu: game.humanSeat, players: game.players(), stats: game.stats(), empate,
+    }),
+    [finais, game, empate],
+  );
 
   const compartilhar = async () => {
     sfxTap();
@@ -264,8 +274,14 @@ function Compartilhar({
       }
       await navigator.clipboard.writeText(texto);
       setAviso("Resultado copiado");
-    } catch {
-      setAviso("Não foi possível compartilhar");
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") return; // desistiu; não é falha
+      try {
+        await navigator.clipboard.writeText(texto);
+        setAviso("Resultado copiado");
+      } catch {
+        setAviso("Não foi possível compartilhar");
+      }
     }
     setTimeout(() => setAviso(null), 2200);
   };
