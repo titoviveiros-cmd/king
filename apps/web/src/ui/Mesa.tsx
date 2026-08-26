@@ -140,6 +140,17 @@ export function Mesa({
    * O delta da mão só entra quando NÃO É ZERO. Escrever "0" em três cards enquanto a mão está
    * limpa é ruído puro, e ruído numa Mesa cheia custa a leitura dos quatro.
    */
+  /**
+   * QUEM SABE O AVATAR DE UM ASSENTO.
+   *
+   * A ordem é de autoridade, não de conveniência: no multiplayer manda o estado sincronizado da
+   * sala, porque é ele que os quatro aparelhos compartilham. Sem sala, a partida local responde.
+   * Se nenhum dos dois souber, devolve `undefined` — e "não sei" continua diferente de "é o
+   * leão", que era exatamente o atalho que fazia os quatro cards abrirem o mesmo bicho.
+   */
+  const avatarDe = (s: Seat): string | undefined =>
+    mp?.sala?.seats[s]?.avatar ?? game.avatarDoAssento(s);
+
   const posicoes = new Map(game.rankings().map((r) => [r.seat, r.position]));
   const daMao = game.handBreakdownSoFar();
   const deltaDaMao = (s: Seat): number => daMao?.rows[s]?.points ?? 0;
@@ -374,7 +385,7 @@ export function Mesa({
             onClick={() => { sfxTap(); setVendoPerfil(s); }}
             aria-label={`Ver o perfil de ${oppName(s)}`}
           >
-            <Insignia seat={s} avatar={assento?.avatar} nome={oppName(s)} />
+            <Insignia seat={s} avatar={avatarDe(s)} nome={oppName(s)} />
             <div>
               <div className="n">
                 {oppName(s)}<SeloDeBot assento={assento} /><SeloDeAssistencia assento={assento} />
@@ -383,7 +394,7 @@ export function Mesa({
                 <span className="ps">{posicoes.get(s)}º</span>
                 <span className="pt">{fmtPts(scores[s])}</span>
                 {deltaDaMao(s) !== 0 && (
-                  <span className={`dm ${deltaDaMao(s) > 0 ? "pos" : "neg"}`}>{fmtPts(deltaDaMao(s))}</span>
+                  <span className={`mdelta ${deltaDaMao(s) > 0 ? "pos" : "neg"}`}>{fmtPts(deltaDaMao(s))}</span>
                 )}
                 <span className="cc">🂠 {counts[s]}</span>
               </div>
@@ -411,14 +422,14 @@ export function Mesa({
         onClick={() => { sfxTap(); setVendoPerfil(eu); }}
         aria-label={`Ver o seu perfil, ${players[eu]}`}
       >
-        <Insignia seat={eu} avatar={mp?.sala?.seats[eu]?.avatar} nome={players[eu]} />
+        <Insignia seat={eu} avatar={avatarDe(eu)} nome={players[eu]} />
         <div>
           <div className="n">{players[eu]}<SeloDeAssistencia assento={mp?.sala?.seats[eu]} /></div>
           <div className="m">
             <span className="ps">{posicoes.get(eu)}º</span>
             <span className="pt">{fmtPts(scores[eu])}</span>
             {deltaDaMao(eu) !== 0 && (
-              <span className={`dm ${deltaDaMao(eu) > 0 ? "pos" : "neg"}`}>{fmtPts(deltaDaMao(eu))}</span>
+              <span className={`mdelta ${deltaDaMao(eu) > 0 ? "pos" : "neg"}`}>{fmtPts(deltaDaMao(eu))}</span>
             )}
             <span className="cc">🂠 {counts[eu]}</span>
           </div>

@@ -26,6 +26,7 @@ import type { AtualizacaoDeEstado, Causa } from "../net/protocolo.js";
 import type { EstadoDaSalaLido } from "../net/clienteKing.js";
 import { AVATAR_PADRAO, desenhoDoAvatar } from "./avatares.js";
 import { fraseDe } from "./social.js";
+import { NOMES_DA_MESA_LOCAL, avatarLocalDoAssento } from "../game/adversarios.js";
 
 const noop = () => {};
 const JOGADORES = ["Você", "Bia", "Léo", "Nara"];
@@ -494,9 +495,29 @@ describe("o avatar desenhado é o do estado autoritativo", () => {
     expect(root.querySelector(".youtag .av")?.text.trim()).toBe(desenhoDoAvatar(AVATAR_PADRAO).glifo);
   });
 
-  it("SEM multiplayer nada muda: o jogo local continua com a inicial do nome", () => {
-    const root = render(new KingGame(JOGADORES, 23));
-    expect(root.querySelector(".youtag .av")?.text.trim()).toBe(JOGADORES[0][0]);
+  /**
+   * O MODO LOCAL TAMBÉM TEM IDENTIDADE, e esta asserção mudou de lado de propósito.
+   *
+   * Antes ela dizia "sem multiplayer, o card mostra a inicial do nome" — e era verdade, porque
+   * ninguém sabia o avatar dos assentos locais. Essa mesma lacuna era a origem de um bug
+   * funcional: o mini perfil resolvia avatar por etiqueta, recebia `undefined` para os quatro e
+   * abria o Leão em todos. A partida local passou a conhecer os seus quatro, e o teste passou a
+   * cobrar isso.
+   */
+  it("o jogo local desenha o avatar de cada assento, e os quatro são diferentes", () => {
+    const root = render(new KingGame(NOMES_DA_MESA_LOCAL, 23));
+    const glifos = [
+      root.querySelector(".youtag .av")?.text.trim() ?? "",
+      ...root.querySelectorAll(".opp .av").map((n) => n.text.trim()),
+    ];
+    expect(glifos).toHaveLength(4);
+    for (let s = 0; s < 4; s++) {
+      const esperado = desenhoDoAvatar(avatarLocalDoAssento(s)).glifo;
+      expect(glifos, `assento ${s}`).toContain(esperado);
+    }
+    expect(new Set(glifos).size, "dois assentos com o mesmo bicho").toBe(4);
+    // e nenhum deles é a inicial do nome, que era o desenho antigo
+    for (const g of glifos) expect(g).not.toMatch(/^[A-Za-zÀ-ÿ]$/);
   });
 
   it("o assento de BOT é declarado como bot na mesa", () => {
@@ -619,7 +640,7 @@ describe("player cards: situação em vez de só saldo", () => {
   it("com a mão limpa, o delta NÃO aparece: zero em quatro cards é ruído", () => {
     const g = new KingGame(JOGADORES, 42);
     const root = render(g);
-    expect(root.querySelectorAll(".dm")).toHaveLength(0);
+    expect(root.querySelectorAll(".mdelta")).toHaveLength(0);
   });
 
   it("quem pegou algo NESTA mão ganha o delta, com cor semântica", () => {
@@ -631,7 +652,7 @@ describe("player cards: situação em vez de só saldo", () => {
       else break;
     }
     const root = render(g);
-    const deltas = root.querySelectorAll(".dm");
+    const deltas = root.querySelectorAll(".mdelta");
     expect(deltas.length).toBeGreaterThan(0);
     for (const d of deltas) {
       expect(d.getAttribute("class")).toMatch(/\b(pos|neg)\b/);
@@ -673,7 +694,7 @@ describe("o anúncio da mão 10", () => {
   it("aparece na mão 10", () => {
     const root = render(naMao(10));
     expect(root.querySelectorAll(".um")).toHaveLength(1);
-    expect(root.querySelector(".um-selo b")?.text).toContain("ÚLTIMA MÃO DO JOGO");
+    expect(root.querySelector(".um-selo b")?.text).toContain("ÚLTIMA MÃO");
   });
 
   it("NÃO aparece na mão 9", () => {
@@ -687,7 +708,7 @@ describe("o anúncio da mão 10", () => {
   it("a informação não depende da animação: o texto está escrito", () => {
     const root = render(naMao(10));
     // Com movimento reduzido ou áudio desligado, é isto que continua na tela.
-    expect(root.querySelector(".um-selo b")?.text.trim().length).toBeGreaterThan(10);
+    expect(root.querySelector(".um-selo b")?.text.trim()).toBe("ÚLTIMA MÃO");
     expect(root.querySelector(".um-selo i")?.text).toContain("Tudo pode mudar");
     // e é anunciado por leitor de tela
     expect(root.querySelector(".um")?.getAttribute("role")).toBe("status");

@@ -321,18 +321,47 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   display:grid;place-items:center;cursor:pointer;
   background:radial-gradient(60% 50% at 50% 50%,rgba(10,4,20,.72),rgba(8,3,16,.86));
   animation:umEntraVeu .28s ease-out both;}
-.um.saindo{animation:umSai .32s ease-in both;} /* par de SAIDA_MS em UltimaMao.tsx */
-.um-selo{display:flex;flex-direction:column;align-items:center;gap:calc(var(--ui)*.3);
+.um.saindo{animation:umSai .42s ease-in both;} /* par de SAIDA_MS em UltimaMao.tsx */
+.um-selo{position:relative;z-index:1;
+  display:flex;flex-direction:column;align-items:center;gap:calc(var(--ui)*.3);
   padding:calc(var(--ui)*.9) calc(var(--ui)*1.6);text-align:center;
   /* MOTION PREMIUM, não pião: entra torto e grande, passa do ponto e assenta no zero. Três
      quadros de rotação com overshoot suave — o suficiente para o olho registrar "aconteceu algo",
      longe do giro contínuo que vira enfeite de banner. */
   animation:umSelo .78s cubic-bezier(.22,1.3,.36,1) both;}
-/* O tamanho é grande, não é gigante: a 667px de largura o corpo anterior chegava a 48px e a frase
-   encostava nas duas bordas. Grande o bastante para o momento, com margem para a moldura existir. */
-.um-selo b{font-family:var(--disp);font-weight:800;color:var(--gold);line-height:1.04;
-  font-size:clamp(1.15rem,min(5.4vw,9vh),2.6rem);letter-spacing:.02em;max-width:88vw;
-  text-shadow:0 0 26px rgba(244,197,66,.55),0 6px 18px rgba(0,0,0,.7);}
+/* A FRASE ENCURTOU E CRESCEU. "ÚLTIMA MÃO DO JOGO!" em duas linhas competia consigo mesma; com
+   "ÚLTIMA MÃO" cabe corpo maior na mesma largura, e o subtítulo continua dando o contexto.
+   O `clamp` guarda as duas pontas: nunca menor que 1.35rem, nunca acima de 3.6rem, e limitado
+   pela altura (`vh`) para não estourar nos viewports baixos. */
+.um-selo b{font-family:var(--disp);font-weight:800;color:var(--gold);line-height:1.02;
+  font-size:clamp(1.35rem,min(9vw,13vh),3.6rem);letter-spacing:.03em;max-width:92vw;
+  text-shadow:0 0 30px rgba(244,197,66,.6),0 0 70px rgba(244,197,66,.25),0 6px 18px rgba(0,0,0,.75);
+  /* O brilho respira uma vez, sem piscar: é o "isto importa" dito em silêncio. */
+  animation:umBrilho 1.5s ease-in-out .55s 1 both;}
+.um-coroa{display:block;animation:umCoroa 1.4s ease-in-out .5s 1 both;}
+
+/* AS FAÍSCAS. Seis, saindo da coroa, cada uma no próprio ângulo, e somem. Sem biblioteca: seis
+   `<i>` e uma animação, o mesmo princípio do burst do Placar Final. Discretas de propósito —
+   partícula demais transforma um momento de tensão em festa infantil. */
+.um-faiscas{position:absolute;left:50%;top:calc(50% - var(--ui) * 3.2);width:0;height:0;
+  pointer-events:none;}
+.um-faiscas i{position:absolute;width:calc(var(--ui)*.3);height:calc(var(--ui)*.3);border-radius:50%;
+  background:var(--gold);box-shadow:0 0 10px rgba(244,197,66,.9);
+  transform:rotate(var(--ang)) translateY(0);
+  animation:umFaisca .9s ease-out var(--atraso) 1 both;}
+@keyframes umFaisca{
+  0%  {opacity:0;transform:rotate(var(--ang)) translateY(0) scale(.4);}
+  25% {opacity:1;}
+  100%{opacity:0;transform:rotate(var(--ang)) translateY(calc(var(--ui) * -4.6)) scale(.9);}
+}
+@keyframes umBrilho{
+  0%,100%{text-shadow:0 0 30px rgba(244,197,66,.6),0 0 70px rgba(244,197,66,.25),0 6px 18px rgba(0,0,0,.75);}
+  50%    {text-shadow:0 0 44px rgba(244,197,66,.95),0 0 110px rgba(244,197,66,.45),0 6px 18px rgba(0,0,0,.75);}
+}
+@keyframes umCoroa{
+  0%,100%{transform:translateY(0) scale(1);}
+  45%    {transform:translateY(calc(var(--ui) * -.32)) scale(1.06);}
+}
 .um-selo i{font-style:normal;font-family:var(--body);font-weight:700;color:var(--ink);
   font-size:clamp(.8rem,min(2.6vw,4vh),1.05rem);opacity:.92;}
 .um-selo svg{filter:drop-shadow(0 0 22px rgba(244,197,66,.6));
@@ -353,7 +382,13 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 @media (prefers-reduced-motion:reduce){
   .um-selo{animation:umSeloCalmo .34s ease-out both;}
   .um,.um.saindo{animation-duration:.2s;}
+  .um-selo b,.um-coroa{animation:none;}
+  .um-faiscas{display:none;}
 }
+/* A classe `calmo` decide em JS e a media query decide em CSS. As duas precisam calar o MESMO
+   movimento: a preferência pode mudar com o anúncio já na tela, e aí só uma delas reage. */
+.um.calmo .um-selo b,.um.calmo .um-coroa{animation:none;}
+.um.calmo .um-faiscas{display:none;}
 
 /* ══════════════════ A ÚLTIMA VAZA ══════════════════
    Quatro cartas em linha, na ordem em que foram jogadas, com o nome de quem jogou cada uma. */
@@ -503,11 +538,25 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .opp .m .pt,.youtag .m .pt{color:#ffd24a;}
 .opp .m .ps,.youtag .m .ps{font-family:var(--disp);color:#fff;
   background:rgba(255,255,255,.1);border-radius:6px;padding:0 .32em;font-size:calc(var(--ui)*.8);}
-/* O delta da mão é o dado NOVO na tela, e o único com cor semântica: verde ganhou, rosa perdeu. */
-.opp .m .dm,.youtag .m .dm{font-family:var(--disp);font-size:calc(var(--ui)*.84);
+/* O delta da mão é o dado NOVO na tela, e o único com cor semântica: verde ganhou, rosa perdeu.
+   A CLASSE CHAMA-SE `mdelta`, e o nome tem história. Ela era `dm` — a mesma classe do painel
+   "As 10 mãos", que declara `width:min(94vw,720px)`. O chip herdava a largura do MODAL: num
+   viewport de 667px ele virava uma barra rosa de 627px que rasgava o card do jogador e
+   atravessava a mesa inteira. Duas coisas sem relação nenhuma dividindo um nome de duas letras. */
+.opp .m .mdelta,.youtag .m .mdelta{font-family:var(--disp);font-size:calc(var(--ui)*.84);
   padding:0 .3em;border-radius:6px;}
-.opp .m .dm.pos,.youtag .m .dm.pos{color:#0e0722;background:var(--turq);}
-.opp .m .dm.neg,.youtag .m .dm.neg{color:#fff;background:rgba(224,51,138,.85);}
+.opp .m .mdelta.pos,.youtag .m .mdelta.pos{color:#0e0722;background:var(--turq);}
+.opp .m .mdelta.neg,.youtag .m .mdelta.neg{color:#fff;background:rgba(224,51,138,.85);}
+
+/* E O CARD PASSA A PODER ENCOLHER, que é a defesa contra o próximo caso do gênero.
+   Sem `min-width:0` o filho flex se recusa a ficar menor que o próprio conteúdo, e o `nowrap` da
+   linha de situação transforma qualquer excesso em vazamento para fora do `max-width` — o card
+   não segura nada. Com ele, o nome trunca e a contagem de cartas cede, nessa ordem, que é a da
+   importância: posição, saldo e delta são o que se lê de relance. */
+.opp > div,.youtag > div{min-width:0;}
+.opp .m,.youtag .m{min-width:0;}
+.opp .m > *,.youtag .m > *{flex:none;}
+.opp .m .cc,.youtag .m .cc{flex:0 1 auto;min-width:0;overflow:hidden;}
 .opp.active{box-shadow:0 0 0 2px var(--gold),0 0 22px rgba(244,197,66,.55);animation:pulse 1.8s ease-in-out infinite;}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 2px var(--gold),0 0 14px rgba(244,197,66,.45);}50%{box-shadow:0 0 0 2px var(--gold),0 0 26px rgba(244,197,66,.75);}}
 
