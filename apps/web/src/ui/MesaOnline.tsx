@@ -18,6 +18,7 @@ import { sfxTap, sfxSocial, sfxTempoAcabando } from "../audio/sounds.js";
 import { atalhosDe, fraseDe, porCategoria, ROTULO_DA_CATEGORIA } from "./social.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao, RelogioRecebido } from "../game/useKingOnline.js";
+import { agoraMonotonico } from "../game/monotonico.js";
 
 /** O contexto multiplayer que a Mesa e o Placar recebem. Ausente = modo local. */
 export interface MesaMultiplayer {
@@ -74,7 +75,7 @@ export function SeloDeBot({ assento }: { assento?: AssentoLido }) {
  * estão desligados. Quem joga sem áudio continua tendo cor e texto.
  */
 export function ChipDoRelogio({ relogio, eu }: { relogio: RelogioRecebido | null; eu: Seat }) {
-  const leitura = lerRelogio(relogio, eu, Date.now());
+  const leitura = lerRelogio(relogio, eu, agoraMonotonico());
   const jaAvisado = useRef(0);
 
   useEffect(() => {

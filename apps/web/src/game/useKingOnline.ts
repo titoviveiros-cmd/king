@@ -25,6 +25,7 @@ import { useApresentacao } from "./useApresentacao.js";
 import { ehSalto, proximoPasso } from "./filaDeApresentacao.js";
 import { useSonsDeTransicao } from "./useSonsDeTransicao.js";
 import { TEMPOS } from "./timings.js";
+import { agoraMonotonico } from "./monotonico.js";
 import { audio } from "../audio/engine.js";
 import { sfxSocial, sfxTap, sfxTrump } from "../audio/sounds.js";
 import { analytics } from "../analytics/analytics.js";
@@ -45,7 +46,11 @@ export type EstadoDaConexao =
   | "erro";
 
 export interface RelogioRecebido extends RelogioDaDecisao {
-  /** `Date.now()` de quando chegou — o cliente conta a partir daqui, entre mensagens. */
+  /**
+   * Leitura MONOTÔNICA de quando a mensagem chegou. O cliente conta a partir daqui, entre
+   * mensagens, e nunca compara carimbos de hora com o servidor: a conta é de duração, então um
+   * relógio local errado não muda o restante calculado. Ver `monotonico.ts`.
+   */
   recebidoEm: number;
 }
 
@@ -182,7 +187,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       bump();
     });
 
-    s.ao("TURN_CLOCK", (c) => setRelogio({ ...c, recebidoEm: Date.now() }));
+    s.ao("TURN_CLOCK", (c) => setRelogio({ ...c, recebidoEm: agoraMonotonico() }));
 
     s.ao("AUTO_ACTION", (a) => {
       setAutoAcao({ ...a, nonce: Date.now() });

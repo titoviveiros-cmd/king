@@ -134,3 +134,51 @@ describe("deveAlertar", () => {
     expect(deveAlertar(lerRelogio(relogio({ restanteMs: 0 }), 0, AGORA), 0)).toBe(false);
   });
 });
+
+/**
+ * RELÓGIO LOCAL ERRADO NÃO MUDA NADA.
+ *
+ * A pergunta que motivou estes testes veio de uma partida entre dois aparelhos: "o tempo de vocês
+ * está igual?". A resposta está na forma da conta, não em sincronizar nada. O servidor manda uma
+ * DURAÇÃO (`restanteMs`) e o cliente mede quanto passou desde que a mensagem chegou. Um aparelho
+ * cinco segundos adiantado tem o erro dos DOIS lados da subtração, e ele se cancela.
+ *
+ * Se algum dia alguém trocar isso por comparação de carimbos de hora com o servidor, estes testes
+ * caem — e é exatamente para isso que existem.
+ */
+describe("relógio local deslocado não altera a leitura", () => {
+  const DESLOCAMENTOS = [-5_000, -2_000, 0, 2_000, 5_000];
+
+  it.each(DESLOCAMENTOS)("com o relógio local %ims fora, o restante é o mesmo", (offset) => {
+    // O aparelho com hora errada carimba a CHEGADA e lê o AGORA pela mesma régua torta.
+    const certo = lerRelogio(relogio({ restanteMs: 18_000, recebidoEm: AGORA }), 0, AGORA + 3_000)!;
+    const torto = lerRelogio(
+      relogio({ restanteMs: 18_000, recebidoEm: AGORA + offset }), 0, AGORA + offset + 3_000,
+    )!;
+
+    expect(torto.restanteMs).toBe(certo.restanteMs);
+    expect(torto.segundos).toBe(certo.segundos);
+    expect(torto.estado).toBe(certo.estado);
+    expect(torto.visivel).toBe(certo.visivel);
+  });
+
+  it.each(DESLOCAMENTOS)("a virada para o crítico acontece no mesmo ponto com %ims fora", (offset) => {
+    // 10,4s ainda é normal; 9,9s já é crítico. Os dois lados da fronteira, com a hora errada.
+    const antes = lerRelogio(
+      relogio({ restanteMs: 10_400, recebidoEm: AGORA + offset }), 0, AGORA + offset,
+    )!;
+    const depois = lerRelogio(
+      relogio({ restanteMs: 10_400, recebidoEm: AGORA + offset }), 0, AGORA + offset + 500,
+    )!;
+    expect(antes.estado).toBe("normal");
+    expect(depois.estado).toBe("critico");
+  });
+
+  it("o cliente NUNCA calcula o fim do prazo a partir da hora do servidor", () => {
+    // `restanteMs` é duração. Se fosse um carimbo absoluto, esta leitura devolveria um absurdo
+    // em vez de 18s — é a asserção que denuncia a troca de modelo.
+    const l = lerRelogio(relogio({ restanteMs: 18_000, recebidoEm: AGORA }), 0, AGORA)!;
+    expect(l.restanteMs).toBe(18_000);
+    expect(l.prazoEm - AGORA).toBe(18_000);
+  });
+});
