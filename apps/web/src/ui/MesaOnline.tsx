@@ -15,7 +15,9 @@ import { useEffect, useRef, useState } from "react";
 import type { Seat } from "@king/engine";
 import { deveAlertar, lerRelogio } from "./relogio.js";
 import { sfxTap, sfxSocial, sfxTempoAcabando } from "../audio/sounds.js";
-import { atalhosDe, fraseDe, porCategoria, ROTULO_DA_CATEGORIA } from "./social.js";
+import {
+  atalhosDe, fraseDe, porCategoria, ROTULO_DA_CATEGORIA, type MomentoSocial,
+} from "./social.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao, RelogioRecebido } from "../game/useKingOnline.js";
 import { agoraMonotonico } from "../game/monotonico.js";
@@ -210,9 +212,18 @@ export function BalaoSocial({ mensagem }: { mensagem?: { id: string; nonce: numb
  *
  * Não existe campo de texto. Não é limitação de implementação: é a decisão de produto.
  */
-export function BotaoSocial({ status, onEnviar }: {
-  status: "playing" | "finished";
+export function BotaoSocial({ status, onEnviar, variante = "mesa" }: {
+  status: MomentoSocial;
   onEnviar: (id: string) => void;
+  /**
+   * Onde o botão está morando.
+   *
+   * O MESMO componente serve a Mesa e o Placar entre-mãos: mesmo catálogo fechado, mesma etiqueta
+   * viajando, mesma validação e mesmo anti-spam do servidor. Duplicar isso criaria um segundo
+   * sistema social com um segundo conjunto de regras para divergir, que é exatamente o que não
+   * se quer. O que muda entre os dois é só ONDE o gatilho se ancora, e isso é CSS.
+   */
+  variante?: "mesa" | "placar";
 }) {
   const [aberto, setAberto] = useState(false);
   const [tudo, setTudo] = useState(false);
@@ -227,7 +238,7 @@ export function BotaoSocial({ status, onEnviar }: {
   return (
     <>
       <button
-        className={`soc${aberto ? " on" : ""}`}
+        className={`soc soc-${variante}${aberto ? " on" : ""}`}
         aria-label="Mensagens rápidas"
         aria-expanded={aberto}
         onClick={() => { sfxTap(); setAberto((v) => !v); setTudo(false); }}
@@ -237,7 +248,7 @@ export function BotaoSocial({ status, onEnviar }: {
 
       {aberto && <div className="socscrim" onClick={() => setAberto(false)} aria-hidden />}
       {aberto && (
-        <div className="socpanel" role="dialog" aria-modal="true" aria-label="Mensagens rápidas">
+        <div className={`socpanel socpanel-${variante}`} role="dialog" aria-modal="true" aria-label="Mensagens rápidas">
           {tudo ? (
             porCategoria().map(({ categoria, frases }) => (
               <div key={categoria} className="socgrupo">

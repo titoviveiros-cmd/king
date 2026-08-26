@@ -886,6 +886,20 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .soc.on{border-color:var(--gold);background:rgba(244,197,66,.18);}
 .soc:active{transform:translateY(1px);}
 
+/* ── O MESMO BOTÃO, NO PLACAR ENTRE-MÃOS ──
+   Ali ele não é sobreposto à mesa: mora no rodapé do painel, ao lado do "A seguir", e por isso
+   sai do `position:absolute` e entra no fluxo. O painel de frases também precisa se ancorar ao
+   próprio botão em vez do canto da tela, senão abriria fora do Placar.
+   Nada além de posição muda: catálogo, protocolo, validação e cooldown são os mesmos. */
+.soc-placar{position:static;flex:none;align-self:center;}
+.pl-foot{position:relative;}
+.socpanel-placar{position:absolute;right:auto;left:50%;transform:translateX(-50%);
+  bottom:calc(100% + 10px);width:min(86vw,420px);
+  max-height:calc(var(--alturaUtil) - var(--pad)*2 - var(--st) - var(--sb) - 90px);}
+@media (max-height:360px){
+  .socpanel-placar{width:min(92vw,460px);}
+}
+
 /* O véu. O painel É modal — ver o comentário em BotaoSocial. Escurecer a mesa é o que torna
    honesto o fato de ele passar por cima do leque, e dá o alvo grande de "fechar" que um polegar
    precisa em movimento. */

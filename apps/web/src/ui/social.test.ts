@@ -81,3 +81,39 @@ describe("painel expandido", () => {
     for (const g of porCategoria()) expect(g.frases.length, g.categoria).toBeGreaterThan(0);
   });
 });
+
+/**
+ * O PLACAR ENTRE-MÃOS FALA A MESMA LÍNGUA.
+ *
+ * O risco de dar acesso social a uma segunda tela é criar um segundo sistema social: outro
+ * catálogo, outra validação, outro cooldown, e a divergência silenciosa na primeira mudança.
+ * Estes testes cobram o contrário: o intervalo usa frases DIFERENTES, mas todas do mesmo catálogo
+ * fechado que o servidor já valida.
+ */
+describe("mensagens do placar entre-mãos", () => {
+  it("os atalhos do intervalo saem do MESMO catálogo, sem frase inventada", () => {
+    for (const f of atalhosDe("placar")) {
+      expect(MENSAGENS.map((m) => m.id), `${f.id} não existe no catálogo`).toContain(f.id);
+      expect(fraseDe(f.id)).not.toBeNull();
+    }
+  });
+
+  it("são seis, como nos outros momentos: ler lista longa custa a vez de alguém", () => {
+    expect(atalhosDe("placar")).toHaveLength(6);
+  });
+
+  it("o intervalo tem atalhos PRÓPRIOS — não é a lista da mesa repetida", () => {
+    const noJogo = atalhosDe("playing").map((f) => f.id);
+    const noPlacar = atalhosDe("placar").map((f) => f.id);
+    expect(noPlacar).not.toEqual(noJogo);
+    // e são contextuais: no intervalo se comenta o resultado da mão, não a jogada que passou
+    expect(noPlacar).toContain("achou-o-rei");
+    expect(noPlacar).not.toContain("ja-volto");
+  });
+
+  it("os três momentos existem e nenhum devolve lista vazia", () => {
+    for (const m of ["playing", "placar", "finished"] as const) {
+      expect(atalhosDe(m).length, m).toBeGreaterThan(0);
+    }
+  });
+});

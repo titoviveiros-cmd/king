@@ -66,12 +66,25 @@ export const ROTULO_DA_CATEGORIA: Record<CategoriaSocial, string> = {
  * lista longa custa a vez. As seis mudam com o momento — no fim da partida ninguém quer dizer
  * "segura essa", quer dizer "revanche?".
  */
-export function atalhosDe(status: "playing" | "finished"): FraseSocial[] {
-  const ids = status === "finished"
-    ? ["revanche", "por-pouco", "mesa-minha", "boa", "quase", "coroado"]
-    : ["boa", "mandou-bem", "quase", "doeu", "segura-essa", "ja-volto"];
-  return ids.map((id) => POR_ID.get(id)!).filter(Boolean);
+export function atalhosDe(status: MomentoSocial): FraseSocial[] {
+  return ATALHOS[status].map((id) => POR_ID.get(id)!).filter(Boolean);
 }
+
+/**
+ * Os três momentos em que se fala à mesa.
+ *
+ * `placar` entrou depois de uma partida real: entre as mãos existe a única PAUSA do KING, todo
+ * mundo olhando a mesma tela ao mesmo tempo, e era justamente ali que não dava para dizer nada.
+ * O momento pede frases próprias, porque no intervalo ninguém comenta uma jogada que já passou:
+ * comenta o resultado da mão e o que vem pela frente.
+ */
+export type MomentoSocial = "playing" | "placar" | "finished";
+
+const ATALHOS: Record<MomentoSocial, string[]> = {
+  playing: ["boa", "mandou-bem", "quase", "doeu", "segura-essa", "ja-volto"],
+  placar: ["boa", "doeu", "achou-o-rei", "agora-comecou", "ainda-da-jogo", "revanche"],
+  finished: ["revanche", "por-pouco", "mesa-minha", "boa", "quase", "coroado"],
+};
 
 /** Todas, agrupadas — o painel expandido. Preserva a ordem declarada acima. */
 export function porCategoria(): { categoria: CategoriaSocial; frases: FraseSocial[] }[] {

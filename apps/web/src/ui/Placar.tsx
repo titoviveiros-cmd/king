@@ -2,7 +2,7 @@ import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
 import {
   contractTitle, penaltyTextLong, trumpLabel, earlyEndText, unitsText, fmtSigned, ordinal,
 } from "./contractText.js";
-import { ConsensoDaProximaMao, type MesaMultiplayer } from "./MesaOnline.js";
+import { BotaoSocial, ConsensoDaProximaMao, type MesaMultiplayer } from "./MesaOnline.js";
 
 /**
  * PLACAR ENTRE-MÃOS — o que aconteceu na mão que acabou, quanto cada um somou,
@@ -102,6 +102,19 @@ export function Placar({
               <span>Soma dos saldos = 0 (checksum do KING)</span>
             </div>
           )}
+          {/* MENSAGENS RÁPIDAS TAMBÉM AQUI.
+              Entre as mãos existe a única pausa do KING: todo mundo parado, olhando a mesma tela
+              ao mesmo tempo. Era o melhor momento para dizer algo e o único em que não dava, porque
+              o Placar cobre a Mesa e levava o botão junto.
+
+              É o MESMO componente da Mesa, com o mesmo catálogo fechado, a mesma etiqueta viajando,
+              a mesma validação e o mesmo anti-spam do servidor. Só o ponto de ancoragem muda, e os
+              seis atalhos são outros: no intervalo ninguém comenta a jogada que passou, comenta o
+              resultado da mão e o que vem pela frente. */}
+          {mp && !s.finished && (
+            <BotaoSocial status="placar" variante="placar" onEnviar={mp.onEnviarMensagem} />
+          )}
+
           <div className="pl-actions">
             {s.finished ? (
               <>
