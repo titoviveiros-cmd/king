@@ -286,6 +286,17 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     sessao.current?.enviar("CLIENT_SOCIAL_MESSAGE", { messageId: id });
   }, []);
 
+  /**
+   * Escolhe a mesa. Só o anfitrião, e quem confere isso é o SERVIDOR.
+   *
+   * O cliente não aplica localmente: manda a etiqueta e espera o estado sincronizado voltar. É o
+   * que garante que os quatro aparelhos trocam de mesa no mesmo instante, e é também o que faz um
+   * cliente modificado não conseguir nada — a mensagem de quem não é anfitrião é recusada.
+   */
+  const definirTemaDaMesa = useCallback((theme: string) => {
+    sessao.current?.enviar("CLIENT_SET_TABLE_THEME", { theme });
+  }, []);
+
   const sairDaSala = useCallback(() => {
     sfxTap();
     limparSessao();
@@ -371,6 +382,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     /** Sou o anfitrião desta sala? Vem do estado sincronizado, não de suposição do cliente. */
     souAnfitriao: assento.current !== null && !!sala?.seats[assento.current]?.host,
     criarSala, entrarNaSala, voltarParaSala, sairDaSala, definirPronto, adicionarBot, removerBot,
+    definirTemaDaMesa,
   };
 }
 

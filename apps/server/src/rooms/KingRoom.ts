@@ -20,7 +20,9 @@
 // e a REGRA vive só em `@king/engine`. Nada de KING é reimplementado aqui.
 import { CloseCode, Room, ServerError, generateId, type Client } from "colyseus";
 import { liberarCodigo, reservarCodigo } from "./codigos.js";
-import { AVATAR_PADRAO, avatarDeBot, avatarValido, nomeDeBotLivre } from "./identidade.js";
+import {
+  AVATAR_PADRAO, TEMA_PADRAO, TEMAS_DA_MESA, avatarDeBot, avatarValido, nomeDeBotLivre,
+} from "./identidade.js";
 import { DURACAO_MS, RitmoSocial, mensagemValida } from "./social.js";
 import { ArraySchema, schema } from "@colyseus/schema";
 import type { Seat } from "@king/engine";
@@ -28,7 +30,7 @@ import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import { TEMPOS } from "../match/tempos.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
-  type Causa, type DefinirPronto, type EnviarMensagemSocial, type EscolherTrunfo,
+  type Causa, type DefinirPronto, type DefinirTemaDaMesa, type EnviarMensagemSocial, type EscolherTrunfo,
   type FaseDoRelogio, type GerirBot, type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao,
   type StatusDaSala, type TipoDeDecisao,
 } from "../protocol/index.js";
@@ -94,6 +96,14 @@ export const EstadoPublicoDaSala = schema({
   roomId: "string",
   /** lobby | playing | finished. Vagas são derivadas de `seats` — não duplico estado. */
   status: "string",
+  /**
+   * Cosmético da mesa, escolhido pelo ANFITRIÃO e válido para a sala inteira.
+   *
+   * Está no estado sincronizado, e não no cliente, por uma razão de produto: todo mundo joga na
+   * MESMA mesa. Se cada aparelho guardasse a própria preferência, duas pessoas na mesma partida
+   * veriam mesas diferentes, e a mesa deixaria de ser um lugar comum.
+   */
+  tableTheme: "string",
   seats: [AssentoPublico],
 }, "EstadoPublicoDaSala");
 export type EstadoPublicoDaSala = InstanceType<typeof EstadoPublicoDaSala>;
@@ -196,6 +206,7 @@ export class KingRoom extends Room<{
     estado.roomCode = codigo;
     estado.roomId = this.roomId;
     estado.status = "lobby" satisfies StatusDaSala;
+    estado.tableTheme = TEMA_PADRAO;
     estado.seats = new ArraySchema<AssentoPublico>();
     for (let s = 0; s < ASSENTOS; s++) estado.seats.push(assentoVazio(s));
     this.setState(estado);
@@ -282,6 +293,27 @@ export class KingRoom extends Room<{
         ready: r.prontos,
       });
       this.#tentarAvancar();
+    });
+
+    // ── cosmético da sala ─────────────────────────────────────────────────────────────────────
+    //
+    // Autorização é do SERVIDOR. Esconder o seletor de quem não é anfitrião é apresentação; recusar
+    // a mensagem é autorização, e um cliente modificado manda a mensagem do mesmo jeito.
+    //
+    // Vale em qualquer fase, inclusive com a partida em curso: é cosmético, não toca no estado da
+    // partida, não mexe no relógio e não gera ação de gameplay. Trocar a cor da mesa no meio de uma
+    // mão é inofensivo, e proibir seria uma restrição sem razão.
+    this.onMessage("CLIENT_SET_TABLE_THEME", (client: ClienteDoKing, msg: DefinirTemaDaMesa) => {
+      const dados = client.userData;
+      if (!dados) return this.#recusar(client, "", "NOT_IN_ROOM", "Você não está sentado");
+      if (!this.state.seats[dados.seat]?.host) {
+        return this.#recusar(client, "", "NOT_HOST", "Só o anfitrião escolhe a mesa");
+      }
+      const tema = msg?.theme;
+      if (!(TEMAS_DA_MESA as readonly string[]).includes(tema ?? "")) {
+        return this.#recusar(client, "", "INVALID_PAYLOAD", "Tema desconhecido");
+      }
+      this.state.tableTheme = tema as string;
     });
 
     // ── mensagens sociais ─────────────────────────────────────────────────────────────────────

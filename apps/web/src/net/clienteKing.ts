@@ -36,6 +36,8 @@ export interface EstadoDaSalaLido {
   roomCode: string;
   roomId: string;
   status: StatusDaSala;
+  /** Cosmético da mesa, do estado autoritativo: todos os aparelhos veem a mesma. */
+  tableTheme: string;
   seats: AssentoLido[];
 }
 
@@ -93,6 +95,9 @@ export function lerEstadoDaSala(bruto: unknown): EstadoDaSalaLido | null {
     roomCode: texto(e.roomCode),
     roomId: texto(e.roomId),
     status: (status === "playing" || status === "finished" ? status : "lobby") satisfies StatusDaSala,
+    // Etiqueta crua: quem traduz para desenho é o cliente, e um valor desconhecido cai no padrão
+    // lá, não aqui. Esta camada só lê o que o servidor sincronizou.
+    tableTheme: texto(e.tableTheme, "imperial"),
     seats: comoLista(e.seats).map((s, i) => {
       const a = (s ?? {}) as Record<string, unknown>;
       return {
@@ -134,7 +139,10 @@ export function envolverSala(sala: Room): SessaoKing {
 }
 
 function vazio(): EstadoDaSalaLido {
-  return { protocolVersion: PROTOCOL_VERSION, roomCode: "", roomId: "", status: "lobby", seats: [] };
+  return {
+    protocolVersion: PROTOCOL_VERSION, roomCode: "", roomId: "",
+    status: "lobby", tableTheme: "imperial", seats: [],
+  };
 }
 
 /**

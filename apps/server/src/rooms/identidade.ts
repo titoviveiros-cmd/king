@@ -30,6 +30,29 @@ export const AVATARES = [
 
 export type Avatar = (typeof AVATARES)[number];
 
+// ═══════════════════════════════ TEMA DA MESA ═══════════════════════════════
+//
+// Mesma disciplina do avatar, e pelo mesmo motivo: é uma ETIQUETA de conjunto fechado, nunca um
+// valor livre. O que o cliente manda é o nome do tema; o que o servidor aceita é o que está aqui.
+// O desenho vive no cliente — trocar a cor não toca neste arquivo.
+//
+// É configuração de SALA, não de jogador: todo mundo joga na mesma mesa, então quem escolhe é o
+// anfitrião e o valor é sincronizado como qualquer outro estado público.
+export const TEMAS_DA_MESA = [
+  "imperial", // Noite Imperial — o roxo aprovado, o padrão da casa
+  "verde",    // Verde de Cartas — mesa clássica de baralho, na paleta do KING
+] as const;
+
+export type TemaDaMesa = (typeof TEMAS_DA_MESA)[number];
+
+export const TEMA_PADRAO: TemaDaMesa = "imperial";
+
+/** Nunca falha: etiqueta desconhecida cai no padrão, do mesmo jeito que o avatar. */
+export const temaValido = (id: unknown): TemaDaMesa =>
+  typeof id === "string" && (TEMAS_DA_MESA as readonly string[]).includes(id)
+    ? (id as TemaDaMesa)
+    : TEMA_PADRAO;
+
 /** Quem entra sem escolher fica com o Leão. Nunca `""` — o estado público não tem buraco. */
 export const AVATAR_PADRAO: Avatar = "leao";
 

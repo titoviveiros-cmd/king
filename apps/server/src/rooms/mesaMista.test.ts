@@ -51,7 +51,7 @@ interface AssentoView {
   seat: number; playerId: string; nick: string;
   connected: boolean; ready: boolean; assisted: boolean; bot: boolean; host: boolean; avatar: string;
 }
-interface SalaView { roomCode: string; status: string; seats: AssentoView[] }
+interface SalaView { roomCode: string; status: string; tableTheme: string; seats: AssentoView[] }
 interface SdkRoom {
   roomId: string; state: SalaView;
   send(tipo: string, msg?: unknown): void;
@@ -856,5 +856,75 @@ describe("9 · o bot não copia o avatar de quem já está na mesa", () => {
 
     const avatares = assentosDe(dono).map((a) => a.avatar);
     expect(new Set(avatares).size, avatares.join(",")).toBe(ASSENTOS);
+  });
+});
+
+/**
+ * A MESA DA SALA — cosmético com dono.
+ *
+ * Todo mundo joga na MESMA mesa, então a escolha não pode ser preferência de aparelho: se cada um
+ * guardasse a sua, duas pessoas na mesma partida veriam mesas diferentes e a mesa deixaria de ser
+ * um lugar comum. Por isso o valor vive no estado sincronizado e o dono da escolha é o anfitrião.
+ *
+ * Autorização é do SERVIDOR. Esconder o seletor de quem não é anfitrião é apresentação; recusar a
+ * mensagem é autorização, e um cliente modificado manda a mensagem do mesmo jeito.
+ */
+describe("tema da mesa", () => {
+  it("nasce no padrão aprovado", async () => {
+    const { dono } = await criarSala();
+    expect(sala(dono).tableTheme).toBe("imperial");
+  });
+
+  it("o anfitrião troca, e TODOS os clientes veem", async () => {
+    const { dono, codigo } = await criarSala();
+    const raiza = await entrar(codigo, "Raiza");
+
+    dono.sdk.send("CLIENT_SET_TABLE_THEME", { theme: "verde" });
+    await ate(() => sala(raiza).tableTheme === "verde", 8000, "o verde chegar no convidado");
+    expect(sala(dono).tableTheme).toBe("verde");
+  });
+
+  it("quem NÃO é anfitrião é recusado, e a mesa não muda", async () => {
+    const { dono, codigo } = await criarSala();
+    const raiza = await entrar(codigo, "Raiza");
+
+    const antes = raiza.rejeicoes.length;
+    raiza.sdk.send("CLIENT_SET_TABLE_THEME", { theme: "verde" });
+    await ate(() => raiza.rejeicoes.length > antes, 8000, "a recusa chegar");
+
+    expect(raiza.rejeicoes.at(-1)!.code).toBe("NOT_HOST");
+    expect(sala(dono).tableTheme).toBe("imperial");
+    expect(sala(raiza).tableTheme).toBe("imperial");
+  });
+
+  it("etiqueta fora do conjunto fechado é recusada", async () => {
+    const { dono } = await criarSala();
+    const antes = dono.rejeicoes.length;
+    // Nem cor, nem CSS, nem texto livre: o que trafega é uma etiqueta que o servidor conhece.
+    dono.sdk.send("CLIENT_SET_TABLE_THEME", { theme: "rgb(0,255,0)" });
+    await ate(() => dono.rejeicoes.length > antes, 8000, "a recusa chegar");
+
+    expect(dono.rejeicoes.at(-1)!.code).toBe("INVALID_PAYLOAD");
+    expect(sala(dono).tableTheme).toBe("imperial");
+  });
+
+  it("quem entra DEPOIS já encontra a mesa escolhida", async () => {
+    const { dono, codigo } = await criarSala();
+    dono.sdk.send("CLIENT_SET_TABLE_THEME", { theme: "verde" });
+    await ate(() => sala(dono).tableTheme === "verde", 8000, "o verde valer");
+
+    const atrasado = await entrar(codigo, "Atrasado");
+    await ate(() => sala(atrasado).tableTheme === "verde", 8000, "o verde no recém-chegado");
+  });
+
+  it("a escolha sobrevive à saída e ao retorno de alguém", async () => {
+    const { dono, codigo } = await criarSala();
+    const raiza = await entrar(codigo, "Raiza");
+    dono.sdk.send("CLIENT_SET_TABLE_THEME", { theme: "verde" });
+    await ate(() => sala(raiza).tableTheme === "verde", 8000, "o verde valer");
+
+    await raiza.sdk.leave(true);
+    const devolta = await entrar(codigo, "Raiza");
+    await ate(() => sala(devolta).tableTheme === "verde", 8000, "o verde depois do retorno");
   });
 });

@@ -49,6 +49,16 @@ export function faixaDoNome(nome: string): "" | "medio" | "longo" {
   return n <= 8 ? "" : n <= 12 ? "medio" : "longo";
 }
 
+/**
+ * Etiqueta do tema, saneada aqui e em nenhum outro lugar.
+ *
+ * Um valor desconhecido cai no padrão em vez de deixar a mesa sem pano: o servidor já valida
+ * contra o conjunto fechado, e esta é a segunda rede — se um dia chegar um tema que este cliente
+ * ainda não conhece (versão nova no ar, aparelho com o bundle antigo), a mesa continua desenhada.
+ */
+const TEMAS_CONHECIDOS = new Set(["imperial", "verde"]);
+const temaDaMesa = (id: string | undefined) => (id && TEMAS_CONHECIDOS.has(id) ? id : "imperial");
+
 /** Saldo com sinal, no formato curto do card. O menos é o de verdade, não o hífen. */
 const fmtPts = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "0");
 
@@ -256,7 +266,12 @@ export function Mesa({
   return (
     // `comtrunfo` avisa ao CSS que a coluna esquerda ganhou mais um andar: com o slot de trunfo
     // na tela, os adversários laterais precisam de um piso para não subirem por baixo dele.
-    <div className={`mesa${shaking ? " shaking" : ""}${contract?.isPositive && trump ? " comtrunfo" : ""}`}>
+    <div
+      className={`mesa${shaking ? " shaking" : ""}${contract?.isPositive && trump ? " comtrunfo" : ""}`}
+      /* O tema vem do estado AUTORITATIVO da sala, não de preferência local: todo mundo joga na
+         mesma mesa. Sem multiplayer cai no padrão, que é a mesa aprovada. */
+      data-tema={temaDaMesa(mp?.sala?.tableTheme)}
+    >
       <div className="inlay" />
 
       {/* HUD do contrato — é o objetivo da mão, a informação mais importante da tela.

@@ -108,12 +108,43 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   --fanmax:min(calc(100vw - 2 * var(--corredor)),780px);
   --n:13;
   --step:min(calc(var(--handcw)*.56),calc((var(--fanmax) - var(--handcw)) / max(calc(var(--n) - 1),1)));
-  background:radial-gradient(120% 60% at 50% -8%,rgba(244,197,66,.09),transparent 55%),
-    radial-gradient(70% 60% at 50% 44%,rgba(130,80,215,.26),transparent 72%),
-    linear-gradient(165deg,#1d1238,#0e0520);
-  box-shadow:inset 0 0 120px rgba(80,40,150,.35);}
+  /* ── O PANO DA MESA, EM TOKENS ──
+     A cor não é escrita aqui: aqui só se diz COMO a mesa é iluminada. O halo dourado do topo, o
+     foco no centro, a base e o brilho interno vêm de quatro variáveis, e um tema é só um conjunto
+     novo de valores para elas.
+     É o que impede o `if verde` de se espalhar: nenhum componente sabe qual mesa está na tela, e
+     acrescentar um tema no futuro não toca em regra de layout nenhuma. */
+  background:radial-gradient(120% 60% at 50% -8%,var(--mesa-halo),transparent 55%),
+    radial-gradient(70% 60% at 50% 44%,var(--mesa-foco),transparent 72%),
+    var(--mesa-base);
+  box-shadow:inset 0 0 120px var(--mesa-brilho);}
+
+/* ── NOITE IMPERIAL — o padrão da casa ── */
+:root,
+.mesa[data-tema="imperial"]{
+  --mesa-halo:rgba(244,197,66,.09);
+  --mesa-foco:rgba(130,80,215,.26);
+  --mesa-base:linear-gradient(165deg,#1d1238,#0e0520);
+  --mesa-brilho:rgba(80,40,150,.35);
+  --mesa-inlay:rgba(244,197,66,.10);
+}
+
+/* ── VERDE DE CARTAS ──
+   Mesa clássica de baralho, e deliberadamente NÃO é feltro de cassino. A diferença está no que se
+   preserva: o mesmo halo de Ouro Coroa no topo, o mesmo foco radial no centro, a mesma profundidade
+   e o mesmo brilho interno. Só o pigmento muda, de violeta para um verde escuro e frio, com o
+   ouro continuando a mandar nas bordas e nos elementos periféricos.
+   O que se evitou de propósito: verde saturado de mesa de pôquer, textura de feltro barato e
+   qualquer perda do contraste que faz as cartas brancas saltarem. */
+.mesa[data-tema="verde"]{
+  --mesa-halo:rgba(244,197,66,.10);
+  --mesa-foco:rgba(24,132,96,.30);
+  --mesa-base:linear-gradient(165deg,#0f3328,#061a14);
+  --mesa-brilho:rgba(16,92,66,.40);
+  --mesa-inlay:rgba(244,197,66,.13);
+}
 .mesa .inlay{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:52%;height:72%;
-  border-radius:50%;border:1px solid rgba(244,197,66,.10);pointer-events:none;}
+  border-radius:50%;border:1px solid var(--mesa-inlay);pointer-events:none;}
 /* momento heróico (King capturado): screen-shake + flash magenta — Design System */
 .mesa.shaking{animation:shake .5s cubic-bezier(.36,.07,.19,.97) both;}
 .mesa.shaking::after{content:"";position:absolute;inset:0;z-index:40;pointer-events:none;
@@ -1005,6 +1036,37 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .sl-cod i{font-style:normal;font-size:calc(var(--ui)*.7);letter-spacing:.14em;text-transform:uppercase;
   color:var(--turq);}
 .sl-hint{font-size:clamp(.66rem,1.6vh,.8rem);color:var(--faint);}
+
+/* ── ESCOLHA DA MESA, no lobby ──
+   Uma linha só: rótulo, duas amostras e, para quem não é anfitrião, a nota de quem manda.
+   As amostras são o PANO de verdade, montado com os mesmos tokens da Mesa: quem escolhe vê a
+   cor que vai jogar, não um quadradinho aproximado. */
+.sl-mesa{display:flex;align-items:center;justify-content:center;gap:calc(var(--ui)*.5);
+  flex-wrap:wrap;flex:none;}
+.sl-mesa-lb{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.7);
+  letter-spacing:.14em;text-transform:uppercase;color:var(--faint);}
+.sl-mesa-ops{display:flex;gap:calc(var(--ui)*.4);}
+.sl-mesa-op{display:inline-flex;align-items:center;gap:calc(var(--ui)*.4);min-height:38px;
+  padding:.25em .6em;border-radius:12px;cursor:pointer;
+  background:rgba(255,255,255,.05);border:1.5px solid var(--line);
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.74);color:var(--muted);}
+.sl-mesa-op i{width:calc(var(--ui)*1.15);height:calc(var(--ui)*1.15);border-radius:5px;flex:none;
+  border:1px solid rgba(244,197,66,.35);}
+.sl-mesa-op.imperial i{background:linear-gradient(165deg,#1d1238,#0e0520);
+  box-shadow:inset 0 0 8px rgba(130,80,215,.55);}
+.sl-mesa-op.verde i{background:linear-gradient(165deg,#0f3328,#061a14);
+  box-shadow:inset 0 0 8px rgba(24,132,96,.6);}
+.sl-mesa-op.on{border-color:var(--gold);color:#fff;background:rgba(244,197,66,.12);}
+.sl-mesa-op:disabled{cursor:default;opacity:.62;}
+/* Quem não pode escolher continua VENDO a escolha: o disabled não pode apagar a informação. */
+.sl-mesa-op:disabled.on{opacity:1;}
+.sl-mesa-op:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+.sl-mesa-nota{font-family:var(--body);font-weight:700;font-size:calc(var(--ui)*.68);color:var(--faint);}
+@media (max-height:360px){
+  .sl-mesa-lb,.sl-mesa-nota{display:none;}
+  .sl-mesa-op span{display:none;}
+  .sl-mesa-op{min-height:34px;padding:.2em .4em;}
+}
 /* Gap e respiro enxutos para os QUATRO lugares caberem sem rolagem interna. O que encolhe é
    o espaço vertical do card, nunca um botão: `+ Bot` e `Remover` mantêm o próprio padding. */
 .sl-lugares{display:flex;flex-direction:column;gap:4px;width:min(86vw,360px);}

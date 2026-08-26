@@ -296,7 +296,10 @@ describe("J · nenhum estado privado chega ao cliente", () => {
     await room.waitForNextPatch();
 
     const estado = c0.state.toJSON() as Record<string, unknown>;
-    expect(Object.keys(estado).sort()).toEqual(["protocolVersion", "roomCode", "roomId", "seats", "status"]);
+    // `tableTheme` é cosmético de SALA e público de propósito: todo mundo joga na mesma mesa, e
+    // uma etiqueta de conjunto fechado não carrega informação de ninguém.
+    expect(Object.keys(estado).sort())
+      .toEqual(["protocolVersion", "roomCode", "roomId", "seats", "status", "tableTheme"]);
 
     const assentos = estado.seats as Record<string, unknown>[];
     expect(assentos).toHaveLength(ASSENTOS);

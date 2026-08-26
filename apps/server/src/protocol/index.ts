@@ -63,6 +63,12 @@ export interface EnviarMensagemSocial {
   messageId: string;
 }
 
+/** Cosmético da sala. Só o anfitrião; o servidor recusa de qualquer outro. */
+export interface DefinirTemaDaMesa {
+  /** Etiqueta do conjunto fechado `TEMAS_DA_MESA`. Nunca cor, nunca CSS, nunca texto livre. */
+  theme: string;
+}
+
 export interface ClienteParaServidor {
   CLIENT_SET_READY: DefinirPronto;
   CLIENT_PLAY_CARD: JogarCarta;
@@ -71,6 +77,7 @@ export interface ClienteParaServidor {
   CLIENT_ADD_BOT: GerirBot;
   CLIENT_REMOVE_BOT: GerirBot;
   CLIENT_SOCIAL_MESSAGE: EnviarMensagemSocial;
+  CLIENT_SET_TABLE_THEME: DefinirTemaDaMesa;
 }
 
 // ───────────────────────── SERVIDOR → CLIENTE ─────────────────────────

@@ -22,13 +22,26 @@ import type { EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao } from "../game/useKingOnline.js";
 import { desenhoDoAvatar } from "./avatares.js";
 
+/**
+ * As mesas disponíveis. Espelha `TEMAS_DA_MESA` do servidor, que é quem valida.
+ *
+ * O NOME é do produto, não da cor: "Noite Imperial" e "Verde de Cartas" pertencem ao KING, e é
+ * assim que a escolha aparece para quem está na sala. O desenho de cada uma vive no `theme.css`,
+ * em tokens — nenhum componente sabe qual mesa está no ar.
+ */
+const MESAS = [
+  { id: "imperial", nome: "Noite Imperial" },
+  { id: "verde", nome: "Verde de Cartas" },
+] as const;
+
 const LUGARES: Seat[] = [0, 1, 2, 3];
 
 /** Piso oficial de humanos numa mesa multiplayer privada. Espelha `MIN_HUMANOS` do servidor. */
 const MIN_HUMANOS = 2;
 
 export function Sala({
-  sala, conexao, erro, eu, souAnfitriao, onPronto, onAdicionarBot, onRemoverBot, onSair, onOpenAudio,
+  sala, conexao, erro, eu, souAnfitriao, onPronto, onEscolherMesa,
+  onAdicionarBot, onRemoverBot, onSair, onOpenAudio,
 }: {
   sala: EstadoDaSalaLido | null;
   conexao: EstadoDaConexao;
@@ -36,6 +49,8 @@ export function Sala({
   eu: Seat | null;
   souAnfitriao: boolean;
   onPronto: (pronto: boolean) => void;
+  /** Cosmético da sala. Só o anfitrião; o servidor recusa de qualquer outro. */
+  onEscolherMesa: (tema: string) => void;
   onAdicionarBot: (seat: Seat) => void;
   onRemoverBot: (seat: Seat) => void;
   onSair: () => void;
@@ -49,6 +64,7 @@ export function Sala({
   const pronto = !!meu?.ready;
   const codigo = sala?.roomCode ?? "";
   const podeMexer = souAnfitriao && conexao === "conectado";
+  const temaAtual = sala?.tableTheme ?? "imperial";
 
   const copiar = () => {
     sfxTap();
@@ -112,6 +128,35 @@ export function Sala({
       </div>
 
       {erro && <div className="sl-erro" role="alert">{erro}</div>}
+
+      {/* A MESA DA SALA.
+          Aparece para todo mundo, porque saber em que mesa se vai jogar é do grupo; só o anfitrião
+          consegue mexer, e quem garante isso é o servidor — o `disabled` aqui é apresentação, não
+          autorização. Quem não é anfitrião lê a escolha e vê de quem ela é. */}
+      <div className="sl-mesa">
+        <span className="sl-mesa-lb">Mesa</span>
+        <div className="sl-mesa-ops" role="radiogroup" aria-label="Cor da mesa">
+          {MESAS.map((m) => {
+            const escolhida = temaAtual === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                role="radio"
+                aria-checked={escolhida}
+                className={`sl-mesa-op ${m.id}${escolhida ? " on" : ""}`}
+                disabled={!podeMexer}
+                onClick={() => { sfxTap(); onEscolherMesa(m.id); }}
+                title={m.nome}
+              >
+                <i aria-hidden />
+                <span>{m.nome}</span>
+              </button>
+            );
+          })}
+        </div>
+        {!souAnfitriao && <span className="sl-mesa-nota">quem escolhe é o anfitrião</span>}
+      </div>
 
       <div className="row">
         <button

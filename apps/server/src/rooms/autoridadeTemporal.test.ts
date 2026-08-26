@@ -42,6 +42,7 @@ describe("o cliente não tem vocabulário para falar de tempo", () => {
   const MENSAGENS: (keyof ClienteParaServidor)[] = [
     "CLIENT_SET_READY", "CLIENT_PLAY_CARD", "CLIENT_SELECT_TRUMP",
     "CLIENT_READY_NEXT_HAND", "CLIENT_ADD_BOT", "CLIENT_REMOVE_BOT", "CLIENT_SOCIAL_MESSAGE",
+    "CLIENT_SET_TABLE_THEME",
   ];
 
   it("o mapa cliente → servidor não ganhou mensagens sem que este teste soubesse", () => {
