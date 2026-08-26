@@ -46,6 +46,19 @@ export abstract class LeituraDaPartida {
 
   // ---- leitura (só o que é público para o humano) ----
   players(): string[] { return this.m.players.slice(); }
+
+  /**
+   * Etiqueta do avatar de um assento, quando a partida sabe.
+   *
+   * O motor não guarda avatar — identidade é assunto da apresentação. No MULTIPLAYER quem sabe é
+   * o estado sincronizado da sala, e a Mesa lê de lá. No modo LOCAL não havia ninguém sabendo, e
+   * era essa a origem de um bug: o mini perfil resolvia avatar por etiqueta, recebia `undefined`
+   * para os quatro assentos e desenhava o Leão em todos.
+   *
+   * O padrão é `undefined`, e é deliberado: "não sei" é diferente de "é o leão". Quem sabe
+   * responde; quem não sabe deixa a decisão para quem tem a informação melhor.
+   */
+  avatarDoAssento(_seat: Seat): string | undefined { return undefined; }
   view() { return publicView(this.m, this.humanSeat); }
   handNumber(): number { return this.m.handNumber; }
   finished(): boolean { return this.m.finished; }

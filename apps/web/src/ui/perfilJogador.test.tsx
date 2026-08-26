@@ -16,6 +16,8 @@ import {
 } from "@king/engine";
 import { KingGame } from "../game/kingGame.js";
 import { PerfilJogador, type ProgressoDoJogador } from "./PerfilJogador.js";
+import { desenhoDoAvatar } from "./avatares.js";
+import { NOMES_DA_MESA_LOCAL, avatarLocalDoAssento } from "../game/adversarios.js";
 import type { AssentoLido } from "../net/clienteKing.js";
 
 const JOGADORES = ["Você", "Bia", "Léo", "Nara"];
@@ -174,3 +176,73 @@ describe("funciona sem sala — partida local contra bots", () => {
   });
 });
 
+
+/**
+ * QUATRO CARDS, QUATRO PERFIS — a tripwire do bug do Leão.
+ *
+ * O defeito era funcional e passava despercebido porque a Mesa mostrava jogadores diferentes: o
+ * perfil resolvia avatar SÓ pelo estado da sala, que no modo local não existe. Os quatro assentos
+ * chegavam como `undefined`, `desenhoDoAvatar` caía no padrão, e os quatro cards abriam o Leão.
+ *
+ * O teste abre os quatro perfis de uma partida com quatro avatares distintos e cobra quatro
+ * resultados distintos. Se alguém voltar a usar um fallback generalizado, cai aqui.
+ */
+describe("cada card abre o perfil do seu dono", () => {
+  it("modo LOCAL: os quatro assentos têm avatares diferentes, e nenhum vira Leão por omissão", () => {
+    const jogo = new KingGame(NOMES_DA_MESA_LOCAL, 42);
+    const vistos: string[] = [];
+
+    for (const assento of SEATS) {
+      const root = parse(renderToStaticMarkup(
+        // SEM sala: é exatamente o cenário em que o bug acontecia.
+        <PerfilJogador game={jogo} assento={assento} sala={null} onFechar={noop} />,
+      ));
+      const glifo = root.querySelector(".pf-av")?.text?.trim() ?? "";
+      const nome = root.querySelector(".pf-id b")?.text ?? "";
+
+      expect(nome, `assento ${assento}`).toContain(NOMES_DA_MESA_LOCAL[assento]);
+      expect(glifo, `assento ${assento}`)
+        .toBe(desenhoDoAvatar(avatarLocalDoAssento(assento)).glifo);
+      vistos.push(glifo);
+    }
+
+    expect(new Set(vistos).size, `quatro perfis, ${new Set(vistos).size} avatares: ${vistos.join(" ")}`)
+      .toBe(4);
+    // e o Leão aparece no máximo uma vez — só para quem é o Leão de verdade
+    expect(vistos.filter((g) => g === desenhoDoAvatar("leao").glifo).length).toBeLessThanOrEqual(1);
+  });
+
+  it("MULTIPLAYER: a sala continua mandando, assento por assento", () => {
+    const jogo = new KingGame(NOMES_DA_MESA_LOCAL, 42);
+    const daSala = ["panda", "tucano", "raposa", "macaco"];
+    const vistos: string[] = [];
+
+    for (const assento of SEATS) {
+      const root = parse(renderToStaticMarkup(
+        <PerfilJogador
+          game={jogo}
+          assento={assento}
+          sala={assentos(daSala.map((avatar) => ({ avatar })))}
+          onFechar={noop}
+        />,
+      ));
+      const glifo = root.querySelector(".pf-av")?.text?.trim() ?? "";
+      expect(glifo, `assento ${assento}`).toBe(desenhoDoAvatar(daSala[assento]).glifo);
+      vistos.push(glifo);
+    }
+    expect(new Set(vistos).size).toBe(4);
+  });
+
+  it("a sala tem prioridade sobre a identidade local, e não o contrário", () => {
+    const jogo = new KingGame(NOMES_DA_MESA_LOCAL, 42);
+    const root = parse(renderToStaticMarkup(
+      <PerfilJogador
+        game={jogo}
+        assento={0}
+        sala={assentos([{ avatar: "sapo" }])}
+        onFechar={noop}
+      />,
+    ));
+    expect(root.querySelector(".pf-av")?.text?.trim()).toBe(desenhoDoAvatar("sapo").glifo);
+  });
+});

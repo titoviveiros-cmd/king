@@ -82,7 +82,18 @@ export function PerfilJogador({
 
   const nome = game.players()[assento];
   const doAssento = sala?.find((a) => a.seat === assento) ?? null;
-  const avatar = desenhoDoAvatar(doAssento?.avatar);
+  /**
+   * O AVATAR VEM DO ASSENTO PEDIDO, e a ordem de autoridade é a mesma da Mesa.
+   *
+   * Aqui morava um bug funcional: a resolução olhava só o estado da sala. No modo local não existe
+   * sala, então `doAssento` era `null` para os quatro, `desenhoDoAvatar(undefined)` caía no padrão
+   * e os quatro cards abriam o Leão — inclusive o do próprio jogador. O card mostrava gente
+   * diferente e o perfil mostrava sempre o mesmo bicho.
+   *
+   * A correção não é um fallback melhor: é perguntar a quem sabe. A partida local conhece a
+   * identidade dos seus quatro assentos, e agora ela responde.
+   */
+  const avatar = desenhoDoAvatar(doAssento?.avatar ?? game.avatarDoAssento(assento));
   const eu = assento === game.humanSeat;
 
   const stats = game.stats();

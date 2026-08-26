@@ -9,6 +9,7 @@ import {
   type Card, type Trump, type Seat, type MatchState,
 } from "@king/engine";
 import { LeituraDaPartida } from "./leituraDaPartida.js";
+import { avatarLocalDoAssento } from "./adversarios.js";
 
 export type { Phase } from "./leituraDaPartida.js";
 
@@ -36,6 +37,9 @@ export class KingGame extends LeituraDaPartida {
   constructor(players: string[], seed: number, humanSeat: Seat = 0, maoInicial = 1) {
     super(partidaNova(players, seed, maoInicial), humanSeat);
   }
+
+  /** A mesa local tem identidade fixa: os mesmos quatro, com os mesmos avatares, toda partida. */
+  avatarDoAssento(seat: Seat): string | undefined { return avatarLocalDoAssento(seat); }
 
   // ---- ações do humano ----
   playHuman(card: Card): void { playCard(this.m, this.humanSeat, card); }

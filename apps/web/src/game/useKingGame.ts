@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Card, Trump } from "@king/engine";
 import { KingGame } from "./kingGame.js";
+import { NOMES_DA_MESA_LOCAL } from "./adversarios.js";
 import { useApresentacao } from "./useApresentacao.js";
 import { useSonsDeTransicao } from "./useSonsDeTransicao.js";
 import { TEMPOS } from "./timings.js";
@@ -61,7 +62,7 @@ export function useKingGame() {
     analytics.track("match_started", { modo: "local", bots: 3 });
     audio.unlock(); // 1º gesto real do usuário: iOS só libera áudio aqui
     ref.current = new KingGame(
-      ["Você", "Bia", "Léo", "Nara"],
+      NOMES_DA_MESA_LOCAL,
       seedDaUrl() ?? Math.floor(Math.random() * 1e9),
       0,
       maoDaUrl() ?? 1,

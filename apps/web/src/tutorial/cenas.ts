@@ -15,11 +15,18 @@ import {
   buildBotView, chooseNormalCard, createMatch, legalCardsFor, playCard, resolveTrick, startNextHand,
   type Card, type MatchState, type Seat,
 } from "@king/engine";
+import { NOMES_DA_MESA_LOCAL } from "../game/adversarios.js";
 
 /** O assento de quem está aprendendo. Sempre 0 — a Mesa gira em torno dele. */
 export const ALUNO: Seat = 0;
 
-export const JOGADORES_DO_TREINO = ["Você", "Bia", "Léo", "Nara"];
+/**
+ * Os mesmos quatro do modo local, e não uma mesa própria.
+ *
+ * O tutorial ensina na Mesa de verdade; ensinar com adversários que não existem em lugar nenhum
+ * do jogo seria uma inconsistência gratuita — a pessoa sai do tutorial e encontra outra gente.
+ */
+export const JOGADORES_DO_TREINO = NOMES_DA_MESA_LOCAL;
 
 export type CenaId =
   | "servir" | "negar" | "copas" | "damas" | "reis-valetes" | "king" | "duas-ultimas" | "positiva";

@@ -9,10 +9,16 @@
 import { playCard, selectTrump, type Card, type MatchState, type Trump } from "@king/engine";
 import { LeituraDaPartida } from "../game/leituraDaPartida.js";
 import { ALUNO, avancarBots, montarCena, type CenaId } from "./cenas.js";
+import { avatarLocalDoAssento } from "../game/adversarios.js";
 
 export class PartidaDeTreino extends LeituraDaPartida {
   constructor(cena: CenaId) {
     super(montarCena(cena), ALUNO);
+  }
+
+  /** Mesma identidade do modo local: o tutorial não inventa adversários próprios. */
+  avatarDoAssento(seat: import("@king/engine").Seat): string | undefined {
+    return avatarLocalDoAssento(seat);
   }
 
   /** O estado cru — o roteiro precisa dele para calcular o alvo didático de cada passo. */
