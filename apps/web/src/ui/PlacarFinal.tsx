@@ -163,7 +163,7 @@ export function PlacarFinal({
               >
                 {venci ? "Jogar novamente" : "Revanche"}
               </button>
-              <Compartilhar game={game} finais={finais} campeoes={campeoes} empate={empate} />
+              <Compartilhar game={game} finais={finais} empate={empate} />
               <button className="btn violet" onClick={() => { sfxTap(); onHome(); }}>Home</button>
             </div>
           )}
@@ -250,11 +250,10 @@ export function PlacarFinal({
  * "não foi possível compartilhar" a uma desistência é mentir sobre o que aconteceu.
  */
 function Compartilhar({
-  game, finais, campeoes, empate,
+  game, finais, empate,
 }: {
   game: LeituraDaPartida;
   finais: RankRow[];
-  campeoes: RankRow[];
   empate: boolean;
 }) {
   const [aviso, setAviso] = useState<string | null>(null);
