@@ -37,20 +37,61 @@ async function ate(cond, ms, rotulo) {
   return true;
 }
 
+/**
+ * Uma conexão instrumentada: guarda o que o servidor manda, para se poder afirmar sobre isso.
+ *
+ * Existe porque a segunda metade desta verificação precisa de DOIS clientes na mesma sala. Um
+ * cliente só prova que os handlers existem; ele não prova que duas pessoas conseguem sentar,
+ * escolher bichos diferentes, começar a partida e se ouvir — que é o que quebrou em produção e
+ * o que nenhum portão olhava.
+ */
+function escutar(sala) {
+  const c = { sala, boasVindas: null, recusas: [], sociais: [], prontos: null };
+  sala.onMessage("SERVER_WELCOME", (m) => { c.boasVindas = m; });
+  sala.onMessage("ACTION_REJECTED", (m) => c.recusas.push(m));
+  sala.onMessage("SOCIAL_MESSAGE", (m) => c.sociais.push(m));
+  sala.onMessage("READY_STATE", (m) => { c.prontos = m?.ready ?? null; });
+  for (const t of ["PLAYER_JOINED", "PLAYER_LEFT", "PLAYER_CONNECTION", "SERVER_ERROR",
+    "STATE_UPDATE", "TURN_CLOCK", "AUTO_ACTION"]) sala.onMessage(t, () => {});
+  return c;
+}
+
+/** Os assentos como o cliente os vê, já em array simples. */
+const assentosDe = (c) => [...(c.sala.state?.seats ?? [])];
+/** O avatar de um assento, na visão daquele cliente. */
+const avatarNo = (c, i) => assentosDe(c)[i]?.avatar;
+
 console.log(`\nVERIFICAÇÃO DE IMPLANTAÇÃO — ${URL_WS}\n`);
 
 let sala = null;
+let segunda = null;
 try {
+  // ── 0. o processo está DE PÉ e servindo HTTP ──────────────────────────────────────────────
+  //
+  // Antes de qualquer coisa de jogo: a porta responde? É o mesmo `curl` que o bloco de deploy já
+  // fazia, mas aqui ele entra no relatório — um portão que só sabe falar WebSocket não consegue
+  // distinguir "o servidor recusou" de "não havia servidor".
+  const URL_HTTP = URL_WS.replace(/^ws/, "http");
+  try {
+    const r = await fetch(URL_HTTP, { signal: AbortSignal.timeout(10_000) });
+    if (!r.ok) falhar(`health check HTTP ${r.status} em ${URL_HTTP}`);
+    else ok(`health check HTTP ${r.status}`);
+  } catch (e) {
+    falhar(`health check não respondeu: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   const cliente = new Client(URL_WS);
 
   // ── 1. handshake ──────────────────────────────────────────────────────────────────────────
   let boasVindas = null;
   const recusas = [];
+  const sociaisDoPrimeiro = [];
   sala = await cliente.create(SALA, { protocolVersion: PROTOCOL_VERSION, nick: "Verificador", avatar: "raposa" });
   sala.onMessage("SERVER_WELCOME", (m) => { boasVindas = m; });
   sala.onMessage("ACTION_REJECTED", (m) => recusas.push(m));
+  sala.onMessage("SOCIAL_MESSAGE", (m) => sociaisDoPrimeiro.push(m));
   for (const t of ["PLAYER_JOINED", "PLAYER_LEFT", "PLAYER_CONNECTION", "SERVER_ERROR",
-    "STATE_UPDATE", "READY_STATE", "TURN_CLOCK", "AUTO_ACTION", "SOCIAL_MESSAGE"]) sala.onMessage(t, () => {});
+    "STATE_UPDATE", "READY_STATE", "TURN_CLOCK", "AUTO_ACTION"]) sala.onMessage(t, () => {});
 
   if (!(await ate(() => boasVindas !== null, 10_000))) falhar("SERVER_WELCOME não chegou em 10s");
   else ok("handshake completo");
@@ -158,7 +199,108 @@ try {
     falhar("CLIENT_READY_NEXT_HAND com ready:false caiu no vazio");
   } else ok(`ready reversível reconhecido (recusa "${recusas[0].code}" fora de partida)`);
 
-  // ── 7. nenhum dado privado no estado sincronizado ─────────────────────────────────────────
+  // ── 7. DUAS PESSOAS NA MESMA SALA ─────────────────────────────────────────────────────────
+  //
+  // Até aqui tudo foi provado com UM cliente: os handlers existem e respondem. O que derrubou a
+  // produção, porém, não foi um handler ausente em abstrato — foi um anfitrião sendo desconectado
+  // do próprio lobby, uma segunda pessoa aparecendo com o bicho errado, e uma partida que não
+  // começava. Nada disso é visível de uma conexão só.
+  //
+  // A sala já existe e já tem: o assento 0 com unicórnio, a mesa VERDE aplicada e um bot no
+  // assento 1. É exatamente o cenário do defeito. Daqui em diante ele é levado até o fim.
+
+  const clienteB = new Client(URL_WS);
+  segunda = await clienteB.joinById(codigo, {
+    protocolVersion: PROTOCOL_VERSION, nick: "Verificadora", avatar: "unicornio",
+  });
+  const b = escutar(segunda);
+  const a = { sala, recusas, sociais: sociaisDoPrimeiro };
+
+  if (!(await ate(() => b.boasVindas !== null, 10_000))) {
+    falhar("o SEGUNDO humano não recebeu SERVER_WELCOME — ninguém entra nesta sala");
+  } else ok(`segundo humano sentado (assento ${b.boasVindas.you.seat})`);
+
+  const assentoB = b.boasVindas?.you?.seat ?? 2;
+  if (!(await ate(() => assentosDe(b).length === 4 && avatarNo(b, assentoB), 10_000))) {
+    falhar("o estado da sala não sincronizou para o segundo cliente");
+  } else ok("os dois clientes veem a mesma sala");
+
+  // EXCLUSIVIDADE NA ENTRADA. Ela pediu o unicórnio, que o assento 0 já tem. Entrar não pode ser
+  // recusado por causa de um desenho — mas sair com o mesmo desenho também não pode acontecer.
+  const bichoDela = avatarNo(b, assentoB);
+  if (bichoDela === "unicornio") {
+    falhar("DOIS humanos com unicórnio — a exclusividade não vale na entrada");
+  } else if (!AVATARES.includes(bichoDela)) {
+    falhar(`o segundo humano entrou com avatar fora do catálogo ("${bichoDela}")`);
+  } else ok(`exclusividade na entrada: o segundo virou "${bichoDela}", não unicórnio`);
+
+  // EXCLUSIVIDADE NA TROCA. Agora ela pede explicitamente o bicho do outro: aqui a resposta certa
+  // é RECUSAR, não substituir em silêncio.
+  b.recusas.length = 0;
+  segunda.send("CLIENT_SET_AVATAR", { avatar: "unicornio" });
+  if (!(await ate(() => b.recusas.length > 0 || avatarNo(b, assentoB) === "unicornio", 8000))) {
+    falhar("pedir um avatar ocupado não teve resposta nenhuma");
+  } else if (avatarNo(b, assentoB) === "unicornio") {
+    falhar("o segundo humano ASSUMIU o unicórnio do primeiro");
+  } else if (b.recusas.at(-1).code !== "AVATAR_TAKEN") {
+    falhar(`avatar ocupado respondeu "${b.recusas.at(-1).code}" — esperado AVATAR_TAKEN`);
+  } else ok("exclusividade na troca: avatar ocupado é recusado com AVATAR_TAKEN");
+
+  // E TROCAR PARA UM LIVRE VALE, com o outro aparelho enxergando.
+  const livre = AVATARES.find((x) => !assentosDe(b).map((s) => s.avatar).includes(x));
+  b.recusas.length = 0;
+  segunda.send("CLIENT_SET_AVATAR", { avatar: livre });
+  if (!(await ate(() => avatarNo(b, assentoB) === livre && avatarNo(a, assentoB) === livre, 8000))) {
+    falhar(`a troca para "${livre}" não chegou aos dois clientes`);
+  } else ok(`troca de avatar propagada aos dois aparelhos ("${livre}")`);
+
+  // A MESA COMPLETA: o quarto lugar vira bot, e a composição fica 2 humanos + 2 bots.
+  sala.send("CLIENT_ADD_BOT", { seat: 3 });
+  if (!(await ate(() => assentosDe(a).filter((s) => s.playerId !== "").length === 4, 10_000))) {
+    falhar("a mesa não completou quatro lugares");
+  } else ok("mesa completa: 2 humanos + 2 bots");
+
+  // READY É TOGGLE, e os dois aparelhos precisam concordar em cada passo.
+  const prontoNoOutro = () => assentosDe(b)[0]?.ready === true;
+  sala.send("CLIENT_SET_READY", { ready: true });
+  if (!(await ate(prontoNoOutro, 8000))) falhar("marcar pronto não chegou ao outro cliente");
+  else {
+    sala.send("CLIENT_SET_READY", { ready: false });
+    if (!(await ate(() => assentosDe(b)[0]?.ready === false, 8000))) {
+      falhar("DESMARCAR pronto não chegou ao outro cliente — o toggle não volta");
+    } else {
+      sala.send("CLIENT_SET_READY", { ready: true });
+      if (!(await ate(prontoNoOutro, 8000))) falhar("remarcar pronto não chegou ao outro cliente");
+      else ok("ready sincronizado nos dois sentidos (não pronto → pronto → não pronto → pronto)");
+    }
+  }
+
+  // E A PARTIDA COMEÇA — com a mesa VERDE aplicada, que é o cenário exato da regressão.
+  segunda.send("CLIENT_SET_READY", { ready: true });
+  if (!(await ate(() => sala.state?.status === "playing", 20_000))) {
+    falhar(`a partida NÃO começou (status "${sala.state?.status}") com a mesa ${TEMA_NAO_PADRAO}`);
+  } else if (sala.state?.tableTheme !== TEMA_NAO_PADRAO) {
+    falhar(`a partida começou, mas a mesa virou "${sala.state?.tableTheme}"`);
+  } else ok(`partida iniciada com a mesa ${TEMA_NAO_PADRAO}`);
+
+  if (!(await ate(() => segunda.state?.status === "playing", 10_000))) {
+    falhar("o segundo cliente não viu a partida começar");
+  } else ok("os dois clientes entraram na partida");
+
+  // SOCIAL ENTRE CLIENTES. Agora que há partida, a mensagem é aceita — e o teste é que ela chega
+  // ao OUTRO aparelho, não só de volta a quem mandou.
+  a.sociais.length = 0;
+  b.sociais.length = 0;
+  sala.send("CLIENT_SOCIAL_MESSAGE", { messageId: MENSAGEM_VALIDA });
+  if (!(await ate(() => b.sociais.length > 0, 10_000))) {
+    falhar("a mensagem social NÃO chegou ao outro cliente");
+  } else if (b.sociais.at(-1).seat !== 0 || b.sociais.at(-1).messageId !== MENSAGEM_VALIDA) {
+    falhar("a mensagem social chegou com autor ou etiqueta errados");
+  } else if (a.sociais.length === 0) {
+    falhar("quem enviou a mensagem social não a recebeu de volta");
+  } else ok("mensagem social difundida para os dois clientes, com o autor certo");
+
+  // ── 8. nenhum dado privado no estado sincronizado ─────────────────────────────────────────
   const bruto = JSON.stringify(sala.state?.toJSON?.() ?? sala.state ?? {});
   if (/"hands"|"deck"|"seed"|"recoveryToken"/.test(bruto)) {
     falhar("o estado sincronizado contém campo privado — VAZAMENTO");
@@ -169,6 +311,11 @@ try {
   // Sair com CORTESIA, mas com prazo. Um `leave` que não responde deixaria o processo pendurado
   // e o Node sairia com um código próprio — e este script é um PORTÃO de deploy: quem lê o
   // `$?` precisa de 0 ou 1, nunca de "13, porque um await não resolveu".
+  // Os DOIS saem, e o segundo primeiro: enquanto houver humano na sala ela não é recolhida, e
+  // esta verificação deixa uma partida de verdade em curso atrás de si.
+  try {
+    await Promise.race([segunda?.leave(true) ?? Promise.resolve(), espera(2000)]);
+  } catch { /* já fechou */ }
   try {
     await Promise.race([sala?.leave(true) ?? Promise.resolve(), espera(2000)]);
   } catch { /* já fechou */ }
