@@ -21,11 +21,13 @@ import { sfxUltimaMao } from "../audio/sounds.js";
  * Quanto tempo o anúncio fica sozinho na tela. Um toque encurta; nada o prolonga.
  *
  * Eram 1,9s, e no teste manual a pessoa não conseguiu ler: a entrada sozinha come meio segundo,
- * então sobrava pouco mais de um segundo de leitura para duas linhas. Agora são 2,6s de
- * permanência mais 0,42s de saída, o que dá cerca de 3s de presença total — tempo de ler,
- * registrar e seguir. Continua saindo sozinho, e o toque continua encurtando.
+ * então sobrava pouco mais de um segundo de leitura para duas linhas. Foram para 2,6s — cerca de
+ * 3s de presença total — e o segundo teste em aparelho ainda pediu um pouco mais: a mesa tem
+ * quatro pessoas, e o anúncio precisa dar tempo de TODAS notarem, não só de quem já estava
+ * olhando. Agora são 3,3s de permanência mais 0,42s de saída: ~3,7s de presença, dentro da faixa
+ * pedida. Continua saindo sozinho, e o toque continua encurtando.
  */
-const DURACAO_MS = 2600;
+const DURACAO_MS = 3300;
 /** Fade de saída. Par do `.um.saindo` no theme.css. */
 const SAIDA_MS = 420;
 
