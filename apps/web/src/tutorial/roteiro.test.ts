@@ -15,6 +15,13 @@ import { PartidaDeTreino } from "./partidaDeTreino.js";
  * vaza. Testar o alvo de "+25" no estado recém-montado media um momento que o jogador nunca vê,
  * e foi assim que este teste encontrou um alvo vazio.
  */
+/** O passo pelo conceito que ele ensina — a posição no roteiro não é identidade. */
+function passoDe(id: string) {
+  const p = ROTEIRO.find((x) => x.id === id);
+  if (!p) throw new Error(`passo "${id}" não existe no roteiro`);
+  return p;
+}
+
 function comCenaPronta(i: number): PartidaDeTreino {
   const jogo = new PartidaDeTreino(cenaEm(i));
   const passo = ROTEIRO[i];
@@ -43,6 +50,22 @@ describe("os dezesseis conceitos", () => {
     for (const p of [...ROTEIRO]) {
       expect(p.fala, p.id).not.toMatch(/fase \d|milestone|MVP|assento \d|seat|bot normal/i);
     }
+  });
+
+  /**
+   * A FALA DA MÃO 2, LITERAL.
+   *
+   * Esta frase já foi reescrita três vezes ("Cada Copa capturada" → "Cada Copas captura" → o
+   * texto atual), e as duas primeiras vezes ninguém percebeu que ela tinha mudado até alguém ler
+   * na tela. Microcopy decidida pelo produto merece o mesmo tratamento de um número do motor:
+   * fica escrita no teste, e mudá-la passa a ser uma decisão visível no diff em vez de um efeito
+   * colateral.
+   *
+   * Só ESTA fala tem asserção literal, e de propósito: travar as dezesseis viraria um espelho do
+   * arquivo, que não prova nada e atrapalha toda revisão de texto. Esta é a que provou precisar.
+   */
+  it("a mão 2 diz exatamente o que o produto decidiu", () => {
+    expect(passoDe("mao-2").fala).toBe("Mão 2. Evite Copas. Cada carta de Copas capturada vale −20.");
   });
 
   // TRAVESSÃO É RECURSO DE REDAÇÃO, e numa faixa de tutorial ele vira ruído: quebra a leitura,

@@ -92,7 +92,7 @@ export const ROTEIRO: readonly Passo[] = [
   {
     id: "mao-2",
     cena: "copas",
-    fala: "Mão 2. Evite Copas. Cada Copas captura vale −20.",
+    fala: "Mão 2. Evite Copas. Cada carta de Copas capturada vale −20.",
     acao: "toque",
   },
   {
