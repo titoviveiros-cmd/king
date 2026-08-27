@@ -8,11 +8,12 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parse, type HTMLElement } from "node-html-parser";
 import type { Seat } from "@king/engine";
-import { Sala } from "./Sala.js";
+import { Sala, SeletorDeAvatar, avataresEmUso } from "./Sala.js";
 import { AVATARES, desenhoDoAvatar } from "./avatares.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 
 const noop = () => {};
+const SEATS: Seat[] = [0, 1, 2, 3];
 
 function assento(seat: Seat, over: Partial<AssentoLido> = {}): AssentoLido {
   return {
@@ -101,31 +102,34 @@ describe("o bot tem nome próprio, e mesmo assim se declara bot", () => {
  * chegando lá cabe a escolha de outra pessoa, e essa corrida tem teste próprio no servidor.
  */
 describe("seletor de avatar do lobby", () => {
+  // Quem não é descrito no cenário está VAGO. Deixar o padrão do fixture (todos com "leao")
+  // colocaria o leão em uso por dois assentos silenciosos e faria o teste medir outra coisa.
+  const abrir = (over: Partial<AssentoLido>[] = [], eu: Seat = 0): HTMLElement => {
+    const seats = SEATS.map((s) => assento(s, over[s] ?? { playerId: "", nick: "" }));
+    return parse(renderToStaticMarkup(
+      <SeletorDeAvatar
+        atual={seats[eu].avatar}
+        emUso={avataresEmUso(seats, eu)}
+        onEscolher={noop}
+      />,
+    ));
+  };
   const ops = (root: HTMLElement) => root.querySelectorAll(".sl-avop");
 
   it("os oito continuam na grade, ocupados inclusive", () => {
-    const root = render([
-      assento(0, { avatar: "leao" }), assento(1, { avatar: "sapo" }),
-    ].concat([2, 3].map((s) => vazio(s as Seat))));
-    expect(ops(root)).toHaveLength(AVATARES.length);
+    expect(ops(abrir([{ avatar: "leao" }, { avatar: "sapo" }]))).toHaveLength(AVATARES.length);
   });
 
   it("o que outro humano usa aparece como EM USO e não é clicável", () => {
-    const root = render([
-      assento(0, { avatar: "leao" }), assento(1, { avatar: "sapo" }),
-    ].concat([2, 3].map((s) => vazio(s as Seat))));
-    const sapo = ops(root)[AVATARES.indexOf("sapo")];
+    const sapo = ops(abrir([{ avatar: "leao" }, { avatar: "sapo" }]))[AVATARES.indexOf("sapo")];
     expect(sapo.classNames).toContain("emuso");
-    expect(sapo.getAttribute("disabled")).not.toBeNull();
+    expect(sapo.getAttribute("disabled")).not.toBeUndefined();
     expect(sapo.text).toContain("Em uso");
     expect(sapo.getAttribute("aria-label")).toContain("em uso");
   });
 
   it("o próprio avatar NÃO é 'em uso' — ele é o escolhido", () => {
-    const root = render([
-      assento(0, { avatar: "leao" }), assento(1, { avatar: "sapo" }),
-    ].concat([2, 3].map((s) => vazio(s as Seat))));
-    const leao = ops(root)[AVATARES.indexOf("leao")];
+    const leao = ops(abrir([{ avatar: "leao" }, { avatar: "sapo" }]))[AVATARES.indexOf("leao")];
     expect(leao.classNames).toContain("on");
     expect(leao.classNames).not.toContain("emuso");
     expect(leao.getAttribute("disabled")).toBeFalsy();
@@ -133,18 +137,54 @@ describe("seletor de avatar do lobby", () => {
   });
 
   it("o bicho de um BOT também conta como ocupado", () => {
-    const root = render([
-      assento(0, { avatar: "leao" }), assento(1, { avatar: "coruja", bot: true }),
-    ].concat([2, 3].map((s) => vazio(s as Seat))));
+    const root = abrir([{ avatar: "leao" }, { avatar: "coruja", bot: true }]);
     expect(ops(root)[AVATARES.indexOf("coruja")].classNames).toContain("emuso");
   });
 
   it("assento vago não ocupa bicho nenhum — e o meu não bloqueia a mim mesmo", () => {
-    const root = render([assento(0, { avatar: "leao" })]
-      .concat([1, 2, 3].map((s) => vazio(s as Seat))));
-    // Sozinho na sala, os oito estão disponíveis: os três lugares vazios não reservam nada, e o
-    // meu próprio bicho não pode aparecer como "em uso" para mim.
+    const vago: Partial<AssentoLido> = { playerId: "", nick: "" };
+    const root = abrir([{ avatar: "leao" }, vago, vago, vago]);
     expect(ops(root).filter((o) => o.classNames.includes("emuso"))).toHaveLength(0);
     expect(ops(root).filter((o) => o.classNames.includes("on"))).toHaveLength(1);
+  });
+
+  it("sem conexão, nada é escolhível: a troca é uma mensagem, não um estado local", () => {
+    const seats = SEATS.map((s) => assento(s));
+    const root = parse(renderToStaticMarkup(
+      <SeletorDeAvatar atual="leao" emUso={avataresEmUso(seats, 0)} travado onEscolher={noop} />,
+    ));
+    for (const o of root.querySelectorAll(".sl-avop")) {
+      expect(o.getAttribute("disabled")).not.toBeUndefined();
+    }
+  });
+});
+
+/**
+ * E O CAMINHO ATÉ ELE: o próprio círculo do assento.
+ *
+ * A primeira versão do seletor era uma fileira dos oito acima da linha de ações. Custou ~38px de
+ * altura e derrubou o quarto lugar para fora da tela a 667x375 — a promessa central desta tela é
+ * justamente ver a mesa inteira. O gatilho passou a ser o círculo que já estava lá.
+ */
+describe("o gatilho do seletor", () => {
+  it("o meu círculo é botão; o dos outros, não", () => {
+    const root = render([assento(0), assento(1), assento(2), assento(3)], 0);
+    const meu = root.querySelector(".sl-lugar.voce .sl-av-troca");
+    expect(meu?.tagName).toBe("BUTTON");
+    expect(meu?.getAttribute("aria-label")).toContain("Trocar");
+    expect(root.querySelectorAll(".sl-av-troca")).toHaveLength(1);
+  });
+
+  it("o seletor NÃO nasce aberto: fechado, ele não ocupa altura nenhuma", () => {
+    const root = render([assento(0), assento(1), assento(2), assento(3)], 0);
+    expect(root.querySelectorAll(".sl-avpainel")).toHaveLength(0);
+    expect(root.querySelectorAll(".sl-avop")).toHaveLength(0);
+  });
+
+  it("bot não troca de avatar — quem decide o dele é o servidor", () => {
+    const root = render(
+      [assento(0, { bot: true }), assento(1), assento(2), assento(3)], 0,
+    );
+    expect(root.querySelectorAll(".sl-av-troca")).toHaveLength(0);
   });
 });

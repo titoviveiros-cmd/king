@@ -18,7 +18,7 @@ import type { Seat } from "@king/engine";
 import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
-import type { EstadoDaSalaLido } from "../net/clienteKing.js";
+import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao } from "../game/useKingOnline.js";
 import { AVATARES, desenhoDoAvatar } from "./avatares.js";
 
@@ -59,6 +59,7 @@ export function Sala({
   onOpenAudio: () => void;
 }) {
   const [copiado, setCopiado] = useState(false);
+  const [abrindoAvatar, setAbrindoAvatar] = useState(false);
   const assentos = sala?.seats ?? [];
   const ocupados = assentos.filter((a) => a.playerId !== "").length;
   const humanos = assentos.filter((a) => a.playerId !== "" && !a.bot).length;
@@ -76,9 +77,7 @@ export function Sala({
    * rótulo "Em uso" — apresentação. Quem recusa de verdade é o servidor, porque entre esta lista e
    * a mensagem chegando lá cabe a escolha de outra pessoa.
    */
-  const emUso = new Set(
-    assentos.filter((a, s) => a.playerId !== "" && s !== eu).map((a) => a.avatar),
-  );
+  const emUso = avataresEmUso(assentos, eu);
 
   const copiar = () => {
     sfxTap();
@@ -115,7 +114,28 @@ export function Sala({
               key={i}
               className={`sl-lugar s${i}${vazio ? " vago" : ""}${bot ? " robo" : ""}${a?.ready && !bot ? " pronto" : ""}${a && !vazio && !bot && !a.connected ? " ausente" : ""}${i === eu ? " voce" : ""}`}
             >
-              <Insignia vazio={vazio} bot={bot} avatar={a?.avatar} />
+              {/* O PRÓPRIO CÍRCULO É O BOTÃO. Ele já está na tela, já mostra o bicho atual e
+                  já pertence a quem vai trocar — não precisa de faixa nova.
+
+                  A primeira versão deste seletor era uma fileira dos oito acima da linha de
+                  ações. Custou ~38px de altura e derrubou o quarto lugar para fora da tela a
+                  667x375, quebrando a promessa central desta tela: ver a mesa inteira. O mesmo
+                  erro que o seletor de mesa já tinha cometido, e pelo mesmo motivo. */}
+              {i === eu && !vazio && !bot ? (
+                <button
+                  className={`sl-av-troca${abrindoAvatar ? " on" : ""}`}
+                  onClick={() => { sfxTap(); setAbrindoAvatar((v) => !v); }}
+                  disabled={conexao !== "conectado"}
+                  aria-expanded={abrindoAvatar}
+                  aria-label="Trocar o seu avatar"
+                  title="Trocar o seu avatar"
+                >
+                  <Insignia vazio={false} bot={false} avatar={a?.avatar} />
+                  <i aria-hidden>✎</i>
+                </button>
+              ) : (
+                <Insignia vazio={vazio} bot={bot} avatar={a?.avatar} />
+              )}
               <span className="sl-nome">
                 {vazio ? "Aguardando…" : a.nick}
                 {/* O bot ganhou nome próprio; a etiqueta é o que impede alguém de achar que é gente. */}
@@ -139,43 +159,25 @@ export function Sala({
             </div>
           );
         })}
+        {/* O SELETOR, SOBRE A LISTA E NÃO ANTES DELA.
+            Ele é sobreposto de propósito: assim não existe estado da tela em que a mesa fique
+            mais curta por causa dele. Os oito continuam na grade mesmo ocupados — sumir com um
+            reposicionaria os outros no instante em que um dedo já está a caminho, e o toque
+            cairia em outro bicho. */}
+        {abrindoAvatar && meu && (
+          <>
+            <div className="sl-avscrim" onClick={() => setAbrindoAvatar(false)} aria-hidden />
+            <SeletorDeAvatar
+              atual={meu.avatar}
+              emUso={emUso}
+              travado={conexao !== "conectado"}
+              onEscolher={(id) => { sfxTap(); onEscolherAvatar(id); setAbrindoAvatar(false); }}
+            />
+          </>
+        )}
       </div>
 
       {erro && <div className="sl-erro" role="alert">{erro}</div>}
-
-      {/* SEU AVATAR — visível para quem está sentado, e só antes de começar.
-
-          Os oito continuam na grade mesmo ocupados. Sumir com um avatar reposicionaria todos os
-          outros no exato momento em que alguém está mirando um deles com o dedo, e o toque cairia
-          em outro bicho. Ocupado fica no lugar, apagado, sem ser clicável e dizendo por quê. */}
-      {meu && !meu.bot && (
-        <div className="sl-avatares">
-          <span className="sl-mesa-lb">Seu avatar</span>
-          <div className="sl-avops" role="radiogroup" aria-label="Escolha o seu avatar">
-            {AVATARES.map((id) => {
-              const d = desenhoDoAvatar(id);
-              const ocupado = emUso.has(id);
-              const meuAtual = meu.avatar === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  aria-checked={meuAtual}
-                  aria-label={ocupado ? `${d.rotulo} — em uso` : d.rotulo}
-                  className={`sl-avop${meuAtual ? " on" : ""}${ocupado ? " emuso" : ""}`}
-                  disabled={ocupado || conexao !== "conectado"}
-                  title={ocupado ? `${d.rotulo} — em uso` : `${d.rotulo} — ${d.persona}`}
-                  onClick={() => { sfxTap(); onEscolherAvatar(id); }}
-                >
-                  <i aria-hidden>{d.glifo}</i>
-                  {ocupado && <b>Em uso</b>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       <div className="row">
         {/* A MESA DA SALA.
@@ -222,6 +224,64 @@ export function Sala({
       <div className="foot">{rodape(ocupados, humanos, souAnfitriao)}</div>
     </div>
   );
+}
+
+/**
+ * OS OITO BICHOS, com o que já está em uso apagado.
+ *
+ * Componente próprio porque ele é o objeto do contrato desta rodada — "avatar ocupado continua
+ * visível, indisponível e não clicável" — e um contrato que só existe atrás de um clique não pode
+ * ser verificado por quem renderiza a tela sem clicar.
+ *
+ * O que está aqui é APRESENTAÇÃO. Quem recusa de verdade é o servidor: entre esta grade e a
+ * mensagem chegando lá cabe a escolha de outra pessoa, e essa corrida tem teste no servidor.
+ */
+export function SeletorDeAvatar({ atual, emUso, travado, onEscolher }: {
+  atual: string | undefined;
+  /** Os bichos dos OUTROS assentos ocupados — humanos e bots. */
+  emUso: ReadonlySet<string>;
+  /** Sem conexão não se escolhe nada: a troca é uma mensagem, não um estado local. */
+  travado?: boolean;
+  onEscolher: (avatar: string) => void;
+}) {
+  return (
+    <div className="sl-avpainel" role="dialog" aria-label="Escolha o seu avatar">
+      <span className="sl-mesa-lb">Seu avatar</span>
+      <div className="sl-avops" role="radiogroup" aria-label="Escolha o seu avatar">
+        {AVATARES.map((id) => {
+          const d = desenhoDoAvatar(id);
+          const ocupado = emUso.has(id);
+          const meuAtual = atual === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={meuAtual}
+              aria-label={ocupado ? `${d.rotulo} — em uso` : d.rotulo}
+              className={`sl-avop${meuAtual ? " on" : ""}${ocupado ? " emuso" : ""}`}
+              disabled={ocupado || !!travado}
+              title={ocupado ? `${d.rotulo} — em uso` : `${d.rotulo} — ${d.persona}`}
+              onClick={() => onEscolher(id)}
+            >
+              <i aria-hidden>{d.glifo}</i>
+              {ocupado && <b>Em uso</b>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Os bichos que os OUTROS lugares ocupam, a partir do estado da sala.
+ *
+ * Exportada junto com o seletor: a regra "o meu próprio bicho não me bloqueia" mora aqui, e ela é
+ * fácil de errar de novo em qualquer tela que precise da mesma lista.
+ */
+export function avataresEmUso(assentos: readonly AssentoLido[], eu: Seat | null): Set<string> {
+  return new Set(assentos.filter((a, s) => a.playerId !== "" && s !== eu).map((a) => a.avatar));
 }
 
 /**

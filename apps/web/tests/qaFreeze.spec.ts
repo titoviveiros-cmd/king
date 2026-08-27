@@ -206,7 +206,10 @@ test("no lobby, o avatar de outro humano aparece como Em uso", async ({ browser 
     const codigo = await criarSala(anfitriao, "Tito", "Sapo");
     await entrarNaSala(convidado, codigo, "Raiza", "Panda");
 
-    // Os oito continuam na grade dos dois lados.
+    // O SELETOR NÃO OCUPA ALTURA ENQUANTO FECHADO — foi a primeira tentativa, e ela derrubou o
+    // quarto lugar para fora da tela. O caminho é o próprio círculo do assento.
+    await expect(convidado.locator(".sl-avop")).toHaveCount(0, { timeout: 20_000 });
+    await convidado.locator(".sl-lugar.voce .sl-av-troca").click();
     await expect(convidado.locator(".sl-avop")).toHaveCount(8, { timeout: 20_000 });
 
     // O Sapo é do Tito: para a Raiza ele é "em uso".
@@ -224,7 +227,12 @@ test("no lobby, o avatar de outro humano aparece como Em uso", async ({ browser 
 
     // E TROCAR PARA UM LIVRE VALE, nos dois aparelhos — a sala é estado compartilhado.
     await convidado.locator('.sl-avop[aria-label="Coruja"]').click();
-    await expect(convidado.locator('.sl-avop[aria-label="Coruja"]')).toHaveClass(/on/, { timeout: 15_000 });
+    // escolher fecha o seletor: ele cumpriu a função
+    await expect(convidado.locator(".sl-avop")).toHaveCount(0, { timeout: 15_000 });
+    await expect(convidado.locator(".sl-lugar.voce .sl-av"),
+      "o círculo do assento não passou a mostrar a Coruja").toHaveText("🦉", { timeout: 15_000 });
+
+    await anfitriao.locator(".sl-lugar.voce .sl-av-troca").click();
     await expect(anfitriao.locator('.sl-avop[aria-label*="Coruja"]'),
       "a troca não chegou ao outro aparelho").toHaveClass(/emuso/, { timeout: 15_000 });
     // e o Panda voltou a ficar livre para os dois
