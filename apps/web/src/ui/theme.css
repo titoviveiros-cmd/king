@@ -864,13 +864,31 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 /* O balão da mensagem no Placar. A linha vira âncora para ele poder pousar acima, colado ao
    jogador que falou, sem empurrar a tabela nem cobrir o saldo. */
 .pl-row{position:relative;}
-/* O balão entra NO FLUXO da linha, como uma etiqueta ao lado do saldo.
-   A primeira versão o fazia flutuar acima da linha, e ele ficava coberto: cada `.pl-row` tem
-   `animation ... both`, o que cria contexto de empilhamento próprio e prende o z-index dentro da
-   linha. Flutuar exigiria brigar com isso; estar no fluxo simplesmente não tem como ser coberto. */
-.pl-row .balao{position:static;transform:none;animation:none;
-  margin-left:calc(var(--ui)*.5);padding:.14em .5em;font-size:calc(var(--ui)*.76);
-  max-width:min(42vw,220px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* ══ O BALÃO NO PLACAR — E POR QUE ELE APARECIA COM 24 PIXELS ══
+
+   `position:static` o colocava NO FLUXO da linha. Mas a linha é um GRID de seis trilhas
+   declaradas, e o balão é o SÉTIMO filho: posição, movimento, insígnia, nome, delta, total e
+   ele. Sem trilha para ocupar, o grid criou uma linha implícita e o jogou na primeira coluna —
+   `calc(var(--ui)*2.4)`, uns 30px. Com `overflow:hidden` e `text-overflow:ellipsis` em cima
+   disso, "Essa doeu" virava reticências.
+
+   Medido no aparelho, antes desta correção: caixa de 24x15px, fonte de 9,5px, `scrollWidth` 28
+   contra `clientWidth` 24 — texto cortado. E a linha ficava 20px mais alta que as outras por
+   causa da linha implícita, que é a deformação de layout relatada.
+
+   O teste anterior passou porque perguntou as coisas erradas: `toBeVisible()` responde "tem
+   caixa", `toHaveText()` compara `textContent` (que ignora recorte de CSS) e `elementFromPoint`
+   no centro de uma caixa de 24px ainda acha o balão. Nenhuma das três pergunta se dá para LER.
+
+   Agora ele é `absolute` dentro da linha: sai do fluxo do grid, então não existe mais trilha para
+   disputar, linha implícita para criar nem altura para deformar. Ancorado à direita, ele para
+   antes das duas colunas de número — que são o que o placar existe para mostrar — e cresce para a
+   esquerda, dentro da folga da coluna do nome. */
+.pl-name{position:relative;}
+.pl-row .balao{position:absolute;top:50%;transform:translateY(-50%);animation:none;
+  left:auto;right:0;bottom:auto;
+  padding:.34em .8em;font-size:calc(var(--ui)*.95);
+  max-width:min(46vw,280px);white-space:nowrap;}
 .pl-row .balao::after{display:none;}
 .pl-pos{font-family:var(--disp);font-weight:800;color:var(--gold);font-size:calc(var(--ui)*1.06);}
 .pl-pos i{font-style:normal;color:var(--faint);font-size:.7em;margin-left:2px;}
@@ -1199,15 +1217,37 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    está a caminho de um deles. Ficam apagados, sem cursor e com o "Em uso" por cima — informação
    no lugar do buraco. */
 .sl-lugares{position:relative;}
+/* O GATILHO DE TROCAR AVATAR.
+   O lápis era um glifo de 9px num badge de 13px: no aparelho não se lia como "dá para mexer
+   aqui", parecia sujeira na borda do círculo. Agora é um botão de verdade — 24px de badge, glifo
+   de 13px, contorno que o separa do avatar e do fundo — e a área de toque do conjunto passa dos
+   44px do piso de acessibilidade, porque o alvo é o círculo inteiro mais o badge.
+   Ele mora no canto inferior direito do círculo: não cobre o bicho e não encosta no nome. */
 .sl-av-troca{position:relative;display:inline-flex;align-items:center;justify-content:center;
   background:none;border:none;padding:0;cursor:pointer;flex:none;
+  min-width:44px;min-height:44px;
   border-radius:50%;-webkit-tap-highlight-color:transparent;}
-.sl-av-troca i{position:absolute;right:-2px;bottom:-2px;font-style:normal;font-size:9px;
-  line-height:1;padding:2px;border-radius:50%;color:var(--night);background:var(--gold);
-  border:1px solid var(--night2);}
+.sl-av-troca i{position:absolute;right:-3px;bottom:-3px;font-style:normal;font-size:13px;
+  width:24px;height:24px;display:grid;place-items:center;
+  line-height:1;border-radius:50%;color:var(--night);
+  background:linear-gradient(180deg,#ffe27a,var(--gold));
+  border:2px solid var(--night2);box-shadow:0 2px 6px -1px #000;}
 .sl-av-troca:disabled{cursor:default;opacity:.7;}
 .sl-av-troca:disabled i{display:none;}
 .sl-av-troca.on .sl-av,.sl-av-troca:focus-visible .sl-av{box-shadow:0 0 0 2px var(--gold);}
+/* Enquanto falta escolher, o gatilho PULSA: é o único caminho para sair do estado pendente. */
+.sl-lugar.pendente .sl-av-troca i{animation:pedeAvatar 1.4s ease-in-out infinite;}
+@keyframes pedeAvatar{0%,100%{transform:scale(1);}50%{transform:scale(1.16);}}
+
+/* O círculo de quem ainda não escolheu: neutro, nunca um bicho. */
+.sl-av.pendente{background:rgba(255,255,255,.08);color:var(--faint);
+  border-style:dashed;border-color:rgba(244,197,66,.5);}
+
+/* O aviso de avatar ocupado. Fica no caminho do olho, entre a mesa e a linha de ações. */
+.sl-pendente{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.8);
+  color:#231206;background:linear-gradient(180deg,#ffe27a,var(--gold));
+  border-radius:999px;padding:.4em 1em;align-self:center;flex:none;
+  box-shadow:0 6px 18px -8px #000;}
 .sl-avscrim{position:absolute;inset:0;z-index:2;}
 .sl-avpainel{position:absolute;z-index:3;left:50%;top:50%;transform:translate(-50%,-50%);
   display:flex;flex-direction:column;align-items:center;gap:calc(var(--ui)*.3);
@@ -1290,6 +1330,18 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
 /* O balão de quem falou. Sai do card do jogador, para "quem disse" ser óbvio sem ler nome.
    `position:absolute` dentro do card, que já é relative por ser posicionado na mesa. */
+/* ══ O TAMANHO NA MESA É OUTRO, E ISSO É MEDIÇÃO, NÃO DESCUIDO ══
+
+   A queixa de "card muito pequeno" veio da screenshot do PLACAR entre-mãos, e é lá que ele
+   cresce (ver `.pl-row .balao`): 24x15px viraram 142x24px, com o dobro do corpo de letra.
+
+   Aqui na Mesa, não. As faixas livres em volta dos cards medem ~126px nos viewports que o projeto
+   atende, e a frase mais longa do catálogo já ocupa isso no corpo atual. Subir o corpo empurra o
+   balão do jogador local para dentro do leque; deixá-lo quebrar em duas linhas o faz transbordar
+   o card e sair pela base da tela. As duas alternativas foram medidas antes de esta ficar.
+
+   `nowrap` continua sendo promessa cumprível: a maior frase do catálogo fechado tem 23
+   caracteres, e nada trunca porque nada é longo o bastante para precisar. */
 .balao{position:absolute;z-index:11;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);
   white-space:nowrap;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.82);
   color:#231206;background:linear-gradient(180deg,#fff3c4,var(--gold));
@@ -1298,12 +1350,50 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   animation:balaoEntra .22s cubic-bezier(.22,1.4,.4,1);pointer-events:none;}
 .balao::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);
   border:5px solid transparent;border-top-color:var(--gold);}
-/* O card do jogador local fica no canto inferior esquerdo: o balão sai pela direita para não
-   escapar da tela nem pousar em cima do leque. */
-.youtag .balao{left:auto;right:0;transform:none;bottom:calc(100% + 8px);}
-.youtag .balao::after{left:auto;right:18px;transform:none;}
+/* ══ CADA ASSENTO FALA PARA UM LADO ══
+
+   Uma direção só para os quatro não funciona, e a medição numa partida real com trunfo mostrou
+   que TRÊS dos quatro estavam errados — não o um que o teste físico relatou:
+
+     • ESQUERDA: o balão subia direto para dentro do card de Trunfo, que mora na mesma coluna,
+       logo acima do card. Medido a 852x300: balão x 18..144 / y 135..159 contra trunfo
+       x 9..127 / y 99..144. É a colisão relatada.
+     • TOPO: o card subiu (ver `.opp.top`) e acima dele não sobrou nada. O balão nascia em
+       y −11 — inteiramente FORA DA TELA. Ninguém nunca viu uma mensagem do jogador de cima.
+     • VOCÊ: ancorado por `right:0` num card de 90px, um balão de 126px começava em x −35.
+       Também fora da tela, e é por isso que "nem quem enviou via".
+     • DIREITA: o único que estava certo, e é o único que não muda.
+
+   Agora a direção é escolhida por onde HÁ espaço, assento a assento. */
+
+/* ESQUERDA — para BAIXO, porque para cima é a coluna do trunfo. Abaixo do card lateral só existe
+   borda de tela, e o leque começa bem à direita dele. */
+.opp.left .balao{bottom:auto;top:calc(100% + 6px);left:0;transform:none;}
+.opp.left .balao::after{top:auto;bottom:100%;left:22px;transform:none;
+  border-top-color:transparent;border-bottom-color:var(--gold);}
+
+/* TOPO, em tela baixa — SOBRE O PRÓPRIO CARD. Acima não há tela e abaixo é a faixa do selo do
+   castigo, que também é transitório e também mora ali. Dois avisos passageiros disputando 31px
+   seria trocar uma colisão por outra; o card do próprio remetente é a única superfície que
+   pertence a ele e não é disputada por mais ninguém. Em tela alta ele continua flutuando acima,
+   que é onde cabe e é mais bonito. */
+@media (max-height:360px){
+  /* Colado ao TOPO do card, não ao meio: a faixa logo abaixo dele é onde o selo do castigo mora,
+     e os dois são transitórios — podem aparecer no mesmo instante. Medido a 852x300: o selo ocupa
+     y 50..75; o balão aqui fica em 13..37 e os dois nunca se encontram. */
+  .opp.top .balao{bottom:auto;top:0;left:50%;transform:translateX(-50%);}
+  .opp.top .balao::after{display:none;}
+}
+
+/* VOCÊ — SOBRE O PRÓPRIO CARD, pelo mesmo motivo do topo.
+   Ancorado por `right`, ele crescia para fora da tela (x −35). Movido para a esquerda, alcançava
+   o leque. Acima, disputava a faixa com o balão do lateral esquerdo, que desce até ali. O canto
+   inferior esquerdo simplesmente não tem lugar livre para uma segunda caixa — e o card do próprio
+   remetente é a única superfície que pertence a ele e não é disputada por mais ninguém. */
+.youtag .balao{top:0;left:0;right:auto;bottom:auto;transform:none;}
+.youtag .balao::after{display:none;}
 @keyframes balaoEntra{from{opacity:0;transform:translateX(-50%) translateY(6px) scale(.9);}}
-.youtag .balao{animation-name:balaoEntraVoce;}
+.youtag .balao,.opp.left .balao{animation-name:balaoEntraVoce;}
 @keyframes balaoEntraVoce{from{opacity:0;transform:translateY(6px) scale(.9);}}
 @media (prefers-reduced-motion:reduce){.balao{animation:none;}}
 

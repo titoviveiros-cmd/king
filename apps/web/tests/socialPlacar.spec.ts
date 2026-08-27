@@ -40,7 +40,14 @@ async function noTopo(page: Page, seletor: string): Promise<boolean> {
   return page.locator(seletor).first().evaluate((el) => {
     const b = el.getBoundingClientRect();
     if (b.width === 0 || b.height === 0) return false;
+    // `elementFromPoint` PULA quem tem `pointer-events:none` e devolve o que está atrás — e o
+    // balão tem exatamente isso, de propósito, para não roubar toque de ninguém. Sem esta troca
+    // temporária o teste acusaria "coberto" para um elemento que está pintado por cima: mediria a
+    // política de toque, não a ordem de empilhamento. Restaurado logo em seguida.
+    const antes = (el as HTMLElement).style.pointerEvents;
+    (el as HTMLElement).style.pointerEvents = "auto";
     const noPonto = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+    (el as HTMLElement).style.pointerEvents = antes;
     return !!noPonto && (el.contains(noPonto) || noPonto.contains(el));
   });
 }
@@ -156,6 +163,71 @@ test("no Placar entre-mãos: a mensagem atravessa e o cooldown continua valendo"
     await expect(meuBalao).toHaveText(texto);
     expect(await noTopo(anfitriao, ".placarov .balao"),
       "o balão de quem enviou está COBERTO na própria tela").toBe(true);
+
+    // ── E DÁ PARA LER, que é a pergunta que faltava ──
+    //
+    // A versão anterior deste teste passou verde enquanto o balão media 24x15 pixels com o texto
+    // cortado em reticências e fonte de 9,5px. Ela perguntava "tem caixa?" (`toBeVisible`), "o
+    // texto é esse?" (`toHaveText`, que compara `textContent` e ignora recorte de CSS) e "está no
+    // topo?" — três perguntas que uma caixa ilegível responde bem. A causa era o balão ser o
+    // sétimo filho de um grid de seis trilhas: sem trilha, ele caía numa linha implícita, na
+    // primeira coluna, com 30px de largura.
+    //
+    // Estas são as perguntas que um humano faria.
+    for (const [quem, page] of [["remetente", anfitriao], ["destinatário", convidado]] as const) {
+      const medida = await page.locator(".placarov .balao").first().evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const b = el.getBoundingClientRect();
+        return {
+          cortado: el.scrollWidth > el.clientWidth + 1,
+          largura: b.width, altura: b.height,
+          opacidade: Number(cs.opacity), fonte: parseFloat(cs.fontSize),
+          visivel: cs.visibility, display: cs.display,
+          lh: cs.lineHeight, sh: el.scrollHeight, ch: el.clientHeight, txt: el.textContent,
+          pai: (el.parentElement as HTMLElement).className,
+        };
+      });
+      expect(medida.cortado, `[${quem}] o texto do balão está CORTADO`).toBe(false);
+      expect(medida.altura, `[${quem}] o balão está baixo demais para ser lido`).toBeGreaterThanOrEqual(20);
+      expect(medida.fonte, `[${quem}] a fonte do balão ficou minúscula`).toBeGreaterThanOrEqual(11);
+      // A LARGURA NÃO TEM PISO FIXO, e isso é decisão e não omissão: ela é do TEXTO. "Boa!" tem
+      // quatro caracteres e produz uma pílula estreita, que é o certo. O que não pode é a caixa
+      // ser mais estreita que o conteúdo — e disso cuida `cortado`.
+      expect(medida.opacidade, `[${quem}] o balão está transparente`).toBeGreaterThan(0);
+      expect(medida.visivel, `[${quem}] o balão está com visibility escondida`).toBe("visible");
+    }
+
+    // ── E ESTÁ NA LINHA DE QUEM FALOU, não em outra ──
+    const donoDoBalao = await convidado.locator(".placarov .balao").first()
+      .evaluate((el) => el.closest(".pl-row")?.querySelector(".pl-name")?.textContent?.trim() ?? "");
+    expect(donoDoBalao, "o balão apareceu na linha do jogador errado").toContain("Tito");
+
+    // ── E É UM SÓ: nada de duplicar o mesmo balão ──
+    expect(await convidado.locator(".placarov .balao").count(),
+      "a mesma mensagem apareceu mais de uma vez").toBe(1);
+
+    // ── A FRASE MAIS LONGA DO CATÁLOGO TAMBÉM CABE ──
+    // O teste clica no primeiro atalho do painel, que é curto. A pior largura do catálogo fechado
+    // tem 23 caracteres e não aparece por sorteio — é forçada aqui, e cobrada do mesmo jeito.
+    const largo = await convidado.locator(".placarov .balao").first().evaluate((el) => {
+      const antes = el.textContent;
+      el.textContent = "−160 com carinho 😈";
+      const r = { cortado: el.scrollWidth > el.clientWidth + 1, largura: el.getBoundingClientRect().width };
+      el.textContent = antes;
+      return r;
+    });
+    expect(largo.cortado, "a frase mais longa do catálogo é truncada no placar").toBe(false);
+
+    // ── E A LINHA NÃO MUDA DE ALTURA POR CAUSA DA MENSAGEM ──
+    // Era o outro sintoma do mesmo defeito: o balão virava uma linha implícita do grid e a linha
+    // de quem falou ficava ~20px mais alta que as outras. Comparar com as irmãs é mais forte que
+    // guardar um número: elas são a referência viva.
+    const alturas = await convidado.locator(".placarov .pl-row").evaluateAll(
+      (ns) => ns.map((n) => Math.round(n.getBoundingClientRect().height)),
+    );
+    expect(new Set(alturas).size,
+      `a linha de quem falou mudou de altura: ${alturas.join(", ")}`).toBe(1);
+
     if (process.env.KING_SHOTS) {
       const dir = process.env.KING_SHOTS;
       await anfitriao.screenshot({ path: `${dir}/social-quem-enviou.png` });

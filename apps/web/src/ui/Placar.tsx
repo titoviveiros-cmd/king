@@ -89,16 +89,18 @@ export function Placar({
                 <span className="pl-name">
                   {r.player}
                   <i className="pl-detail">{detail(b.units, bd, contract.isPositive)}</i>
+                  {/* O BALÃO MORA AQUI, na célula do nome — e não solto na linha.
+                      Solto, ele era o SÉTIMO filho de um grid de seis trilhas: caía numa linha
+                      implícita, na primeira coluna, com ~30px, e "Essa doeu" virava reticências.
+                      Absoluto direto na linha resolvia o recorte e criava outro problema: um
+                      elemento absoluto dentro de um grid com `align-items:center` tem a altura
+                      resolvida pelo alinhamento, e o Chromium a espremia a zero (medido:
+                      `clientHeight` 8 para um conteúdo de 20). Dentro da célula do nome não há
+                      grid nenhum — é uma caixa comum, e uma caixa comum se comporta. */}
+                  {mp && <BalaoSocial mensagem={mp.mensagens[r.seat]} />}
                 </span>
                 <span className={`pl-delta ${deltaClass(b.points)}`}>{fmtSigned(b.points)}</span>
                 <span className="pl-total">{fmtSigned(r.score)}</span>
-                {/* A MENSAGEM APARECE AQUI TAMBÉM, e é a correção do bug que o aparelho achou.
-                    A mensagem sempre foi entregue: o servidor difundia, o cliente recebia, o
-                    balão renderizava. Só que o balão mora nos cards da MESA, e o Placar é um
-                    overlay POR CIMA da Mesa. Quem estava no intervalo mandava, o outro recebia, e
-                    ninguém via nada — porque o balão nascia atrás da tela que os dois estavam
-                    olhando. O mesmo `mp.mensagens`, desenhado na camada certa. */}
-                {mp && <BalaoSocial mensagem={mp.mensagens[r.seat]} />}
               </div>
             );
           })}
