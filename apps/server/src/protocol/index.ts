@@ -18,8 +18,25 @@ import type { PlayerView, Seat, Trump } from "@king/engine";
 /**
  * Versão do protocolo. O cliente informa a sua no `join`; divergência é recusada na porta, e não
  * mais adiante com uma mensagem incompreensível.
+ *
+ * ══ 2 — E POR QUE ESTE NÚMERO PRECISOU MUDAR ══
+ *
+ * Ele ficou em 1 enquanto três mensagens novas de cliente entraram no contrato
+ * (`CLIENT_SET_TABLE_THEME`, `CLIENT_SET_AVATAR` e o `ready:false` de `CLIENT_READY_NEXT_HAND`).
+ * Parecia inofensivo: quem não conhece a mensagem simplesmente a ignora.
+ *
+ * NÃO É ISSO QUE ACONTECE. Em produção, o Colyseus responde a uma mensagem sem handler com
+ * `client.leave(CloseCode.WITH_ERROR)` — ele EXPULSA a conexão da sala. Foi exatamente o defeito
+ * relatado como "mesa verde impede o início da partida": o anfitrião escolhia a mesa verde, o
+ * servidor implantado não conhecia `CLIENT_SET_TABLE_THEME`, e o anfitrião era desconectado no
+ * lobby. A sala perdia o dono e a partida nunca começava. Não tinha nada a ver com verde — só
+ * acontecia ali porque a outra mesa é o padrão e ninguém precisa clicar nela.
+ *
+ * A regra que faltava, e que passa a valer: **mensagem nova no contrato = versão nova**. Assim um
+ * frontend novo contra um servidor velho é recusado NA PORTA, com mensagem legível, em vez de
+ * derrubar jogador no meio do lobby.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Motivos de recusa. Numérico para caber no `code` do `ServerError` do Colyseus. */
 export const CODIGO = {
@@ -63,6 +80,19 @@ export interface EnviarMensagemSocial {
   messageId: string;
 }
 
+/**
+ * Trocar o próprio avatar, dentro da sala.
+ *
+ * O avatar da entrada vem nas `OpcoesDeEntrada`, escolhido na Home — onde ainda não se sabe quem
+ * mais está na sala. Esta mensagem é o segundo momento: já dentro do lobby, vendo quem escolheu o
+ * quê. Muda o avatar do PRÓPRIO assento e de nenhum outro; o assento sai da sessão, nunca do
+ * payload.
+ */
+export interface DefinirAvatar {
+  /** Etiqueta do conjunto fechado `AVATARES`. Nunca imagem, nunca URL. */
+  avatar: string;
+}
+
 /** Cosmético da sala. Só o anfitrião; o servidor recusa de qualquer outro. */
 export interface DefinirTemaDaMesa {
   /** Etiqueta do conjunto fechado `TEMAS_DA_MESA`. Nunca cor, nunca CSS, nunca texto livre. */
@@ -78,6 +108,7 @@ export interface ClienteParaServidor {
   CLIENT_REMOVE_BOT: GerirBot;
   CLIENT_SOCIAL_MESSAGE: EnviarMensagemSocial;
   CLIENT_SET_TABLE_THEME: DefinirTemaDaMesa;
+  CLIENT_SET_AVATAR: DefinirAvatar;
 }
 
 // ───────────────────────── SERVIDOR → CLIENTE ─────────────────────────

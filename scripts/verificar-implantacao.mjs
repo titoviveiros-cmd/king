@@ -14,10 +14,12 @@ import { Client } from "@colyseus/sdk";
 
 const URL_WS = process.argv[2] ?? "ws://127.0.0.1:2567";
 const SALA = "king";
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 
 /** Precisa bater com apps/server/src/rooms/identidade.ts. */
-const AVATARES = ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "capivara", "sapo"];
+const AVATARES = ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "unicornio", "sapo"];
+/** Precisa bater com `TEMAS_DA_MESA`. O padrão não serve de prova: só o outro exige o handler. */
+const TEMA_NAO_PADRAO = "verde";
 /** Uma amostra de apps/server/src/rooms/social.ts — basta uma etiqueta válida e uma inválida. */
 const MENSAGEM_VALIDA = "boa";
 
@@ -108,7 +110,55 @@ try {
     falhar(`etiqueta desconhecida respondeu "${recusas[0].code}" — esperado INVALID_PAYLOAD`);
   } else ok("conjunto fechado de mensagens em vigor");
 
-  // ── 6. nenhum dado privado no estado sincronizado ─────────────────────────────────────────
+  // ── 6. AS MENSAGENS QUE O SERVIDOR PRECISA CONHECER ───────────────────────────────────────
+  //
+  // ESTE BLOCO EXISTE POR CAUSA DE UM DEFEITO REAL. Um frontend novo foi ao ar contra um servidor
+  // que não conhecia `CLIENT_SET_TABLE_THEME`. Em produção o Colyseus responde a mensagem sem
+  // handler com `client.leave(WITH_ERROR)`: ele EXPULSA quem enviou. O anfitrião escolhia a mesa
+  // verde e era desconectado do próprio lobby; a partida nunca começava, e nada nos logs dizia
+  // "mensagem desconhecida" de forma legível.
+  //
+  // O portão passa a provar, uma a uma, que cada mensagem do contrato TEM dono do outro lado. A
+  // prova de vida é a mesma das sociais: uma resposta — qualquer resposta endereçada — só existe
+  // se houver handler. Silêncio reprova.
+
+  recusas.length = 0;
+  sala.send("CLIENT_SET_TABLE_THEME", { theme: TEMA_NAO_PADRAO });
+  if (!(await ate(() => sala.state?.tableTheme === TEMA_NAO_PADRAO || recusas.length > 0, 8000))) {
+    falhar("CLIENT_SET_TABLE_THEME caiu no vazio — o servidor é anterior ao tema da mesa");
+  } else if (sala.state?.tableTheme !== TEMA_NAO_PADRAO) {
+    falhar(`tema não aplicado (respondeu "${recusas[0]?.code}") — somos o anfitrião da sala`);
+  } else ok("handler do tema da mesa presente e aplicado");
+
+  recusas.length = 0;
+  sala.send("CLIENT_SET_TABLE_THEME", { theme: "arco-iris" });
+  if (!(await ate(() => recusas.length > 0, 8000))) falhar("tema desconhecido não foi recusado");
+  else if (recusas[0].code !== "INVALID_PAYLOAD") {
+    falhar(`tema desconhecido respondeu "${recusas[0].code}" — esperado INVALID_PAYLOAD`);
+  } else ok("conjunto fechado de temas em vigor");
+
+  // O UNICÓRNIO É O CANÁRIO DA IDENTIDADE. Ele foi o último avatar a entrar no catálogo, e foi
+  // exatamente ele que apareceu como Leão num teste real: o servidor no ar não conhecia a
+  // etiqueta e `avatarValido` a trocou pelo padrão, em silêncio, do jeito que um conjunto fechado
+  // deve mesmo tratar lixo. Se este servidor devolver "leao" aqui, ele é velho.
+  recusas.length = 0;
+  sala.send("CLIENT_SET_AVATAR", { avatar: "unicornio" });
+  if (!(await ate(() => sala.state?.seats?.[0]?.avatar === "unicornio" || recusas.length > 0, 8000))) {
+    falhar("CLIENT_SET_AVATAR caiu no vazio — o servidor é anterior à troca de avatar na sala");
+  } else if (sala.state?.seats?.[0]?.avatar !== "unicornio") {
+    falhar(`unicórnio recusado ("${recusas[0]?.code}") — nenhum outro assento humano o ocupa`);
+  } else ok("catálogo com unicórnio e troca de avatar em vigor");
+
+  // `ready:false` foi acrescentado a uma mensagem que JÁ EXISTIA, então o servidor velho não
+  // expulsa ninguém: ele simplesmente ignora o campo e o "desmarcar" não desmarca nada. Sem
+  // partida em curso a resposta certa é a recusa da autoridade — e recusa é resposta.
+  recusas.length = 0;
+  sala.send("CLIENT_READY_NEXT_HAND", { actionId: "verificacao", ready: false });
+  if (!(await ate(() => recusas.length > 0, 8000))) {
+    falhar("CLIENT_READY_NEXT_HAND com ready:false caiu no vazio");
+  } else ok(`ready reversível reconhecido (recusa "${recusas[0].code}" fora de partida)`);
+
+  // ── 7. nenhum dado privado no estado sincronizado ─────────────────────────────────────────
   const bruto = JSON.stringify(sala.state?.toJSON?.() ?? sala.state ?? {});
   if (/"hands"|"deck"|"seed"|"recoveryToken"/.test(bruto)) {
     falhar("o estado sincronizado contém campo privado — VAZAMENTO");
