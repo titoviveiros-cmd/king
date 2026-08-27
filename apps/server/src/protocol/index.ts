@@ -35,8 +35,19 @@ import type { PlayerView, Seat, Trump } from "@king/engine";
  * A regra que faltava, e que passa a valer: **mensagem nova no contrato = versão nova**. Assim um
  * frontend novo contra um servidor velho é recusado NA PORTA, com mensagem legível, em vez de
  * derrubar jogador no meio do lobby.
+ *
+ * ══ 3 — IDENTIDADE PENDENTE ══
+ *
+ * O campo `avatar` de um assento humano passou a admitir **string vazia**, com significado novo:
+ * "esta pessoa ainda não escolheu". Antes, um pedido ocupado virava o próximo bicho livre e a
+ * pessoa entrava com uma identidade que não pediu.
+ *
+ * Nenhuma mensagem nova entrou — mas um cliente da versão 2 lê o vazio e desenha o avatar padrão,
+ * ou seja, mostra um bicho SELECIONADO onde não houve seleção. É exatamente a mentira que a
+ * mudança existe para eliminar, então o contrato mudou de verdade e a versão acompanha. Junto vem
+ * a recusa `AVATAR_PENDING` em `CLIENT_SET_READY`.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** Motivos de recusa. Numérico para caber no `code` do `ServerError` do Colyseus. */
 export const CODIGO = {

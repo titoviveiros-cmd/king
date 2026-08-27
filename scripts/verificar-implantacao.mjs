@@ -14,7 +14,7 @@ import { Client } from "@colyseus/sdk";
 
 const URL_WS = process.argv[2] ?? "ws://127.0.0.1:2567";
 const SALA = "king";
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 
 /** Precisa bater com apps/server/src/rooms/identidade.ts. */
 const AVATARES = ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "unicornio", "sapo"];
@@ -221,18 +221,44 @@ try {
   } else ok(`segundo humano sentado (assento ${b.boasVindas.you.seat})`);
 
   const assentoB = b.boasVindas?.you?.seat ?? 2;
-  if (!(await ate(() => assentosDe(b).length === 4 && avatarNo(b, assentoB), 10_000))) {
+  // O SINAL DE QUE SINCRONIZOU É O ASSENTO ESTAR OCUPADO, não o avatar existir: desde a
+  // identidade pendente, avatar vazio é um estado legítimo, e esperá-lo preenchido era esperar
+  // por algo que a regra nova promete NÃO acontecer.
+  if (!(await ate(() => assentosDe(b).length === 4 && assentosDe(b)[assentoB]?.playerId, 10_000))) {
     falhar("o estado da sala não sincronizou para o segundo cliente");
   } else ok("os dois clientes veem a mesma sala");
 
-  // EXCLUSIVIDADE NA ENTRADA. Ela pediu o unicórnio, que o assento 0 já tem. Entrar não pode ser
-  // recusado por causa de um desenho — mas sair com o mesmo desenho também não pode acontecer.
+  // IDENTIDADE PENDENTE. Ela pediu o unicórnio, que o assento 0 já tem. Entrar não pode ser
+  // recusado por causa de um desenho — mas escolher POR ela também não. O assento fica vazio até
+  // ela decidir, e vazio é o único valor que não parece uma escolha.
   const bichoDela = avatarNo(b, assentoB);
   if (bichoDela === "unicornio") {
     falhar("DOIS humanos com unicórnio — a exclusividade não vale na entrada");
-  } else if (!AVATARES.includes(bichoDela)) {
-    falhar(`o segundo humano entrou com avatar fora do catálogo ("${bichoDela}")`);
-  } else ok(`exclusividade na entrada: o segundo virou "${bichoDela}", não unicórnio`);
+  } else if (bichoDela !== "") {
+    falhar(`o servidor escolheu "${bichoDela}" pela pessoa em vez de deixar pendente`);
+  } else ok("identidade pendente: o servidor não escolheu um substituto");
+
+  // E PENDENTE NÃO FICA PRONTA. Enquanto não escolher, ela não pode dizer "pode começar por mim".
+  b.recusas.length = 0;
+  segunda.send("CLIENT_SET_READY", { ready: true });
+  if (!(await ate(() => b.recusas.length > 0, 8000))) {
+    falhar("pronto com identidade pendente não foi recusado");
+  } else if (b.recusas.at(-1).code !== "AVATAR_PENDING") {
+    falhar(`pronto pendente respondeu "${b.recusas.at(-1).code}" — esperado AVATAR_PENDING`);
+  } else ok("quem não escolheu avatar não consegue ficar pronto");
+
+  // E A MESA NÃO COMEÇA ENQUANTO HOUVER PENDENTE — nem com o anfitrião pronto e a mesa cheia.
+  // Este é o portão que impede uma partida nascer com um assento sem dono de verdade.
+  sala.send("CLIENT_ADD_BOT", { seat: 3 });
+  if (!(await ate(() => assentosDe(a).filter((x) => x.playerId !== "").length === 4, 10_000))) {
+    falhar("a mesa não completou quatro lugares");
+  } else ok("mesa completa: 2 humanos + 2 bots");
+
+  sala.send("CLIENT_SET_READY", { ready: true });
+  await espera(600);
+  if (sala.state?.status !== "lobby") {
+    falhar("a partida COMEÇOU com um humano ainda sem avatar escolhido");
+  } else ok("a partida não começa enquanto houver identidade pendente");
 
   // EXCLUSIVIDADE NA TROCA. Agora ela pede explicitamente o bicho do outro: aqui a resposta certa
   // é RECUSAR, não substituir em silêncio.
@@ -252,13 +278,7 @@ try {
   segunda.send("CLIENT_SET_AVATAR", { avatar: livre });
   if (!(await ate(() => avatarNo(b, assentoB) === livre && avatarNo(a, assentoB) === livre, 8000))) {
     falhar(`a troca para "${livre}" não chegou aos dois clientes`);
-  } else ok(`troca de avatar propagada aos dois aparelhos ("${livre}")`);
-
-  // A MESA COMPLETA: o quarto lugar vira bot, e a composição fica 2 humanos + 2 bots.
-  sala.send("CLIENT_ADD_BOT", { seat: 3 });
-  if (!(await ate(() => assentosDe(a).filter((s) => s.playerId !== "").length === 4, 10_000))) {
-    falhar("a mesa não completou quatro lugares");
-  } else ok("mesa completa: 2 humanos + 2 bots");
+  } else ok(`escolha consciente aceita e propagada aos dois aparelhos ("${livre}")`);
 
   // READY É TOGGLE, e os dois aparelhos precisam concordar em cada passo.
   const prontoNoOutro = () => assentosDe(b)[0]?.ready === true;

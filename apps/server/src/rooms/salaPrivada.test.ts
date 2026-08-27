@@ -11,6 +11,7 @@ import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import { cardId, type Seat } from "@king/engine";
 import { configurarTempos, restaurarTempos } from "../match/tempos.js";
 import { SALA_KING, servidor } from "../app.js";
+import { AVATARES } from "./identidade.js";
 import { PROTOCOL_VERSION, type AcaoRecusada, type AtualizacaoDeEstado, type BoasVindas } from "../protocol/index.js";
 import { ASSENTOS } from "./KingRoom.js";
 import {
@@ -30,7 +31,7 @@ beforeAll(async () => {
 });
 afterAll(() => restaurarTempos());
 afterAll(async () => { await colyseus.shutdown(); });
-beforeEach(async () => { await colyseus.cleanup(); });
+beforeEach(async () => { proximoAvatar = 0; await colyseus.cleanup(); });
 
 async function ate(cond: () => boolean, ms = 8000, rotulo = "?"): Promise<void> {
   const fim = Date.now() + ms;
@@ -69,7 +70,21 @@ function escutar(sdk: SdkRoom): Cliente {
   return c;
 }
 
-const opcoes = (nick: string) => ({ protocolVersion: PROTOCOL_VERSION, nick });
+/**
+ * UM BICHO DIFERENTE PARA CADA HUMANO, por padrão.
+ *
+ * Desde que avatar ocupado virou identidade PENDENTE, dois humanos pedindo o mesmo avatar não
+ * começam partida nenhuma — e é essa a regra, não um defeito. Um cliente de verdade resolve isso
+ * no lobby; um teste que não resolve fica esperando um "iniciou" que nunca vem.
+ *
+ * O contador zera a cada teste, então a distribuição é determinística dentro de cada um. Quem
+ * quer exercitar o conflito passa o avatar explicitamente.
+ */
+let proximoAvatar = 0;
+const avatarDeTeste = () => AVATARES[proximoAvatar++ % AVATARES.length];
+
+const opcoes = (nick: string) =>
+  ({ protocolVersion: PROTOCOL_VERSION, nick, avatar: avatarDeTeste() });
 
 /** Cria a sala pelo matchmaking e devolve o cliente que a criou + o código. */
 async function criarSala(nick = "P0"): Promise<{ dono: Cliente; codigo: string }> {

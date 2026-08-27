@@ -209,6 +209,18 @@ test("no lobby, o avatar de outro humano aparece como Em uso", async ({ browser 
     // O SELETOR NÃO OCUPA ALTURA ENQUANTO FECHADO — foi a primeira tentativa, e ela derrubou o
     // quarto lugar para fora da tela. O caminho é o próprio círculo do assento.
     await expect(convidado.locator(".sl-avop")).toHaveCount(0, { timeout: 20_000 });
+
+    // O GATILHO PRECISA PARECER UM GATILHO. Ele era um glifo de 9px num badge de 13px e no
+    // aparelho lia-se como sujeira na borda do círculo. Agora é um botão: badge de 24px, alvo de
+    // toque de 44px no conjunto. O alvo é medido, não olhado.
+    const lapis = await convidado.locator(".sl-lugar.voce .sl-av-troca").boundingBox();
+    expect(Math.round(Math.min(lapis!.width, lapis!.height)),
+      "o gatilho de trocar avatar é menor que o piso de toque").toBeGreaterThanOrEqual(44);
+    const badge = await convidado.locator(".sl-lugar.voce .sl-av-troca i").boundingBox();
+    expect(Math.round(Math.min(badge!.width, badge!.height)),
+      "o badge do lápis continua pequeno demais para comunicar").toBeGreaterThanOrEqual(20);
+    if (PASTA) await convidado.screenshot({ path: `${PASTA}/lobby-lapis-editar.png` });
+
     await convidado.locator(".sl-lugar.voce .sl-av-troca").click();
     await expect(convidado.locator(".sl-avop")).toHaveCount(8, { timeout: 20_000 });
 

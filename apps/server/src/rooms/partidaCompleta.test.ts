@@ -21,6 +21,7 @@ import {
 } from "@king/engine";
 import { configurarTempos, restaurarTempos } from "../match/tempos.js";
 import { SALA_KING, servidor } from "../app.js";
+import { AVATARES } from "./identidade.js";
 import {
   PROTOCOL_VERSION,
   type AcaoRecusada, type AtualizacaoDeEstado, type EstadoDeConsenso,
@@ -39,6 +40,14 @@ let colyseus: ColyseusTestServer;
 // Estes testes exercitam PROTOCOLO, não prazos. Sem encurtar o piso do Placar e os timeouts,
 // cada avanço de mão custaria 8s reais e um turno lento viraria ação automática no meio do
 // roteiro. Os prazos em si têm suíte própria (timeout.test.ts).
+/**
+ * UM BICHO DIFERENTE PARA CADA ASSENTO.
+ *
+ * Desde que avatar ocupado virou identidade PENDENTE, quatro humanos pedindo o mesmo avatar não
+ * começam partida nenhuma — e é essa a regra, não um defeito. Um cliente de verdade resolve o
+ * conflito no lobby; aqui basta cada assento pedir o seu.
+ */
+const avatarDoAssento = (seat: number) => AVATARES[seat % AVATARES.length];
 beforeAll(async () => {
   configurarTempos({ pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000, turno: 3_600_000, trunfo: 3_600_000, primeiraJogadaExtra: 0 });
   colyseus = await boot(servidor);
@@ -81,7 +90,7 @@ async function salaCom4(): Promise<{ room: KingRoom; clientes: Sintetico[] }> {
   const room = await colyseus.createRoom<KingRoom>(SALA_KING);
   const clientes: Sintetico[] = [];
   for (const seat of SEATS) {
-    const sdk = await colyseus.connectTo(room, { protocolVersion: PROTOCOL_VERSION, nick: `P${seat}` });
+    const sdk = await colyseus.connectTo(room, { protocolVersion: PROTOCOL_VERSION, nick: `P${seat}`, avatar: avatarDoAssento(seat) });
     const c: Sintetico = { seat, sdk: sdk as never, view: null, versao: 0, rejeicoes: [], consensos: [], versoesVistas: [] };
     sdk.onMessage("STATE_UPDATE", (m: AtualizacaoDeEstado) => {
       c.view = m.view; c.versao = m.stateVersion; c.versoesVistas.push(m.stateVersion);

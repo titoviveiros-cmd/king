@@ -188,3 +188,52 @@ describe("o gatilho do seletor", () => {
     expect(root.querySelectorAll(".sl-av-troca")).toHaveLength(0);
   });
 });
+
+/**
+ * IDENTIDADE PENDENTE, no desenho.
+ *
+ * O servidor deixa o avatar VAZIO quando o pedido está ocupado, e o lobby precisa mostrar isso
+ * como ausência de escolha — não como um bicho. Um animal aqui pareceria seleção válida, que é
+ * exatamente a mentira que a regra existe para eliminar.
+ */
+describe("avatar pendente no lobby", () => {
+  const comPendente = (eu: Seat = 1) => render(
+    [assento(0, { avatar: "sapo" }), assento(1, { avatar: "" }), assento(2), assento(3)], eu,
+  );
+
+  it("o círculo de quem não escolheu é NEUTRO, nunca um animal", () => {
+    const root = comPendente();
+    const circulo = root.querySelector(".sl-lugar.s1 .sl-av")!;
+    expect(circulo.text.trim()).toBe("?");
+    expect(circulo.classNames).toContain("pendente");
+    expect(circulo.getAttribute("aria-label")).toContain("não escolhido");
+    // e nenhum glifo do catálogo foi desenhado ali
+    for (const a of AVATARES) expect(circulo.text).not.toContain(desenhoDoAvatar(a).glifo);
+  });
+
+  it("o lugar inteiro fica marcado como pendente", () => {
+    expect(comPendente().querySelector(".sl-lugar.s1")!.classNames).toContain("pendente");
+  });
+
+  it("quem está pendente é avisado, com o motivo e o que fazer", () => {
+    const aviso = comPendente().querySelector(".sl-pendente");
+    expect(aviso).toBeTruthy();
+    expect(aviso!.text).toContain("já está em uso");
+    expect(aviso!.text).toContain("Escolha outro");
+  });
+
+  it("e NÃO consegue ficar pronto: o botão diz o que falta", () => {
+    const botoes = comPendente().querySelectorAll(".row .btn");
+    const pronto = botoes.find((b) => b.text.includes("Escolha um avatar"));
+    expect(pronto, "o botão não avisou o que falta").toBeTruthy();
+    expect(pronto!.getAttribute("disabled")).not.toBeUndefined();
+  });
+
+  it("quem JÁ escolheu não vê nada disso", () => {
+    const root = render([assento(0, { avatar: "sapo" }), assento(1, { avatar: "panda" }),
+      assento(2), assento(3)], 1);
+    expect(root.querySelectorAll(".sl-pendente")).toHaveLength(0);
+    expect(root.querySelectorAll(".sl-lugar.pendente")).toHaveLength(0);
+    expect(root.querySelectorAll(".row .btn").find((b) => b.text.includes("Estou pronto"))).toBeTruthy();
+  });
+});

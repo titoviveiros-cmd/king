@@ -13,7 +13,7 @@
 //
 // O estado desenhado aqui é o `Schema` que o Colyseus sincroniza sozinho — assentos, apelidos,
 // quem está conectado, quem é bot, quem é anfitrião, quem está pronto.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Seat } from "@king/engine";
 import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
@@ -40,7 +40,7 @@ const LUGARES: Seat[] = [0, 1, 2, 3];
 const MIN_HUMANOS = 2;
 
 export function Sala({
-  sala, conexao, erro, eu, souAnfitriao, onPronto, onEscolherMesa, onEscolherAvatar,
+  sala, conexao, erro, eu, souAnfitriao, onPronto, onEscolherMesa, onEscolherAvatar, recusa,
   onAdicionarBot, onRemoverBot, onSair, onOpenAudio,
 }: {
   sala: EstadoDaSalaLido | null;
@@ -53,6 +53,15 @@ export function Sala({
   onEscolherMesa: (tema: string) => void;
   /** Troca o avatar do próprio assento. Quem arbitra a exclusividade é o servidor. */
   onEscolherAvatar: (avatar: string) => void;
+  /**
+   * A última recusa do servidor.
+   *
+   * Ela existia e só chegava à Mesa. No lobby, quem perdesse a disputa por um avatar não via
+   * nada: o círculo simplesmente não mudava, e a pessoa ficava sem saber se o toque não pegou ou
+   * se alguém foi mais rápido. `AVATAR_TAKEN` tem uma frase; ela precisa aparecer onde a escolha
+   * acontece.
+   */
+  recusa?: { mensagem: string; nonce: number } | null;
   onAdicionarBot: (seat: Seat) => void;
   onRemoverBot: (seat: Seat) => void;
   onSair: () => void;
@@ -78,6 +87,22 @@ export function Sala({
    * a mensagem chegando lá cabe a escolha de outra pessoa.
    */
   const emUso = avataresEmUso(assentos, eu);
+  /**
+   * IDENTIDADE PENDENTE — o servidor não escolheu por mim.
+   *
+   * Entrar pedindo um bicho que outra pessoa já usa não derruba ninguém na porta, mas também não
+   * vira "toma esse outro". O assento fica com o avatar VAZIO até haver uma escolha consciente, e
+   * é isso que este booleano lê. Ele não é um estado local que o cliente inventa: é o que o
+   * estado sincronizado da sala está dizendo.
+   */
+  const pendente = !!meu && !meu.bot && meu.avatar === "";
+  // O seletor ABRE SOZINHO quando falta escolher. Avisar sem oferecer o caminho seria deixar a
+  // pessoa procurando onde resolver o que acabou de ser dito que está pendente.
+  useEffect(() => { if (pendente) setAbrindoAvatar(true); }, [pendente]);
+
+  const [recusaVisivel, setRecusaVisivel] = useState<string | null>(null);
+  useEffect(() => { setRecusaVisivel(recusa?.mensagem ?? null); }, [recusa?.nonce, recusa?.mensagem]);
+  useEffect(() => { setRecusaVisivel(null); }, [meu?.avatar]);
 
   const copiar = () => {
     sfxTap();
@@ -112,7 +137,7 @@ export function Sala({
           return (
             <div
               key={i}
-              className={`sl-lugar s${i}${vazio ? " vago" : ""}${bot ? " robo" : ""}${a?.ready && !bot ? " pronto" : ""}${a && !vazio && !bot && !a.connected ? " ausente" : ""}${i === eu ? " voce" : ""}`}
+              className={`sl-lugar s${i}${vazio ? " vago" : ""}${bot ? " robo" : ""}${a?.ready && !bot ? " pronto" : ""}${a && !vazio && !bot && !a.connected ? " ausente" : ""}${i === eu ? " voce" : ""}${!vazio && !bot && a.avatar === "" ? " pendente" : ""}`}
             >
               {/* O PRÓPRIO CÍRCULO É O BOTÃO. Ele já está na tela, já mostra o bicho atual e
                   já pertence a quem vai trocar — não precisa de faixa nova.
@@ -177,6 +202,19 @@ export function Sala({
         )}
       </div>
 
+      {/* O AVISO, com o motivo e o que fazer. Ele fica acima da linha de ações, no caminho do
+          olho de quem acabou de sentar, e some sozinho quando a escolha é aceita pelo servidor. */}
+      {pendente && (
+        <div className="sl-pendente" role="alert">
+          Este avatar já está em uso. Escolha outro para continuar.
+        </div>
+      )}
+      {/* A recusa some sozinha assim que o avatar do assento muda: ela falava do pedido anterior,
+          e um aviso que sobrevive ao próprio motivo vira ruído. */}
+      {recusaVisivel && (
+        <div className="sl-pendente recusa" role="alert">{recusaVisivel}</div>
+      )}
+
       {erro && <div className="sl-erro" role="alert">{erro}</div>}
 
       <div className="row">
@@ -209,12 +247,15 @@ export function Sala({
           {!souAnfitriao && <span className="sl-mesa-nota">quem escolhe é o anfitrião</span>}
         </div>
 
+        {/* SEM AVATAR, SEM PRONTO. O `disabled` aqui é apresentação — quem recusa de verdade é o
+            servidor, com `AVATAR_PENDING` —, mas oferecer um botão que vai ser recusado é pior
+            que não oferecer. O rótulo diz o que falta, em vez de só ficar cinza. */}
         <button
           className={`btn ${pronto ? "violet" : "gold"}`}
-          disabled={!meu || conexao === "erro" || conexao === "encerrada"}
+          disabled={!meu || pendente || conexao === "erro" || conexao === "encerrada"}
           onClick={() => onPronto(!pronto)}
         >
-          {pronto ? "✓ Pronto — cancelar" : "Estou pronto"}
+          {pendente ? "Escolha um avatar" : pronto ? "✓ Pronto — cancelar" : "Estou pronto"}
         </button>
         <button className="btn ghost" onClick={onSair}>Sair</button>
         <FullscreenButton />
@@ -291,6 +332,9 @@ export function avataresEmUso(assentos: readonly AssentoLido[], eu: Seat | null)
 function Insignia({ vazio, bot, avatar }: { vazio: boolean; bot: boolean; avatar?: string }) {
   if (vazio) return <span className="sl-av" aria-label="lugar vago">+</span>;
   if (bot) return <span className="sl-av" aria-label="bot">🤖</span>;
+  // PENDENTE NÃO É UM BICHO. Desenhar o padrão aqui mostraria um animal com cara de escolhido, que
+  // é exatamente o que a regra nova existe para evitar. Interrogação: neutra e sem dono.
+  if (!avatar) return <span className="sl-av pendente" aria-label="avatar ainda não escolhido">?</span>;
   const d = desenhoDoAvatar(avatar);
   return <span className="sl-av" aria-label={d.rotulo}>{d.glifo}</span>;
 }

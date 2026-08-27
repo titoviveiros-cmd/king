@@ -7,10 +7,20 @@ import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import type { Card, Rank, Suit } from "@king/engine";
 import { configurarTempos, restaurarTempos } from "../match/tempos.js";
 import { SALA_KING, servidor } from "../app.js";
+import { AVATARES } from "./identidade.js";
 import { CODIGO, PROTOCOL_VERSION, type BoasVindas, type EventoDeJogador } from "../protocol/index.js";
 import { ASSENTOS, type KingRoom } from "./KingRoom.js";
 
-const entrada = (nick?: string) => ({ protocolVersion: PROTOCOL_VERSION, nick });
+/**
+ * Cada entrada pede um bicho diferente.
+ *
+ * Avatar ocupado virou identidade PENDENTE, e quem está pendente não fica pronto — a recusa é
+ * `AVATAR_PENDING`. Sem isto, o segundo "P1" entraria sem avatar e o `CLIENT_SET_READY` deste
+ * arquivo passaria a medir a recusa em vez do que ele quer medir.
+ */
+let proximoAvatar = 0;
+const entrada = (nick?: string) =>
+  ({ protocolVersion: PROTOCOL_VERSION, nick, avatar: AVATARES[proximoAvatar++ % AVATARES.length] });
 
 let colyseus: ColyseusTestServer;
 

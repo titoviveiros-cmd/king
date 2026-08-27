@@ -21,8 +21,7 @@
 import { CloseCode, Room, ServerError, generateId, type Client } from "colyseus";
 import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import {
-  AVATAR_PADRAO, AVATARES, TEMA_PADRAO, TEMAS_DA_MESA, avatarDeBot, avatarLivre, avatarValido,
-  nomeDeBotLivre,
+  AVATAR_PADRAO, AVATARES, TEMA_PADRAO, TEMAS_DA_MESA, avatarDeBot, avatarValido, nomeDeBotLivre,
 } from "./identidade.js";
 import { DURACAO_MS, RitmoSocial, mensagemValida } from "./social.js";
 import { ArraySchema, schema } from "@colyseus/schema";
@@ -123,6 +122,14 @@ export interface DadosDaConexao {
 type ClienteDoKing = Client<{ userData: DadosDaConexao }>;
 
 const ASSENTO_VAZIO = "";
+/**
+ * O avatar de quem ainda não escolheu.
+ *
+ * String vazia porque é a ausência de escolha, e não uma escolha a mais: qualquer etiqueta real
+ * aqui apareceria na tela como um bicho selecionado, que é exatamente a mentira que se quer
+ * evitar. O cliente reconhece o vazio e desenha um estado neutro.
+ */
+const AVATAR_PENDENTE = "";
 
 export class KingRoom extends Room<{
   state: EstadoPublicoDaSala;
@@ -221,6 +228,12 @@ export class KingRoom extends Room<{
       if (!dados) return this.#recusar(client, "", "NOT_IN_ROOM", "Você não está sentado");
       if (this.state.status !== "lobby") {
         return this.#recusar(client, "", "WRONG_PHASE", "A partida já começou");
+      }
+      // PRONTO EXIGE IDENTIDADE. Ficar pronto é dizer "pode começar por mim", e quem ainda não
+      // escolheu o próprio bicho não tem o que dizer. Esconder o botão no cliente é apresentação;
+      // recusar aqui é a regra.
+      if (this.state.seats[dados.seat].avatar === AVATAR_PENDENTE) {
+        return this.#recusar(client, "", "AVATAR_PENDING", "Escolha um avatar para continuar");
       }
       this.state.seats[dados.seat].ready = !!msg?.ready;
       this.#iniciarSePronto();
@@ -427,11 +440,26 @@ export class KingRoom extends Room<{
    * Idempotente por construção: `autoridade.iniciar` recusa a segunda chamada, e o `status`
    * deixa de ser "lobby" na primeira.
    */
+  /**
+   * Alguém sentado, humano, e ainda sem avatar confirmado.
+   *
+   * Bot nunca entra nesta conta: o avatar dele é do servidor e nasce resolvido.
+   */
+  #identidadePendente(): boolean {
+    return this.state.seats.some(
+      (a) => a.playerId !== ASSENTO_VAZIO && !a.bot && a.avatar === AVATAR_PENDENTE,
+    );
+  }
+
   #iniciarSePronto(): void {
     if (this.state.status !== "lobby") return;
     if (this.state.seats.some((a) => a.playerId === ASSENTO_VAZIO)) return;
     if (this.#humanos() < MIN_HUMANOS) return;
     if (this.state.seats.some((a) => !a.bot && !a.ready)) return;
+    // NINGUÉM COMEÇA COM UM ASSENTO SEM DONO DE VERDADE. A partida distribui cartas para quatro
+    // identidades; começar com uma delas em branco produziria um jogador que a mesa não sabe
+    // nomear. O anfitrião também não escapa disso: a regra é do servidor, não do botão.
+    if (this.#identidadePendente()) return;
 
     const nomes = this.state.seats.map((a) => a.nick);
     // A SEMENTE é do servidor. Nunca do cliente nem das opções da sala: quem escolhe a semente
@@ -729,12 +757,19 @@ export class KingRoom extends Room<{
     assento.ready = false;
     assento.bot = false;
     assento.host = dados.playerId === this.#host;
-    // O AVATAR PEDIDO, se estiver livre. A escolha é feita na Home, antes de saber quem já está
-    // na sala — então a colisão não é erro de ninguém, é consequência do momento em que se escolhe.
-    // Recusar a entrada por causa disso seria desproporcional: entra, com o bicho mais próximo
-    // disponível, e o seletor da sala fica ali para trocar sabendo o que está livre.
-    assento.avatar = avatarLivre(avatarValido(options?.avatar), this.#avataresEmUso(seat))
-      ?? avatarValido(options?.avatar);
+    // O AVATAR PEDIDO — OU NENHUM.
+    //
+    // Antes, um pedido ocupado virava "o próximo livre" e a pessoa entrava com um bicho que não
+    // escolheu. Parecia gentil e não era: quem salvou o Sapo no aparelho entrava como Coruja sem
+    // ter pedido, e a única forma de perceber era reparar no próprio card. O avatar é identidade,
+    // e identidade não se atribui em silêncio.
+    //
+    // Agora, ocupado significa PENDENTE: o assento fica com `AVATAR_PENDENTE` (string vazia), o
+    // cliente é avisado, e a pessoa escolhe conscientemente. Enquanto isso ela senta, vê a sala e
+    // conversa — só não fica pronta nem deixa a partida começar. Ver `#identidadePendente`.
+    const pedido = avatarValido(options?.avatar);
+    const ocupado = this.#avataresEmUso(seat).includes(pedido);
+    assento.avatar = ocupado ? AVATAR_PENDENTE : pedido;
 
     enviar(client, "SERVER_WELCOME", {
       protocolVersion: PROTOCOL_VERSION,

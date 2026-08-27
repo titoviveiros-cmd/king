@@ -13,6 +13,7 @@ import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import { cardId, legalCardsFor, type Card, type PlayerView, type Rank, type Seat, type Suit } from "@king/engine";
 import { configurarTempos, restaurarTempos, TEMPOS, TEMPOS_PADRAO } from "../match/tempos.js";
 import { SALA_KING, servidor } from "../app.js";
+import { AVATARES } from "./identidade.js";
 import {
   PROTOCOL_VERSION,
   type AcaoAutomatica, type AcaoRecusada, type AtualizacaoDeEstado,
@@ -36,7 +37,7 @@ const PARADO = {
 let colyseus: ColyseusTestServer;
 beforeAll(async () => { colyseus = await boot(servidor); });
 afterAll(async () => { await colyseus.shutdown(); });
-beforeEach(async () => { configurarTempos(PARADO); await colyseus.cleanup(); });
+beforeEach(async () => { proximoAvatar = 0; configurarTempos(PARADO); await colyseus.cleanup(); });
 afterEach(() => restaurarTempos());
 
 async function ate(cond: () => boolean, ms = 10_000, rotulo = "?"): Promise<void> {
@@ -89,7 +90,21 @@ function escutar(sdk: SdkRoom, base?: Cliente): Cliente {
   return c;
 }
 
-const opcoes = (nick: string) => ({ protocolVersion: PROTOCOL_VERSION, nick });
+/**
+ * UM BICHO DIFERENTE PARA CADA HUMANO, por padrão.
+ *
+ * Desde que avatar ocupado virou identidade PENDENTE, dois humanos pedindo o mesmo avatar não
+ * começam partida nenhuma — e é essa a regra, não um defeito. Um cliente de verdade resolve isso
+ * no lobby; um teste que não resolve fica esperando um "iniciou" que nunca vem.
+ *
+ * O contador zera a cada teste, então a distribuição é determinística dentro de cada um. Quem
+ * quer exercitar o conflito passa o avatar explicitamente.
+ */
+let proximoAvatar = 0;
+const avatarDeTeste = () => AVATARES[proximoAvatar++ % AVATARES.length];
+
+const opcoes = (nick: string) =>
+  ({ protocolVersion: PROTOCOL_VERSION, nick, avatar: avatarDeTeste() });
 
 async function salaCheia(): Promise<{ room: KingRoom; todos: Cliente[] }> {
   const dono = escutar((await colyseus.sdk.create(SALA_KING, opcoes("P0"))) as unknown as SdkRoom);

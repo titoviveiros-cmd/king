@@ -37,7 +37,7 @@ beforeAll(async () => {
 });
 afterAll(() => restaurarTempos());
 afterAll(async () => { await colyseus.shutdown(); });
-beforeEach(async () => { await colyseus.cleanup(); });
+beforeEach(async () => { proximoAvatar = 0; await colyseus.cleanup(); });
 
 async function ate(cond: () => boolean, ms = 10_000, rotulo = "?"): Promise<void> {
   const fim = Date.now() + ms;
@@ -90,7 +90,21 @@ function escutar(sdk: SdkRoom): Cliente {
   return c;
 }
 
-const opcoes = (nick: string, avatar?: unknown) => ({ protocolVersion: PROTOCOL_VERSION, nick, avatar });
+/**
+ * UM BICHO DIFERENTE PARA CADA HUMANO, por padrão.
+ *
+ * Desde que avatar ocupado virou identidade PENDENTE, dois humanos pedindo o mesmo avatar não
+ * começam partida nenhuma — e é essa a regra, não um defeito. Um cliente de verdade resolve isso
+ * no lobby; um teste que não resolve fica esperando um "iniciou" que nunca vem.
+ *
+ * O contador zera a cada teste, então a distribuição é determinística dentro de cada um. Quem
+ * quer exercitar o conflito passa o avatar explicitamente.
+ */
+let proximoAvatar = 0;
+const avatarDeTeste = () => AVATARES[proximoAvatar++ % AVATARES.length];
+
+const opcoes = (nick: string, avatar?: unknown) =>
+  ({ protocolVersion: PROTOCOL_VERSION, nick, avatar: avatar ?? avatarDeTeste() });
 
 async function criarSala(nick = "Anfitriao", avatar?: unknown): Promise<{ dono: Cliente; codigo: string }> {
   const sdk = (await colyseus.sdk.create(SALA_KING, opcoes(nick, avatar))) as unknown as SdkRoom;
@@ -635,29 +649,29 @@ describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
     const vitor = await entrar(codigo, "Vitor", 42);
     await ate(() => ocupados(dono) === 3, 8000, "tres sentados");
 
-    // Os três lixos viram o PADRÃO — e, a partir da regra de exclusividade, dois deles não podem
-    // FICAR no padrão: quem chega depois recebe o próximo bicho livre. O que se garante aqui é o
-    // que sempre importou (nada de HTML, URL ou número chega à tela de ninguém) mais o que passou
-    // a valer: três humanos, três desenhos.
+    // Os três lixos viram o PADRÃO, e o padrão só cabe uma vez. Quem chega depois NÃO recebe um
+    // substituto escolhido pelo servidor: fica pendente, com o campo vazio, até escolher. O que
+    // se garante aqui é o que sempre importou (nada de HTML, URL ou número chega à tela de
+    // ninguém) mais o que passou a valer: ninguém ganha identidade que não pediu.
     const tres = assentosDe(dono).slice(0, 3);
     expect(tres[0].avatar).toBe(AVATAR_PADRAO);
-    for (const a of tres) expect(AVATARES as readonly string[]).toContain(a.avatar);
-    expect(new Set(tres.map((a) => a.avatar)).size).toBe(3);
+    expect(tres[1].avatar).toBe("");
+    expect(tres[2].avatar).toBe("");
+    expect(AVATARES as readonly string[]).toContain(tres[0].avatar);
     expect(raiza.boasVindas).not.toBeNull();
     expect(vitor.boasVindas).not.toBeNull();
   });
 
-  it("quem entra sem escolher fica com um avatar válido — nunca com o campo vazio", async () => {
-    const { dono, codigo } = await criarSala("Tito");
-    await entrar(codigo, "Raiza");
+  it("quem entra pedindo o mesmo bicho fica PENDENTE, não recebe um substituto", async () => {
+    const { dono, codigo } = await criarSala("Tito", AVATAR_PADRAO);
+    await entrar(codigo, "Raiza", AVATAR_PADRAO);
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
     const dois = assentosDe(dono).slice(0, 2);
-    // O primeiro fica com o padrão. O segundo NÃO pode ficar: dois humanos com o mesmo bicho é
-    // exatamente o que a regra de exclusividade existe para impedir, e não escolher não é
-    // desculpa para virar cópia de quem já estava lá.
+    // O primeiro fica com o que pediu. O segundo fica com NADA — e "nada" é o único valor que não
+    // parece uma escolha. Escolher por ele seria dar identidade a quem não pediu identidade
+    // nenhuma, que é o defeito que esta regra existe para eliminar.
     expect(dois[0].avatar).toBe(AVATAR_PADRAO);
-    expect(dois[1].avatar).not.toBe(AVATAR_PADRAO);
-    for (const a of dois) expect(AVATARES as readonly string[]).toContain(a.avatar);
+    expect(dois[1].avatar).toBe("");
     // assento vago também tem avatar válido: o lobby nunca lê `undefined`
     expect(AVATARES as readonly string[]).toContain(assentosDe(dono)[3].avatar);
   });
@@ -704,17 +718,44 @@ describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
   // que está em uso, mas essa checagem roda ANTES do envio, sobre uma foto da sala que pode ter
   // envelhecido no caminho. Estes testes exercitam justamente o que o frontend não alcança.
 
-  it("quem pede um avatar já ocupado ENTRA MESMO ASSIM, com outro bicho", async () => {
+  it("quem pede um avatar já ocupado ENTRA MESMO ASSIM, mas sem avatar", async () => {
     const { dono, codigo } = await criarSala("Tito", "unicornio");
     const raiza = await entrar(codigo, "Raiza", "unicornio");
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    const dela = raiza.boasVindas!.you.seat;
 
-    // Recusar a ENTRADA por causa de um desenho seria desproporcional: ela entra, e o seletor da
-    // sala fica ali para escolher outro sabendo o que está livre.
+    // Recusar a ENTRADA por causa de um desenho seria desproporcional: ela entra, senta, vê a
+    // sala. O que ela não faz é ganhar um bicho que não pediu.
     expect(assentosDe(dono)[0].avatar).toBe("unicornio");
-    expect(assentosDe(dono)[raiza.boasVindas!.you.seat].avatar).not.toBe("unicornio");
-    expect(AVATARES as readonly string[]).toContain(assentosDe(dono)[1].avatar);
+    expect(assentosDe(dono)[dela].avatar).toBe("");
+    expect(raiza.boasVindas).not.toBeNull();
   });
+
+  it("PENDENTE não fica pronta, e a mesa não começa sem ela resolver", async () => {
+    const { dono, codigo } = await criarSala("Tito", "unicornio");
+    const raiza = await entrar(codigo, "Raiza", "unicornio");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    await addBot(dono, 2);
+    await addBot(dono, 3);
+    const dela = raiza.boasVindas!.you.seat;
+
+    // 1 · O servidor recusa o pronto de quem não tem identidade, com motivo dizível.
+    raiza.sdk.send("CLIENT_SET_READY", { ready: true });
+    await ate(() => raiza.rejeicoes.length > 0, 8000, "recusa do pronto pendente");
+    expect(raiza.rejeicoes.at(-1)!.code).toBe("AVATAR_PENDING");
+    expect(assentosDe(dono)[dela].ready).toBe(false);
+
+    // 2 · E a partida NÃO começa, nem com o anfitrião pronto: a regra é da mesa, não do botão.
+    dono.sdk.send("CLIENT_SET_READY", { ready: true });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(sala(dono).status).toBe("lobby");
+
+    // 3 · Resolvida a identidade, o caminho destrava — e só então.
+    raiza.sdk.send("CLIENT_SET_AVATAR", { avatar: "sapo" });
+    await ate(() => assentosDe(dono)[dela].avatar === "sapo", 8000, "escolha aceita");
+    raiza.sdk.send("CLIENT_SET_READY", { ready: true });
+    await ate(() => sala(dono).status === "playing", 10_000, "iniciou depois da escolha");
+  }, 30_000);
 
   it("trocar para um avatar LIVRE vale, e os dois aparelhos veem a troca", async () => {
     const { dono, codigo } = await criarSala("Tito", "leao");
