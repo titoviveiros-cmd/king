@@ -144,6 +144,27 @@ test("no Placar entre-mãos: a mensagem atravessa e o cooldown continua valendo"
     await expect(naTela, "a mensagem não chegou ao outro cliente").toBeVisible({ timeout: 10_000 });
     await expect(naTela).toHaveText(texto);
 
+    // ── E QUEM MANDOU TAMBÉM VÊ ──
+    //
+    // Isto faltava, e a falta foi relatada como defeito: "não aparece para quem enviou". A
+    // difusão do servidor inclui o próprio remetente, então o balão dele nasce na linha dele —
+    // mas nascer não é aparecer. Quem acabou de tocar tem, na mesma tela, o painel de frases que
+    // estava aberto um instante antes; se ele não sair da frente, a pessoa manda uma mensagem e
+    // não vê nada acontecer.
+    const meuBalao = anfitriao.locator(".placarov .balao").first();
+    await expect(meuBalao, "quem enviou não viu a própria mensagem").toBeVisible({ timeout: 10_000 });
+    await expect(meuBalao).toHaveText(texto);
+    expect(await noTopo(anfitriao, ".placarov .balao"),
+      "o balão de quem enviou está COBERTO na própria tela").toBe(true);
+    if (process.env.KING_SHOTS) {
+      const dir = process.env.KING_SHOTS;
+      await anfitriao.screenshot({ path: `${dir}/social-quem-enviou.png` });
+      await convidado.screenshot({ path: `${dir}/social-quem-recebeu.png` });
+    }
+    // e o painel de frases fechou sozinho: ele cumpriu a função dele.
+    expect(await anfitriao.locator(".placarov .socbtn").count(),
+      "o painel de frases continuou aberto depois do envio").toBe(0);
+
     // ── E ESTÁ REALMENTE À VISTA ──
     //
     // Esta checagem existe porque a versão anterior deste teste passou verde enquanto o defeito
@@ -166,6 +187,99 @@ test("no Placar entre-mãos: a mensagem atravessa e o cooldown continua valendo"
     // ── E o Placar continua servindo para o que ele existe ──
     await expect(anfitriao.locator(".pl-rows")).toBeVisible();
     await expect(anfitriao.locator(".pl-actions")).toBeVisible();
+
+    // ══════════ A MESMA TELA, AS OUTRAS TRÊS PERGUNTAS ══════════
+    //
+    // Esta mão custa minutos de relógio de parede para ser jogada em duas sessões. Fazer o
+    // caminho de novo para perguntar outra coisa sobre a MESMA tela seria pagar duas vezes pela
+    // mesma resposta — o princípio que já rege este arquivo.
+
+    // ── 1 · OS BICHOS, NÃO AS INICIAIS ──
+    // O relato foi literal: "aparecem círculos com letras — T, V, R, R". Um glifo de bicho tem
+    // exatamente um caractere, e uma inicial também; o que os separa é NÃO ser uma letra do
+    // alfabeto latino. É isso que se cobra, em vez de comparar com a lista de emojis.
+    const insignias = await anfitriao.locator(".placarov .pl-av").allTextContents();
+    expect(insignias, "o placar entre-mãos não desenhou os quatro").toHaveLength(4);
+    for (const i of insignias) {
+      expect(i.trim(), "o placar voltou a desenhar inicial no lugar do bicho").not.toMatch(/^[A-Za-zÀ-ÿ]$/);
+    }
+    // Os dois humanos escolheram bichos diferentes no lobby (Sapo e Panda): eles têm de continuar
+    // diferentes aqui, senão a identidade se perdeu em algum ponto do caminho.
+    expect(new Set(insignias.map((i) => i.trim())).size, "dois assentos com o mesmo desenho")
+      .toBe(4);
+
+    const pasta = process.env.KING_SHOTS;
+    if (pasta) await anfitriao.screenshot({ path: `${pasta}/placar-intermediario-bichos.png` });
+
+    // ── 2 · NENHUMA BARRA DE ROLAGEM ──
+    const rolagem = async (page: Page) => page.locator(".placar").evaluate((el) => ({
+      x: el.scrollWidth - el.clientWidth,
+      y: el.scrollHeight - el.clientHeight,
+    }));
+    const antes = await rolagem(anfitriao);
+    expect(antes.x, "o placar entre-mãos rola na horizontal").toBeLessThanOrEqual(SUBPIXEL);
+    expect(antes.y, "o placar entre-mãos rola na vertical").toBeLessThanOrEqual(SUBPIXEL);
+
+    // ── 3 · O TOGGLE DO PRONTO NÃO MEXE NA GEOMETRIA ──
+    //
+    // Este é o defeito relatado inteiro: "clico em Estou pronto, tento desfazer, a interface fica
+    // bugada, aparece barra de rolagem, o layout muda". A causa era serem DOIS botões diferentes
+    // trocando de lugar — um de uma linha, outro de duas. O que se mede aqui é a consequência
+    // observável: a caixa do rodapé antes e depois de cada clique.
+    const botao = anfitriao.locator(".placarov .pl-toggle");
+    await expect(botao).toBeVisible();
+    const rodape = async () => JSON.stringify(await anfitriao.locator(".pl-foot").boundingBox());
+    const caixaBotao = async () => {
+      const b = await anfitriao.locator(".placarov .pl-toggle").boundingBox();
+      return `${Math.round(b!.width)}x${Math.round(b!.height)}`;
+    };
+
+    const rodapeAntes = await rodape();
+    const botaoAntes = await caixaBotao();
+    expect(await botao.getAttribute("aria-pressed")).toBe("false");
+    // A LINHA DE BASE NÃO É ZERO: os dois bots já nascem prontos, e é por isso que se conta a
+    // DIFERENÇA em vez de um número absoluto. Fixar "1" seria escrever no teste a composição da
+    // mesa deste cenário, e ela muda com o número de bots.
+    const prontosNoOutro = () => convidado.locator(".placarov .pl-pronto.ok").count();
+    const base = await prontosNoOutro();
+
+    await botao.click();
+    await expect(anfitriao.locator(".placarov .pl-toggle.on")).toBeVisible({ timeout: 10_000 });
+    if (pasta) await anfitriao.screenshot({ path: `${pasta}/placar-pronto-marcado.png` });
+    expect(await caixaBotao(), "o botão mudou de tamanho ao ficar pronto").toBe(botaoAntes);
+    expect(await rodape(), "o rodapé do placar mudou de geometria").toBe(rodapeAntes);
+    const marcado = await rolagem(anfitriao);
+    expect(marcado.y, "marcar pronto criou barra de rolagem").toBeLessThanOrEqual(SUBPIXEL);
+    expect(marcado.x, "marcar pronto criou rolagem horizontal").toBeLessThanOrEqual(SUBPIXEL);
+
+    // e o OUTRO cliente vê o mesmo estado — pronto é do servidor, não da tela de quem clicou
+    await expect(async () => {
+      expect(await prontosNoOutro(), "o outro cliente não viu o pronto").toBe(base + 1);
+    }).toPass({ timeout: 10_000 });
+
+    // ── desfazer ──
+    await botao.click();
+    await expect(anfitriao.locator(".placarov .pl-toggle.on"),
+      "não deu para desmarcar o pronto").toHaveCount(0, { timeout: 10_000 });
+    if (pasta) await anfitriao.screenshot({ path: `${pasta}/placar-pronto-desmarcado.png` });
+    expect(await caixaBotao(), "o botão mudou de tamanho ao desfazer").toBe(botaoAntes);
+    expect(await rodape(), "desfazer mexeu na geometria do rodapé").toBe(rodapeAntes);
+    const desfeito = await rolagem(anfitriao);
+    expect(desfeito.y, "desfazer criou barra de rolagem").toBeLessThanOrEqual(SUBPIXEL);
+    await expect(async () => {
+      expect(await prontosNoOutro(), "o outro cliente não viu o pronto ser desfeito").toBe(base);
+    }).toPass({ timeout: 10_000 });
+
+    // ── e marcar de novo funciona: o toggle é toggle, não um caminho de mão única ──
+    await botao.click();
+    await expect(anfitriao.locator(".placarov .pl-toggle.on")).toBeVisible({ timeout: 10_000 });
+    expect(await rodape(), "o terceiro clique mexeu na geometria").toBe(rodapeAntes);
+
+    // ── 4 · TUDO O QUE IMPORTA CONTINUA DENTRO DA TELA ──
+    for (const sel of [".placarov .pl-toggle", ".placarov .soc", ".pl-rows", ".pl-next"]) {
+      const caixa = await boxOf(anfitriao.locator(sel), sel);
+      expect(insideViewport(caixa as Box, vp, SUBPIXEL), `${sel} saiu da tela`).toBe(true);
+    }
   } finally {
     await m.fechar();
   }

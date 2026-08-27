@@ -120,6 +120,42 @@ test.describe("card de trunfo", () => {
       `[${ti.project.name}] o card mudou de altura: ${alturas.join(", ")}`,
     ).toBe(1);
   });
+
+  /**
+   * A ALTURA DO CARD DE TRUNFO, CONTRA A DO CARD DE CIMA.
+   *
+   * O pedido foi "aumente a altura do card de Trunfo para cerca de metade do card informativo
+   * imediatamente acima". A medição mostrou que o card já tinha 85% da altura do de cima nas
+   * telas altas — e só 32% quando a Mesa encolhe abaixo de 360px e ele deita. É essa a tela do
+   * relato: um iPhone deitado, com a barra do Safari, entra por aí.
+   *
+   * Então o piso vale onde o problema estava, e a largura não pode ter crescido junto: o pedido
+   * foi explicitamente vertical.
+   */
+  test("deitado, o card de trunfo chega a cerca de metade do card de cima", async ({ page }, ti) => {
+    const vp = page.viewportSize()!;
+    test.skip(vp.height > 360, "acima de 360px o card fica em pé, e já tem 85% da altura do HUD");
+    await mesaComTrunfo(page);
+
+    const hud = await boxOf(page.locator(".hud"), "card do contrato");
+    const slot = await boxOf(page.locator(".trumpslot"), "card de trunfo");
+    const razao = slot.height / hud.height;
+
+    expect(razao, `[${ti.project.name}] o card de trunfo ficou baixo demais: ${razao.toFixed(2)}`)
+      .toBeGreaterThanOrEqual(0.45);
+    expect(razao, `[${ti.project.name}] o card de trunfo passou do pedido: ${razao.toFixed(2)}`)
+      .toBeLessThanOrEqual(0.62);
+    // e não invade quem mora logo abaixo dele na coluna
+    const esq = page.locator(".opp.left");
+    if (await esq.count()) {
+      const abaixo = await boxOf(esq, "adversário da esquerda");
+      expect(abaixo.y, "o card de trunfo encostou no adversário da esquerda")
+        .toBeGreaterThanOrEqual(slot.y + slot.height);
+    }
+    if (process.env.KING_SHOTS) {
+      await page.screenshot({ path: `${process.env.KING_SHOTS}/trunfo-${ti.project.name}.png` });
+    }
+  });
 });
 
 test.describe("mini perfil", () => {

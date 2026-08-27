@@ -72,16 +72,34 @@ export async function entrarNaSala(page: Page, codigo: string, apelido: string, 
  * Devolve as duas páginas — os defeitos de layout aparecem em QUEM OLHA, então às vezes é a tela
  * de quem entrou (e não a de quem criou) que precisa ser medida.
  */
+export interface OpcoesDaMesa {
+  /** A mesa escolhida pelo anfitrião no lobby. Ausente = a padrão, sem tocar no seletor. */
+  tema?: "imperial" | "verde";
+  /**
+   * Emula um aparelho de toque nos dois contextos.
+   *
+   * Existe porque metade da Mesa só nasce com `pointer: coarse` — a confirmação por segundo
+   * toque, e portanto o chip "Toque de novo". Sem isto, a suíte inteira roda num mundo com mouse
+   * e nunca vê os elementos que só quem joga no celular encontra. Foi assim que a colisão entre
+   * esse chip e o botão de chat chegou até um teste físico sem nenhum teste automatizado piscar.
+   */
+  toque?: boolean;
+  /** Os avatares dos dois humanos, pelo rótulo do seletor. Padrão: Sapo e Panda. */
+  avatares?: { anfitriao: string; convidado: string };
+}
+
 export async function mesaEmPartida(
-  browser: Browser, viewport: { width: number; height: number },
+  browser: Browser, viewport: { width: number; height: number }, opcoes: OpcoesDaMesa = {},
 ): Promise<{ anfitriao: Page; convidado: Page; fechar: () => Promise<void> }> {
-  const ctxA = await browser.newContext({ viewport });
-  const ctxB = await browser.newContext({ viewport });
+  const base = { viewport, ...(opcoes.toque ? { hasTouch: true, isMobile: true } : {}) };
+  const ctxA = await browser.newContext(base);
+  const ctxB = await browser.newContext(base);
   const anfitriao = await ctxA.newPage();
   const convidado = await ctxB.newPage();
 
-  const codigo = await criarSala(anfitriao, "Tito", "Sapo");
-  await entrarNaSala(convidado, codigo, "Raiza", "Panda");
+  const bichos = opcoes.avatares ?? { anfitriao: "Sapo", convidado: "Panda" };
+  const codigo = await criarSala(anfitriao, "Tito", bichos.anfitriao);
+  await entrarNaSala(convidado, codigo, "Raiza", bichos.convidado);
 
   // O anfitrião completa a mesa com dois bots.
   await expect(anfitriao.locator(".sl-bot.add")).toHaveCount(2, { timeout: 20_000 });
@@ -89,6 +107,17 @@ export async function mesaEmPartida(
   await expect(anfitriao.locator(".sl-bot.add")).toHaveCount(1, { timeout: 20_000 });
   await anfitriao.locator(".sl-bot.add").first().click();
   await expect(anfitriao.locator(".sl-lugar.robo")).toHaveCount(2, { timeout: 20_000 });
+
+  // A MESA, ANTES DO PRONTO. É esta a ordem do defeito relatado: o anfitrião escolhe a mesa verde
+  // e só depois a partida deveria começar. O tema é estado sincronizado — espera-se o eco dos
+  // DOIS aparelhos antes de seguir, senão o teste marcaria pronto sobre um lobby a meio caminho.
+  if (opcoes.tema) {
+    await anfitriao.locator(`.sl-mesa-op.${opcoes.tema}`).click();
+    for (const p of [anfitriao, convidado]) {
+      await expect(p.locator(`.sl-mesa-op.${opcoes.tema}.on`),
+        "a escolha da mesa não chegou aos dois aparelhos").toBeVisible({ timeout: 15_000 });
+    }
+  }
 
   await anfitriao.getByRole("button", { name: /Estou pronto/ }).click();
   await convidado.getByRole("button", { name: /Estou pronto/ }).click();
