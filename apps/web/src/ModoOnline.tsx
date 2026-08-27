@@ -48,6 +48,7 @@ export default function ModoOnline({
         onAdicionarBot={g.adicionarBot}
         onRemoverBot={g.removerBot}
         onEscolherMesa={g.definirTemaDaMesa}
+        onEscolherAvatar={g.definirAvatar}
         onSair={sair}
         onOpenAudio={onOpenAudio}
       />

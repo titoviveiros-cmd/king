@@ -635,19 +635,29 @@ describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
     const vitor = await entrar(codigo, "Vitor", 42);
     await ate(() => ocupados(dono) === 3, 8000, "tres sentados");
 
-    for (const a of assentosDe(dono).slice(0, 3)) {
-      expect(a.avatar).toBe(AVATAR_PADRAO);
-      expect(AVATARES as readonly string[]).toContain(a.avatar);
-    }
+    // Os três lixos viram o PADRÃO — e, a partir da regra de exclusividade, dois deles não podem
+    // FICAR no padrão: quem chega depois recebe o próximo bicho livre. O que se garante aqui é o
+    // que sempre importou (nada de HTML, URL ou número chega à tela de ninguém) mais o que passou
+    // a valer: três humanos, três desenhos.
+    const tres = assentosDe(dono).slice(0, 3);
+    expect(tres[0].avatar).toBe(AVATAR_PADRAO);
+    for (const a of tres) expect(AVATARES as readonly string[]).toContain(a.avatar);
+    expect(new Set(tres.map((a) => a.avatar)).size).toBe(3);
     expect(raiza.boasVindas).not.toBeNull();
     expect(vitor.boasVindas).not.toBeNull();
   });
 
-  it("quem entra sem escolher fica com o padrão — nunca com o campo vazio", async () => {
+  it("quem entra sem escolher fica com um avatar válido — nunca com o campo vazio", async () => {
     const { dono, codigo } = await criarSala("Tito");
     await entrar(codigo, "Raiza");
     await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
-    for (const a of assentosDe(dono).slice(0, 2)) expect(a.avatar).toBe(AVATAR_PADRAO);
+    const dois = assentosDe(dono).slice(0, 2);
+    // O primeiro fica com o padrão. O segundo NÃO pode ficar: dois humanos com o mesmo bicho é
+    // exatamente o que a regra de exclusividade existe para impedir, e não escolher não é
+    // desculpa para virar cópia de quem já estava lá.
+    expect(dois[0].avatar).toBe(AVATAR_PADRAO);
+    expect(dois[1].avatar).not.toBe(AVATAR_PADRAO);
+    for (const a of dois) expect(AVATARES as readonly string[]).toContain(a.avatar);
     // assento vago também tem avatar válido: o lobby nunca lê `undefined`
     expect(AVATARES as readonly string[]).toContain(assentosDe(dono)[3].avatar);
   });
@@ -687,6 +697,120 @@ describe("8 · avatar viaja pelo protocolo e vale para todos", () => {
     await ate(() => ocupados(dono) === 1, 8000, "assento liberado");
     expect(assentosDe(dono)[dela].avatar).toBe(AVATAR_PADRAO);
   });
+
+  // ── EXCLUSIVIDADE ────────────────────────────────────────────────────────────────────────
+  //
+  // A regra é: numa mesa, cada bicho é de uma pessoa só. O lobby de cada aparelho já desabilita o
+  // que está em uso, mas essa checagem roda ANTES do envio, sobre uma foto da sala que pode ter
+  // envelhecido no caminho. Estes testes exercitam justamente o que o frontend não alcança.
+
+  it("quem pede um avatar já ocupado ENTRA MESMO ASSIM, com outro bicho", async () => {
+    const { dono, codigo } = await criarSala("Tito", "unicornio");
+    const raiza = await entrar(codigo, "Raiza", "unicornio");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+
+    // Recusar a ENTRADA por causa de um desenho seria desproporcional: ela entra, e o seletor da
+    // sala fica ali para escolher outro sabendo o que está livre.
+    expect(assentosDe(dono)[0].avatar).toBe("unicornio");
+    expect(assentosDe(dono)[raiza.boasVindas!.you.seat].avatar).not.toBe("unicornio");
+    expect(AVATARES as readonly string[]).toContain(assentosDe(dono)[1].avatar);
+  });
+
+  it("trocar para um avatar LIVRE vale, e os dois aparelhos veem a troca", async () => {
+    const { dono, codigo } = await criarSala("Tito", "leao");
+    const raiza = await entrar(codigo, "Raiza", "coruja");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    const dela = raiza.boasVindas!.you.seat;
+
+    raiza.sdk.send("CLIENT_SET_AVATAR", { avatar: "sapo" });
+    await ate(() => assentosDe(dono)[dela].avatar === "sapo", 8000, "troca refletida no anfitriao");
+    expect(assentosDe(raiza)[dela].avatar).toBe("sapo");
+    expect(raiza.rejeicoes).toHaveLength(0);
+  });
+
+  it("DOIS PEDINDO O MESMO, no mesmo instante: um leva, o outro é recusado", async () => {
+    const { dono, codigo } = await criarSala("Tito", "leao");
+    const raiza = await entrar(codigo, "Raiza", "coruja");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    const dela = raiza.boasVindas!.you.seat;
+
+    // Sem espera entre os dois envios: é o mais perto de "ao mesmo tempo" que se consegue montar,
+    // e é o suficiente — a sala processa mensagens em fila, então o desempate acontece aqui
+    // dentro, não no relógio de quem clicou.
+    dono.sdk.send("CLIENT_SET_AVATAR", { avatar: "unicornio" });
+    raiza.sdk.send("CLIENT_SET_AVATAR", { avatar: "unicornio" });
+    await ate(() => dono.rejeicoes.length + raiza.rejeicoes.length > 0, 8000, "a recusa do segundo");
+    // A recusa chega por mensagem direta; a troca do vencedor chega pelo patch do Schema, que é
+    // outro canal. Esperar só a recusa leria o estado meio passo antes de ele existir.
+    await ate(() => assentosDe(dono).some((x) => x.avatar === "unicornio"), 8000, "o unicornio do vencedor");
+    await ate(() => assentosDe(raiza).some((x) => x.avatar === "unicornio"), 8000, "e no outro aparelho");
+
+    // QUEM ganha não se afirma aqui, e essa omissão é o teste: são dois sockets, e a ordem em que
+    // o servidor recebe é do sistema operacional, não do roteiro. O que a regra promete não é
+    // "Tito leva", é "um leva". Um teste que exigisse um vencedor fixo estaria testando a rede.
+    const perdedor = dono.rejeicoes.length ? dono : raiza;
+    const vencedor = perdedor === dono ? raiza : dono;
+    const dele = vencedor.boasVindas!.you.seat;
+    const dele2 = perdedor.boasVindas!.you.seat;
+
+    expect(perdedor.rejeicoes.at(-1)!.code).toBe("AVATAR_TAKEN");
+    expect(vencedor.rejeicoes).toHaveLength(0);
+    expect(assentosDe(dono)[dele].avatar).toBe("unicornio");
+    // O RECUSADO FICA COM O QUE TINHA. Não vira padrão, não vira "outro qualquer": ele pediu uma
+    // coisa, não conseguiu, e nada mais muda.
+    expect(assentosDe(dono)[dele2].avatar).toBe(dele2 === 0 ? "leao" : "coruja");
+    // e nenhum dos dois aparelhos diverge do outro
+    expect(assentosDe(raiza).map((a) => a.avatar)).toEqual(assentosDe(dono).map((a) => a.avatar));
+    // e a mesa continua com uma ocupação só de cada bicho
+    const bichos = assentosDe(dono).filter((a) => a.playerId !== "").map((a) => a.avatar);
+    expect(new Set(bichos).size).toBe(bichos.length);
+    void dela;
+  });
+
+  it("o avatar de um BOT também está ocupado — humano não assume o bicho do robô", async () => {
+    const { dono, codigo } = await criarSala("Tito", "leao");
+    const raiza = await entrar(codigo, "Raiza", "coruja");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    await addBot(dono, 2);
+    const doBot = assentosDe(dono)[2].avatar;
+
+    raiza.sdk.send("CLIENT_SET_AVATAR", { avatar: doBot });
+    await ate(() => raiza.rejeicoes.length > 0, 8000, "recusa do bicho do bot");
+    expect(raiza.rejeicoes.at(-1)!.code).toBe("AVATAR_TAKEN");
+    expect(assentosDe(dono)[raiza.boasVindas!.you.seat].avatar).toBe("coruja");
+  });
+
+  it("etiqueta fora do catálogo é RECUSADA, não sanitizada em silêncio", async () => {
+    const { dono, codigo } = await criarSala("Tito", "leao");
+    const raiza = await entrar(codigo, "Raiza", "coruja");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    const dela = raiza.boasVindas!.you.seat;
+
+    // Na ENTRADA, lixo vira padrão: derrubar alguém na porta por causa de um avatar seria
+    // desproporcional. Aqui não — a pessoa pediu uma troca específica, e trocar por outra coisa
+    // seria responder uma pergunta que ela não fez.
+    raiza.sdk.send("CLIENT_SET_AVATAR", { avatar: "capivara" });
+    await ate(() => raiza.rejeicoes.length > 0, 8000, "recusa da etiqueta");
+    expect(raiza.rejeicoes.at(-1)!.code).toBe("INVALID_PAYLOAD");
+    expect(assentosDe(dono)[dela].avatar).toBe("coruja");
+  });
+
+  it("com a partida em curso NÃO se troca de avatar", async () => {
+    const { dono, codigo } = await criarSala("Tito", "leao");
+    const raiza = await entrar(codigo, "Raiza", "coruja");
+    await ate(() => ocupados(dono) === 2, 8000, "dois sentados");
+    await addBot(dono, 2);
+    await addBot(dono, 3);
+    dono.sdk.send("CLIENT_SET_READY", { ready: true });
+    raiza.sdk.send("CLIENT_SET_READY", { ready: true });
+    await ate(() => sala(dono).status === "playing", 10_000, "iniciou");
+    const dela = raiza.boasVindas!.you.seat;
+
+    raiza.sdk.send("CLIENT_SET_AVATAR", { avatar: "sapo" });
+    await ate(() => raiza.rejeicoes.length > 0, 8000, "recusa em partida");
+    expect(raiza.rejeicoes.at(-1)!.code).toBe("WRONG_PHASE");
+    expect(assentosDe(dono)[dela].avatar).toBe("coruja");
+  }, 30_000);
 });
 
 describe("8 · o nome do bot é do SERVIDOR", () => {

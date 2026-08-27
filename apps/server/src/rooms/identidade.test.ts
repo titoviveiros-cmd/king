@@ -5,7 +5,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { AVATAR_PADRAO, AVATARES, avatarDeBot, avatarValido, NOMES_DE_BOT, nomeDeBotLivre } from "./identidade.js";
+import {
+  AVATAR_PADRAO, AVATARES, avatarDeBot, avatarLivre, avatarValido, NOMES_DE_BOT, nomeDeBotLivre,
+} from "./identidade.js";
 
 describe("avatar: conjunto fechado", () => {
   it("aceita cada um dos avatares da lista, exatamente como veio", () => {
@@ -188,5 +190,53 @@ describe("avatar de bot", () => {
     const escolhido = avatarDeBot(0, ocupados);
     expect(AVATARES as readonly string[]).toContain(escolhido);
     expect(escolhido).toBe("sapo");
+  });
+});
+
+/**
+ * A ALOCAÇÃO SEM COLISÃO.
+ *
+ * Numa mesa, cada bicho é de uma pessoa só. O lobby de cada aparelho já desabilita o que está em
+ * uso, mas essa checagem roda antes do envio, sobre uma foto da sala que pode ter envelhecido no
+ * caminho — dois humanos podem pedir o Unicórnio no mesmo instante sem que nenhum dos dois saiba
+ * do outro. Quem arbitra é quem vê os dois pedidos em ordem, e é esta função.
+ */
+describe("avatar livre: um bicho por assento", () => {
+  it("o pedido passa inteiro quando ninguém o ocupa", () => {
+    for (const a of AVATARES) expect(avatarLivre(a, [])).toBe(a);
+  });
+
+  it("pedido ocupado vira o próximo LIVRE, nunca o padrão nem o ocupado", () => {
+    const escolhido = avatarLivre("leao", ["leao"]);
+    expect(escolhido).not.toBe("leao");
+    expect(AVATARES).toContain(escolhido!);
+  });
+
+  it("com a mesa quase cheia, entrega o único que sobrou", () => {
+    const ocupados = AVATARES.slice(0, AVATARES.length - 1);
+    const sobrou = AVATARES[AVATARES.length - 1];
+    expect(avatarLivre(ocupados[0], ocupados)).toBe(sobrou);
+  });
+
+  it("sem alternativa, não inventa duplicado — devolve ausência", () => {
+    // Não acontece numa mesa de quatro com oito bichos, e é justamente por isso que precisa de
+    // teste: a função não pode depender dessa aritmética continuar verdadeira para ser correta.
+    expect(avatarLivre("leao", [...AVATARES])).toBeNull();
+  });
+
+  it("etiqueta inválida é normalizada ANTES de procurar lugar", () => {
+    // Lixo vira o padrão, e o padrão entra na mesma disputa de ocupação que qualquer outro.
+    expect(avatarLivre("<script>", [])).toBe(AVATAR_PADRAO);
+    expect(avatarLivre("<script>", [AVATAR_PADRAO])).not.toBe(AVATAR_PADRAO);
+  });
+
+  it("quatro entradas em sequência produzem quatro bichos diferentes", () => {
+    const mesa: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      // todo mundo pedindo o MESMO: o pior caso, e o que o lobby não consegue evitar sozinho
+      mesa.push(avatarLivre("unicornio", mesa)!);
+    }
+    expect(new Set(mesa).size).toBe(4);
+    expect(mesa[0]).toBe("unicornio");
   });
 });

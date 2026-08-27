@@ -21,7 +21,8 @@
 import { CloseCode, Room, ServerError, generateId, type Client } from "colyseus";
 import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import {
-  AVATAR_PADRAO, TEMA_PADRAO, TEMAS_DA_MESA, avatarDeBot, avatarValido, nomeDeBotLivre,
+  AVATAR_PADRAO, AVATARES, TEMA_PADRAO, TEMAS_DA_MESA, avatarDeBot, avatarLivre, avatarValido,
+  nomeDeBotLivre,
 } from "./identidade.js";
 import { DURACAO_MS, RitmoSocial, mensagemValida } from "./social.js";
 import { ArraySchema, schema } from "@colyseus/schema";
@@ -30,7 +31,8 @@ import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import { TEMPOS } from "../match/tempos.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
-  type Causa, type DefinirPronto, type DefinirTemaDaMesa, type EnviarMensagemSocial, type EscolherTrunfo,
+  type Causa, type DefinirAvatar, type DefinirPronto, type DefinirTemaDaMesa, type EnviarMensagemSocial,
+  type EscolherTrunfo,
   type FaseDoRelogio, type GerirBot, type JogarCarta, type OpcoesDeEntrada, type ProntoParaProximaMao,
   type StatusDaSala, type TipoDeDecisao,
 } from "../protocol/index.js";
@@ -316,6 +318,34 @@ export class KingRoom extends Room<{
       this.state.tableTheme = tema as string;
     });
 
+    // ── avatar: um por mesa ───────────────────────────────────────────────────────────────────
+    //
+    // A regra é do SERVIDOR, e não podia ser de outro lugar. O lobby de cada aparelho desabilita o
+    // que já está em uso, mas ele desabilita com a foto da sala que TEM — e entre a foto e a
+    // mensagem chegando aqui cabe a escolha de outra pessoa. A checagem do cliente evita o toque
+    // inútil; esta evita a mesa com dois unicórnios.
+    //
+    // Recusa em vez de substituir. Se o avatar pedido não está disponível, o assento fica com o que
+    // já tinha e quem pediu recebe `AVATAR_TAKEN` — trocar em silêncio por outro bicho responderia
+    // uma pergunta que ninguém fez.
+    this.onMessage("CLIENT_SET_AVATAR", (client: ClienteDoKing, msg: DefinirAvatar) => {
+      const dados = client.userData;
+      if (!dados) return this.#recusar(client, "", "NOT_IN_ROOM", "Você não está sentado");
+      if (this.state.status !== "lobby") {
+        return this.#recusar(client, "", "WRONG_PHASE", "A partida já começou");
+      }
+      const pedido = msg?.avatar;
+      if (!(AVATARES as readonly string[]).includes(pedido ?? "")) {
+        return this.#recusar(client, "", "INVALID_PAYLOAD", "Avatar desconhecido");
+      }
+      const assento = this.state.seats[dados.seat];
+      if (assento.avatar === pedido) return; // já é o dele; nada a fazer e nada a recusar
+      if (this.#avataresEmUso(dados.seat).includes(pedido as string)) {
+        return this.#recusar(client, "", "AVATAR_TAKEN", "Esse avatar já está em uso na mesa");
+      }
+      assento.avatar = pedido as string;
+    });
+
     // ── mensagens sociais ─────────────────────────────────────────────────────────────────────
     //
     // O que este bloco NÃO faz é a parte importante: não toca no estado da partida, não mexe no
@@ -345,6 +375,19 @@ export class KingRoom extends Room<{
 
       difundir(this, "SOCIAL_MESSAGE", { seat: dados.seat, messageId: id, duracaoMs: DURACAO_MS });
     });
+  }
+
+  /**
+   * Os avatares dos OUTROS assentos ocupados — humanos e bots.
+   *
+   * Bots entram na conta de propósito: `avatarDeBot` já desviava de colisão na hora de nascer, e
+   * seria estranho que um humano pudesse depois assumir o bicho do bot ao lado. A mesa tem quatro
+   * lugares e o catálogo tem oito bichos; não falta espaço para todo mundo ser diferente.
+   */
+  #avataresEmUso(exceto: Seat): string[] {
+    return this.state.seats
+      .filter((a, s) => s !== exceto && a.playerId !== ASSENTO_VAZIO)
+      .map((a) => a.avatar);
   }
 
 /**
@@ -686,7 +729,12 @@ export class KingRoom extends Room<{
     assento.ready = false;
     assento.bot = false;
     assento.host = dados.playerId === this.#host;
-    assento.avatar = avatarValido(options?.avatar);
+    // O AVATAR PEDIDO, se estiver livre. A escolha é feita na Home, antes de saber quem já está
+    // na sala — então a colisão não é erro de ninguém, é consequência do momento em que se escolhe.
+    // Recusar a entrada por causa disso seria desproporcional: entra, com o bicho mais próximo
+    // disponível, e o seletor da sala fica ali para trocar sabendo o que está livre.
+    assento.avatar = avatarLivre(avatarValido(options?.avatar), this.#avataresEmUso(seat))
+      ?? avatarValido(options?.avatar);
 
     enviar(client, "SERVER_WELCOME", {
       protocolVersion: PROTOCOL_VERSION,

@@ -108,6 +108,33 @@ export function nomeDeBotLivre(ocupados: readonly string[], rnd: () => number = 
 }
 
 /**
+ * O avatar EFETIVO de um humano que pede um avatar.
+ *
+ * ══ POR QUE O SERVIDOR DECIDE ISTO ══
+ *
+ * Dois humanos podem pedir o Unicórnio no mesmo instante — literalmente no mesmo instante, em
+ * aparelhos diferentes, sem que nenhum dos dois clientes tenha como saber do outro. Nenhuma
+ * checagem no frontend resolve isso: ela roda antes do envio, com uma foto da sala que pode já
+ * estar velha quando a mensagem chega. Quem arbitra é quem vê os dois pedidos em ordem.
+ *
+ * A sala é processada em fila por sala, então "ao mesmo tempo" vira, aqui dentro, "um primeiro,
+ * outro depois" — e é exatamente isso que o desempate precisa. O primeiro leva o que pediu; o
+ * segundo cai neste caminho.
+ *
+ * Devolve `null` quando o pedido está ocupado E não há alternativa livre. Quem chama decide o que
+ * fazer com isso: a ENTRADA aceita um substituto (recusar a entrada de alguém por causa de um
+ * bicho seria absurdo), a TROCA recusa (a pessoa pediu aquele bicho; entregar outro sem avisar é
+ * mentir sobre o que aconteceu). Com 8 avatares e 4 assentos a alternativa sempre existe — mas a
+ * função não depende dessa aritmética continuar verdadeira.
+ */
+export function avatarLivre(pedido: string, ocupados: readonly string[]): Avatar | null {
+  const usados = new Set(ocupados);
+  const valido = avatarValido(pedido);
+  if (!usados.has(valido)) return valido;
+  return AVATARES.find((a) => !usados.has(a)) ?? null;
+}
+
+/**
  * Avatar do bot.
  *
  * A base é DETERMINÍSTICA pelo assento — não faz sentido sortear duas coisas ao mesmo tempo, e

@@ -20,7 +20,7 @@ import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
 import type { EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao } from "../game/useKingOnline.js";
-import { desenhoDoAvatar } from "./avatares.js";
+import { AVATARES, desenhoDoAvatar } from "./avatares.js";
 
 /**
  * As mesas disponíveis. Espelha `TEMAS_DA_MESA` do servidor, que é quem valida.
@@ -40,7 +40,7 @@ const LUGARES: Seat[] = [0, 1, 2, 3];
 const MIN_HUMANOS = 2;
 
 export function Sala({
-  sala, conexao, erro, eu, souAnfitriao, onPronto, onEscolherMesa,
+  sala, conexao, erro, eu, souAnfitriao, onPronto, onEscolherMesa, onEscolherAvatar,
   onAdicionarBot, onRemoverBot, onSair, onOpenAudio,
 }: {
   sala: EstadoDaSalaLido | null;
@@ -51,6 +51,8 @@ export function Sala({
   onPronto: (pronto: boolean) => void;
   /** Cosmético da sala. Só o anfitrião; o servidor recusa de qualquer outro. */
   onEscolherMesa: (tema: string) => void;
+  /** Troca o avatar do próprio assento. Quem arbitra a exclusividade é o servidor. */
+  onEscolherAvatar: (avatar: string) => void;
   onAdicionarBot: (seat: Seat) => void;
   onRemoverBot: (seat: Seat) => void;
   onSair: () => void;
@@ -65,6 +67,18 @@ export function Sala({
   const codigo = sala?.roomCode ?? "";
   const podeMexer = souAnfitriao && conexao === "conectado";
   const temaAtual = sala?.tableTheme ?? "imperial";
+
+  /**
+   * Os bichos que os OUTROS lugares já ocupam.
+   *
+   * A escolha da Home acontece antes de saber quem está na sala; é aqui, com a mesa à vista, que
+   * ela pode ser refeita com informação. O que este conjunto produz é apenas o `disabled` e o
+   * rótulo "Em uso" — apresentação. Quem recusa de verdade é o servidor, porque entre esta lista e
+   * a mensagem chegando lá cabe a escolha de outra pessoa.
+   */
+  const emUso = new Set(
+    assentos.filter((a, s) => a.playerId !== "" && s !== eu).map((a) => a.avatar),
+  );
 
   const copiar = () => {
     sfxTap();
@@ -128,6 +142,40 @@ export function Sala({
       </div>
 
       {erro && <div className="sl-erro" role="alert">{erro}</div>}
+
+      {/* SEU AVATAR — visível para quem está sentado, e só antes de começar.
+
+          Os oito continuam na grade mesmo ocupados. Sumir com um avatar reposicionaria todos os
+          outros no exato momento em que alguém está mirando um deles com o dedo, e o toque cairia
+          em outro bicho. Ocupado fica no lugar, apagado, sem ser clicável e dizendo por quê. */}
+      {meu && !meu.bot && (
+        <div className="sl-avatares">
+          <span className="sl-mesa-lb">Seu avatar</span>
+          <div className="sl-avops" role="radiogroup" aria-label="Escolha o seu avatar">
+            {AVATARES.map((id) => {
+              const d = desenhoDoAvatar(id);
+              const ocupado = emUso.has(id);
+              const meuAtual = meu.avatar === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={meuAtual}
+                  aria-label={ocupado ? `${d.rotulo} — em uso` : d.rotulo}
+                  className={`sl-avop${meuAtual ? " on" : ""}${ocupado ? " emuso" : ""}`}
+                  disabled={ocupado || conexao !== "conectado"}
+                  title={ocupado ? `${d.rotulo} — em uso` : `${d.rotulo} — ${d.persona}`}
+                  onClick={() => { sfxTap(); onEscolherAvatar(id); }}
+                >
+                  <i aria-hidden>{d.glifo}</i>
+                  {ocupado && <b>Em uso</b>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="row">
         {/* A MESA DA SALA.

@@ -297,6 +297,18 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     sessao.current?.enviar("CLIENT_SET_TABLE_THEME", { theme });
   }, []);
 
+  /**
+   * Troca o avatar do próprio assento, dentro da sala.
+   *
+   * Nada é aplicado localmente: manda a etiqueta e espera o estado sincronizado voltar. Aplicar
+   * antes da confirmação daria, num empate de escolha, meio segundo em que o aparelho mostra um
+   * bicho que a mesa não tem — e o desempate é justamente o caso que este caminho existe para
+   * tratar. Se o servidor recusar, o estado nunca muda e a recusa chega pelo canal de erro.
+   */
+  const definirAvatar = useCallback((avatar: string) => {
+    sessao.current?.enviar("CLIENT_SET_AVATAR", { avatar });
+  }, []);
+
   const sairDaSala = useCallback(() => {
     sfxTap();
     limparSessao();
@@ -383,6 +395,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     souAnfitriao: assento.current !== null && !!sala?.seats[assento.current]?.host,
     criarSala, entrarNaSala, voltarParaSala, sairDaSala, definirPronto, adicionarBot, removerBot,
     definirTemaDaMesa,
+    definirAvatar,
   };
 }
 
@@ -390,6 +403,12 @@ function mensagemDeFalha(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
   if (/not found|does not exist|404/i.test(m)) return "Sala não encontrada. Confira o código.";
   if (/full|4002/i.test(m)) return "Essa sala já tem quatro jogadores.";
-  if (/4001|protocol/i.test(m)) return "Seu app está desatualizado. Recarregue a página.";
+  // Os dois lados do mesmo desencontro cabem numa frase só: o app e o servidor não falam a
+  // mesma versão. Dizer "recarregue a página" seria um palpite — quando quem está velho é o
+  // servidor, recarregar não muda nada, e mandar alguém repetir um gesto inútil é pior que
+  // dizer que ainda não dá.
+  if (/4001|protocol/i.test(m)) {
+    return "Esta versão do jogo e o servidor não são compatíveis. Tente de novo mais tarde.";
+  }
   return "Não foi possível conectar ao servidor.";
 }
