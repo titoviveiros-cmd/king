@@ -255,9 +255,21 @@ test("no lobby, o avatar de outro humano aparece como Em uso", async ({ browser 
  * porque os selos só existem na ETAPA FINAL da animação, depois dos temporizadores, e
  * `renderToStaticMarkup` nunca chega lá.
  */
+/**
+ * TRÊS VIEWPORTS, e não um.
+ *
+ * O conteúdo desta tela é o mesmo em qualquer tamanho, mas a checagem de que ele CABE não é —
+ * e foi ela que encontrou o defeito: a 667x375 o selo que sobrou depois da poda ficava fora da
+ * tela, cortado pelo `overflow:hidden` do fundo, porque a regra de coluna única olhava só a
+ * largura e um celular deitado é estreito E baixo. Os três cobrem os casos que divergem: o
+ * deitado apertado, o mais baixo que o projeto promete atender, e o desktop folgado.
+ */
+const VIEWPORTS_DO_FIM = ["667x375", "852x300", "1600x900"];
+
 test("o placar final chega inteiro e sem os quatro elementos removidos", async ({ page }, ti) => {
-  test.skip(ti.project.name !== "667x375", "conteúdo, não geometria");
+  test.skip(!VIEWPORTS_DO_FIM.includes(ti.project.name), "amostra de viewports, não todos");
   test.setTimeout(180_000);
+  const vp = page.viewportSize()!;
 
   await page.addInitScript(() => {
     try {
@@ -295,6 +307,15 @@ test("o placar final chega inteiro e sem os quatro elementos removidos", async (
   // A encenação termina sozinha; um toque pula. Os selos só existem na etapa final.
   await page.locator(".fim").click({ position: { x: 5, y: 5 } }).catch(() => {});
   await expect(page.locator(".fimchips")).toBeVisible({ timeout: 20_000 });
+  // As linhas do ranking se reposicionam por `transform` com transição. Ler ou fotografar no meio
+  // dela mostra as quatro linhas empilhadas umas sobre as outras — que não é a tela, é um quadro
+  // dela. Espera as caixas pararem de se mexer antes de medir.
+  await expect(async () => {
+    const a1 = await page.locator(".fimlinha").first().boundingBox();
+    await page.waitForTimeout(120);
+    const a2 = await page.locator(".fimlinha").first().boundingBox();
+    expect(a2?.y).toBe(a1?.y);
+  }).toPass({ timeout: 10_000 });
 
   // ── 1 · O QUE PRECISA CONTINUAR ──
   await expect(page.locator(".fimlinha")).toHaveCount(4);
@@ -318,6 +339,14 @@ test("o placar final chega inteiro e sem os quatro elementos removidos", async (
   expect(insignias).toHaveLength(4);
   for (const i of insignias) {
     expect(i.trim(), "o placar final voltou a desenhar inicial").not.toMatch(/^[A-Za-zÀ-ÿ]$/);
+  }
+
+  // ── 4 · E O QUE SOBROU CABE NA TELA ──
+  // Despoluir só vale se o que ficou for legível. O selo restante e o destaque narrativo têm de
+  // estar dentro do viewport, não abaixo dele.
+  for (const sel of [".fimchips", ".fimdest", ".fimrank"]) {
+    const caixa = await boxOf(page.locator(sel), sel);
+    expect(insideViewport(caixa as Box, vp, SUBPIXEL), `${sel} não cabe na tela final`).toBe(true);
   }
 
   if (PASTA) await page.screenshot({ path: `${PASTA}/placar-final-simplificado.png` });

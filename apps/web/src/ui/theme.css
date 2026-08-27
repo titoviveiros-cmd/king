@@ -911,7 +911,12 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
 .fimgrid{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,40%) minmax(0,60%);
   gap:clamp(10px,2.4vw,28px);align-items:center;width:min(1020px,100%);max-height:100%;}
-@media (max-width:700px),(max-height:330px){ .fimgrid{grid-template-columns:1fr;gap:8px;} }
+/* UMA COLUNA SÓ QUANDO HÁ ALTURA PARA EMPILHAR.
+   A regra olhava só a largura, e um celular DEITADO é estreito E baixo: a 667x375 ela empilhava
+   a coluna heroica sobre o ranking e o último elemento da pilha — hoje o selo da melhor mão —
+   caía fora da tela, cortado pelo `overflow:hidden` do fundo. Empilhar exige altura; deitado, o
+   certo são duas colunas, que é justamente a forma da tela. */
+@media (max-width:700px) and (min-height:520px){ .fimgrid{grid-template-columns:1fr;gap:8px;} }
 
 /* ---- coluna heroica ---- */
 .fimheroi{text-align:center;min-width:0;}
@@ -982,14 +987,6 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   font-size:calc(var(--ui)*.78);letter-spacing:.16em;text-transform:uppercase;}
 .fimdest span{font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*1.08);}
 .fimchips{display:flex;flex-wrap:wrap;gap:5px;}
-.fimultima{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px clamp(6px,1.2vw,10px);
-  border-top:1px solid var(--line);padding-top:clamp(5px,1vh,9px);}
-.fimultima b{font-family:var(--disp);font-weight:800;color:var(--faint);font-size:calc(var(--ui)*.74);
-  letter-spacing:.16em;text-transform:uppercase;}
-.fimultima span{font-family:var(--body);font-weight:700;color:var(--muted);font-size:calc(var(--ui)*.88);}
-.fimultima .deltas{display:flex;gap:clamp(5px,1vw,9px);font-family:var(--disp);font-weight:800;}
-.fimultima .deltas i{font-style:normal;color:var(--faint);font-variant-numeric:tabular-nums;}
-.fimultima .deltas i.pos{color:var(--turq);} .fimultima .deltas i.neg{color:#ff7aa8;}
 
 .fimpular{position:absolute;bottom:calc(var(--pad) + var(--sb));left:50%;transform:translateX(-50%);z-index:3;
   font-family:var(--body);font-weight:700;font-size:clamp(.56rem,1.4vh,.66rem);color:var(--faint);letter-spacing:.06em;}
