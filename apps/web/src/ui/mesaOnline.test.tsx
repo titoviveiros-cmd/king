@@ -713,8 +713,28 @@ describe("o anúncio da mão 10", () => {
     return g;
   }
 
+  /**
+   * A mão 10 com o trunfo JÁ RESOLVIDO.
+   *
+   * A mão 10 é positiva: ela nasce pedindo trunfo, e o anúncio agora espera essa decisão sair da
+   * frente — foi a sobreposição que a auditoria encontrou (a faixa da escolha tem `z-index` 52
+   * contra 28 do anúncio, e passava por cima do selo).
+   */
+  function naMao10Jogavel(): KingGame {
+    const g = naMao(10);
+    if (g.needsBotTrump()) g.stepBotTrump();
+    else if (g.phase() === "trump") g.chooseTrumpHuman("spades");
+    return g;
+  }
+
+  it("ESPERA a escolha do trunfo: na mão 10 a decisão vem primeiro", () => {
+    const g = naMao(10);
+    expect(g.phase(), "a mão 10 deveria nascer pedindo trunfo").toBe("trump");
+    expect(render(g).querySelectorAll(".um")).toHaveLength(0);
+  });
+
   it("aparece na mão 10", () => {
-    const root = render(naMao(10));
+    const root = render(naMao10Jogavel());
     expect(root.querySelectorAll(".um")).toHaveLength(1);
     expect(root.querySelector(".um-selo b")?.text).toContain("ÚLTIMA MÃO");
   });
@@ -728,7 +748,7 @@ describe("o anúncio da mão 10", () => {
   });
 
   it("a informação não depende da animação: o texto está escrito", () => {
-    const root = render(naMao(10));
+    const root = render(naMao10Jogavel());
     // Com movimento reduzido ou áudio desligado, é isto que continua na tela.
     expect(root.querySelector(".um-selo b")?.text.trim()).toBe("ÚLTIMA MÃO");
     expect(root.querySelector(".um-selo i")?.text).toContain("Tudo pode mudar");
@@ -737,7 +757,7 @@ describe("o anúncio da mão 10", () => {
   });
 
   it("não muda a partida: o contrato da mão 10 continua sendo o do motor", () => {
-    const g = naMao(10);
+    const g = naMao10Jogavel();
     const root = render(g);
     expect(g.contract()?.hand).toBe(10);
     expect(g.contract()?.isPositive).toBe(true);

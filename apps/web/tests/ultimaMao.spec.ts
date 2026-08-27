@@ -157,6 +157,15 @@ test("o anúncio cobre a Mesa por projeto, e não move nada", async ({ page }, t
   });
   expect(topo, "o anúncio está na tela mas coberto por uma camada da Mesa").toBe("anuncio");
 
+  // E NENHUMA CAMADA DE DECISÃO ESTÁ ABERTA JUNTO COM ELE.
+  // Esta é a sobreposição que a auditoria encontrou: a mão 10 nasce pedindo trunfo, e a faixa da
+  // escolha (`z-index` 52, contra 28 do anúncio) passava por cima do selo. A ordem passou a ser a
+  // outra — decisão primeiro, anúncio depois —, e é isso que se trava aqui.
+  await expect(page.locator(".trumpov"), "o anúncio dividiu a tela com a escolha do trunfo")
+    .toHaveCount(0);
+  await expect(page.locator(".pickmsg"), "o anúncio dividiu a tela com o aviso do trunfo")
+    .toHaveCount(0);
+
   const antes: Record<string, string> = {};
   for (const [sel, rotulo] of ELEMENTOS_DA_MESA) {
     const n = await page.locator(sel).count();

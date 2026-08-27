@@ -168,7 +168,19 @@ export function Mesa({
    */
   const maoAtual = contract?.hand ?? 0;
   const [dispensadaEm, setDispensadaEm] = useState(0);
-  const anunciandoUltimaMao = maoAtual === 10 && dispensadaEm !== 10;
+  /**
+   * E ESPERA A ESCOLHA DO TRUNFO SAIR DA FRENTE.
+   *
+   * A mão 10 é positiva: ela NASCE pedindo trunfo. Os dois entravam juntos, e a auditoria de
+   * sobreposição mediu o resultado — a 667x375, quem estava no topo no centro do selo era a faixa
+   * "está escolhendo o trunfo", não o anúncio.
+   *
+   * Subir o anúncio por cima da escolha resolveria o pixel e criaria coisa pior: uma celebração
+   * cobrindo a primeira decisão da mão, que é justamente o que este componente promete não fazer.
+   * A ordem certa é a outra — a decisão primeiro, o anúncio depois, inteiro e sozinho. Custa dois
+   * segundos e devolve as duas telas sem disputa.
+   */
+  const anunciandoUltimaMao = maoAtual === 10 && dispensadaEm !== 10 && phase !== "trump";
   useEffect(() => {
     // Revanche: a partida nova volta para a mão 1, e o anúncio fica disponível de novo.
     if (maoAtual > 0 && maoAtual < 10) setDispensadaEm(0);
