@@ -5,6 +5,7 @@ import {
 import {
   BalaoSocial, BotaoSocial, ConsensoDaProximaMao, type MesaMultiplayer,
 } from "./MesaOnline.js";
+import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
 
 /**
  * PLACAR ENTRE-MÃOS — o que aconteceu na mão que acabou, quanto cada um somou,
@@ -77,7 +78,14 @@ export function Placar({
                 <span className={`pl-mov ${move > 0 ? "up" : move < 0 ? "down" : "flat"}`}>
                   {move > 0 ? `▲${move}` : move < 0 ? `▼${-move}` : "–"}
                 </span>
-                <span className={`pl-av s${r.seat}`}>{r.player[0]}</span>
+                {/* O BICHO, não a inicial. Este placar mostrava "T", "V", "R", "R" — a mesa
+                    inteira de animais virava um placar de letras a cada fim de mão. */}
+                <InsigniaEmLinha
+                  seat={r.seat}
+                  avatar={etiquetaDoAvatar(game, mp?.sala?.seats, r.seat)}
+                  nome={r.player}
+                  classe="pl-av"
+                />
                 <span className="pl-name">
                   {r.player}
                   <i className="pl-detail">{detail(b.units, bd, contract.isPositive)}</i>
@@ -134,6 +142,7 @@ export function Placar({
               </>
             ) : mp ? (
               <ConsensoDaProximaMao
+                game={game}
                 mp={mp}
                 players={game.players()}
                 onAdvance={onAdvance}

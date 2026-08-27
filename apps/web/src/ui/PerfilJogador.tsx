@@ -32,6 +32,7 @@ import type { Seat } from "@king/engine";
 import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
 import type { AssentoLido } from "../net/clienteKing.js";
 import { desenhoDoAvatar } from "./avatares.js";
+import { etiquetaDoAvatar } from "./Insignia.js";
 import { fmtSigned } from "./contractText.js";
 import { sfxTap } from "../audio/sounds.js";
 
@@ -83,17 +84,18 @@ export function PerfilJogador({
   const nome = game.players()[assento];
   const doAssento = sala?.find((a) => a.seat === assento) ?? null;
   /**
-   * O AVATAR VEM DO ASSENTO PEDIDO, e a ordem de autoridade é a mesma da Mesa.
+   * O AVATAR VEM DO ASSENTO PEDIDO — e a pergunta é feita a `etiquetaDoAvatar`, como em todas as
+   * outras telas.
    *
    * Aqui morava um bug funcional: a resolução olhava só o estado da sala. No modo local não existe
    * sala, então `doAssento` era `null` para os quatro, `desenhoDoAvatar(undefined)` caía no padrão
    * e os quatro cards abriam o Leão — inclusive o do próprio jogador. O card mostrava gente
    * diferente e o perfil mostrava sempre o mesmo bicho.
    *
-   * A correção não é um fallback melhor: é perguntar a quem sabe. A partida local conhece a
-   * identidade dos seus quatro assentos, e agora ela responde.
+   * A correção não foi um fallback melhor: foi perguntar a quem sabe. E como a mesma pergunta
+   * aparecia em seis telas com seis respostas ligeiramente diferentes, ela virou uma função só.
    */
-  const avatar = desenhoDoAvatar(doAssento?.avatar ?? game.avatarDoAssento(assento));
+  const avatar = desenhoDoAvatar(etiquetaDoAvatar(game, sala, assento));
   const eu = assento === game.humanSeat;
 
   const stats = game.stats();

@@ -16,7 +16,7 @@ import {
   BalaoSocial, BotaoSocial, ChipDoRelogio, FaixaDaConexao, SeloDeAssistencia, SeloDeBot,
   AvisoDeRecusa, type MesaMultiplayer,
 } from "./MesaOnline.js";
-import { desenhoDoAvatar } from "./avatares.js";
+import { Insignia, etiquetaDoAvatar } from "./Insignia.js";
 import { DezMaos } from "./DezMaos.js";
 import { PerfilJogador } from "./PerfilJogador.js";
 import { UltimaVaza } from "./UltimaVaza.js";
@@ -149,7 +149,7 @@ export function Mesa({
    * leão", que era exatamente o atalho que fazia os quatro cards abrirem o mesmo bicho.
    */
   const avatarDe = (s: Seat): string | undefined =>
-    mp?.sala?.seats[s]?.avatar ?? game.avatarDoAssento(s);
+    etiquetaDoAvatar(game, mp?.sala?.seats, s);
 
   const posicoes = new Map(game.rankings().map((r) => [r.seat, r.position]));
   const daMao = game.handBreakdownSoFar();
@@ -278,7 +278,10 @@ export function Mesa({
     // `comtrunfo` avisa ao CSS que a coluna esquerda ganhou mais um andar: com o slot de trunfo
     // na tela, os adversários laterais precisam de um piso para não subirem por baixo dele.
     <div
-      className={`mesa${shaking ? " shaking" : ""}${contract?.isPositive && trump ? " comtrunfo" : ""}`}
+      // `temsocial` declara que o canto inferior direito TEM um botão flutuante. Quem desenha
+      // ali — hoje o "Toque de novo" — sobe para não disputar o mesmo lugar. É condição de
+      // layout, não de estado da partida, e por isso mora numa classe e não numa medida de JS.
+      className={`mesa${shaking ? " shaking" : ""}${contract?.isPositive && trump ? " comtrunfo" : ""}${mp ? " temsocial" : ""}`}
       /* O tema vem do estado AUTORITATIVO da sala, não de preferência local: todo mundo joga na
          mesma mesa. Sem multiplayer cai no padrão, que é a mesa aprovada. */
       data-tema={temaDaMesa(mp?.sala?.tableTheme)}
@@ -446,7 +449,7 @@ export function Mesa({
           role="status"
         >
           <span className="quem">
-            <Insignia seat={castigo.seat} avatar={mp?.sala?.seats[castigo.seat]?.avatar}
+            <Insignia seat={castigo.seat} avatar={avatarDe(castigo.seat)}
               nome={castigo.jogador} selo />
             {castigo.voce ? "Você pegou" : `${castigo.jogador} pegou`}
           </span>
@@ -505,35 +508,20 @@ export function Mesa({
         <Placar game={game} onAdvance={onAdvance} onHome={onHome} onRestart={onRestart} mp={mp} />
       )}
       {phase === "matchEnd" && !reviewing && (
-        <PlacarFinal game={game} onRestart={onRestart} onHome={onHome} />
+        <PlacarFinal game={game} onRestart={onRestart} onHome={onHome} mp={mp} />
       )}
     </div>
   );
 }
 
-/**
- * O círculo de identidade — adversários, você e o selo do castigo usam o mesmo.
- *
- * A COR vem do ASSENTO (`s0`–`s3`), nunca da posição na tela: a Mesa gira em torno de quem
- * olha, e colorir por posição faria a mesma pessoa aparecer de uma cor em cada aparelho.
- *
- * O DESENHO vem do avatar do estado autoritativo. No jogo local não há avatar escolhido nem
- * outros aparelhos para combinar: fica a inicial do nome, como sempre foi.
- */
-function Insignia({ seat, avatar, nome, selo }: {
-  seat: Seat;
-  avatar?: string;
-  nome: string;
-  /** O selo do castigo desenha um `<i>` dentro de uma linha de texto, não um bloco. */
-  selo?: boolean;
-}) {
-  const d = avatar ? desenhoDoAvatar(avatar) : null;
-  const classe = `av s${seat}`;
-  const conteudo = d ? d.glifo : nome[0];
-  return selo
-    ? <i className={classe} aria-label={d?.rotulo}>{conteudo}</i>
-    : <div className={classe} aria-label={d?.rotulo}>{conteudo}</div>;
-}
+// A INSÍGNIA MUDOU DE ENDEREÇO: `./Insignia.tsx`.
+//
+// Enquanto ela morava aqui dentro, era da Mesa. As outras cinco telas que também precisam
+// desenhar quem é quem — placar entre-mãos, placar final, perfil, consenso e resumo — não podiam
+// importá-la sem importar a Mesa junto, então cada uma resolveu do seu jeito. "Do seu jeito"
+// acabou virando `nome[0]` em quatro delas: uma mesa de bichos e placares de letras.
+//
+// Lá está a mesma coisa que estava aqui, mais a função que responde de onde vem o avatar.
 
 /**
  * Painel de trunfo — ocupa só o miolo da mesa. O leque continua **visível e nítido** porque

@@ -319,11 +319,13 @@ describe("Placar entre-mãos no multiplayer", () => {
     expect(root.querySelector(".pl-legend")).toBeTruthy();
   });
 
-  it("antes de votar, o botão continua sendo 'Próxima mão'", () => {
+  it("antes de votar, o botão convida a ficar pronto", () => {
     const m = maoTerminada();
     const root = render(remota(m, 0), contexto(0, { prontos: [] }));
     expect(root.querySelector(".pl-consenso")).toBeTruthy();
-    expect(root.querySelector(".pl-consenso .btn")!.text).toContain("Próxima mão");
+    const b = root.querySelector(".pl-toggle")!;
+    expect(b.text).toContain("Estou pronto");
+    expect(b.getAttribute("aria-pressed")).toBe("false");
     expect(root.querySelectorAll(".pl-pronto.ok")).toHaveLength(0);
   });
 
@@ -331,8 +333,9 @@ describe("Placar entre-mãos no multiplayer", () => {
     const m = maoTerminada();
     const root = render(remota(m, 0), contexto(0, { prontos: [0, 1, 2], pediProximaMao: true }));
     // O aviso virou BOTÃO: confirmar deixou de ser uma porta sem volta.
-    const desfazer = root.querySelector(".pl-desfazer")!;
+    const desfazer = root.querySelector(".pl-toggle.on")!;
     expect(desfazer.tagName).toBe("BUTTON");
+    expect(desfazer.getAttribute("aria-pressed")).toBe("true");
     expect(desfazer.text).toContain("Pronto");
     expect(desfazer.text).toContain("Nara");        // o único que falta
     expect(desfazer.text).toContain("desfazer");    // e o caminho de volta está escrito
@@ -345,9 +348,28 @@ describe("Placar entre-mãos no multiplayer", () => {
   it("com os quatro prontos não há mais o que desfazer: a mão já vai virar", () => {
     const m = maoTerminada();
     const root = render(remota(m, 0), contexto(0, { prontos: [0, 1, 2, 3], pediProximaMao: true }));
-    const desfazer = root.querySelector(".pl-desfazer")!;
+    const desfazer = root.querySelector(".pl-toggle.on")!;
     expect(desfazer.getAttribute("disabled")).not.toBeNull();
     expect(desfazer.text).toContain("começando");
+  });
+
+  /**
+   * A GEOMETRIA NÃO PODE DEPENDER DO ESTADO.
+   *
+   * Este é o teste do defeito relatado: alternar pronto/não pronto trocava um botão de uma linha
+   * por outro de duas, o rodapé mudava de altura e o placar ganhava barra de rolagem no meio da
+   * interação. Aqui se trava o que o CSS depende para não acontecer de novo: é o MESMO elemento,
+   * com a mesma classe de caixa e a mesma estrutura de duas linhas, nos dois estados. O tamanho em
+   * pixels quem mede é o Playwright; o que se garante aqui é que não há dois botões diferentes.
+   */
+  it("o botão de pronto é o mesmo elemento nos dois estados", () => {
+    const m = maoTerminada();
+    const caixa = (pedi: boolean) => {
+      const b = render(remota(m, 0), contexto(0, { prontos: pedi ? [0] : [], pediProximaMao: pedi }))
+        .querySelector(".pl-toggle")!;
+      return { tag: b.tagName, linhas: [b.querySelector("b") !== null, b.querySelector("i") !== null] };
+    };
+    expect(caixa(true)).toEqual(caixa(false));
   });
 
   it("no modo local o Placar mantém o botão de sempre", () => {

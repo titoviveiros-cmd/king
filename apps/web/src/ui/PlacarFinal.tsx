@@ -3,12 +3,14 @@ import type { RankRow, Seat } from "@king/engine";
 import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
 import { textoDoCompartilhamento } from "./compartilhar.js";
 import { Crown } from "./Crown.js";
-import { contractTitle, trumpLabel, fmtSigned, ordinal } from "./contractText.js";
+import { fmtSigned, ordinal } from "./contractText.js";
 import { audio } from "../audio/engine.js";
 import { TEMPOS } from "../game/timings.js";
 import { interpolar, saldosAntes, scoresPorAssento } from "./placarFinalDados.js";
 import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVictory } from "../audio/sounds.js";
 import { analytics } from "../analytics/analytics.js";
+import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
+import type { MesaMultiplayer } from "./MesaOnline.js";
 
 /**
  * PLACAR FINAL — o encerramento da partida. Não é "o Placar entre-mãos sem o botão":
@@ -28,16 +30,17 @@ const MARCOS: Record<Etapa, number> = {
 const DUR_CONTAGEM = TEMPOS.fim.duracaoContagem;
 
 export function PlacarFinal({
-  game, onRestart, onHome,
+  game, onRestart, onHome, mp,
 }: {
   game: LeituraDaPartida;
   onRestart: () => void;
   onHome: () => void;
+  /** Presente só no multiplayer. Aqui serve a uma coisa: resolver o avatar de cada assento. */
+  mp?: MesaMultiplayer;
 }) {
   const resumo = game.summary();
   const finais = game.rankings();
   const stats = game.stats();
-  const players = game.players();
   const eu = game.humanSeat;
 
   const campeoes = finais.filter((r) => r.position === 1);
@@ -115,8 +118,8 @@ export function PlacarFinal({
   const linhas = mostrandoFinal ? finais : ordenarPor(finais, ordemInicial);
 
   const destaques = useMemo(
-    () => construirDestaques(game, stats, finais, eu, empate, venci),
-    [game, stats, finais, eu, empate, venci],
+    () => construirDestaques(game, stats, eu, empate, venci),
+    [game, stats, eu, empate, venci],
   );
 
   // o burst vive só o instante da coroação; depois a tela desce de intensidade
@@ -183,7 +186,12 @@ export function PlacarFinal({
                 >
                   <span className="p">{mostrandoFinal ? ordinal(r.position) : ""}{r.tied && mostrandoFinal && <i>=</i>}</span>
                   {campeao ? <Crown size={26} className="mini" /> : <span className="p-espaco" />}
-                  <span className={`av s${r.seat}`}>{r.player[0]}</span>
+                  <InsigniaEmLinha
+                    seat={r.seat}
+                    avatar={etiquetaDoAvatar(game, mp?.sala?.seats, r.seat)}
+                    nome={r.player}
+                    classe="av"
+                  />
                   <span className="nm">{r.player}</span>
                   <span className={`sc ${pontos[r.seat] < 0 ? "neg" : pontos[r.seat] > 0 ? "pos" : ""}`}>
                     {fmtSigned(pontos[r.seat] ?? r.score)}
@@ -200,28 +208,25 @@ export function PlacarFinal({
                 <span>{destaques.texto}</span>
               </div>
 
+              {/* SOBRA UM CHIP, e é o único que conta uma história: a maior mão da partida.
+
+                  Saíram daqui "Amplitude", "Negativas ilesas" e "Soma dos saldos = 0 ✓". Os três
+                  eram verdadeiros e nenhum era para o jogador: amplitude é a subtração que
+                  qualquer um faz olhando a primeira e a última linha logo acima; "negativas
+                  ilesas" é vocabulário de dentro do projeto; e o checksum é instrumento de
+                  auditoria do motor — o jogo mostrando ao jogador que confere as próprias
+                  contas. Continuam existindo, todos, onde sempre estiveram: `stats`, `finais` e
+                  o teste de checksum do motor. O que mudou é que a tela do fim de partida não é
+                  mais o painel de diagnóstico deles. */}
               <div className="fimchips">
                 {destaques.chips.map((c) => <span key={c} className="pl-tag">{c}</span>)}
-                <span className="pl-tag turq">Soma dos saldos = 0 ✓</span>
               </div>
 
-              {resumo && (
-                <div className="fimultima">
-                  <b>Última mão</b>
-                  <span>
-                    Mão {resumo.handNumber} · {contractTitle(resumo.contract.kind)}
-                    {resumo.trump && ` · trunfo ${trumpLabel(resumo.trump)}`}
-                    {resumo.chooser !== null && ` (${players[resumo.chooser]})`}
-                  </span>
-                  <span className="deltas">
-                    {finais.map((r) => (
-                      <i key={r.seat} className={resumo.scores[r.seat] > 0 ? "pos" : resumo.scores[r.seat] < 0 ? "neg" : ""}>
-                        {r.player[0]} {fmtSigned(resumo.scores[r.seat])}
-                      </i>
-                    ))}
-                  </span>
-                </div>
-              )}
+              {/* AQUI FICAVA "Última mão": contrato, trunfo e os quatro deltas da mão 10.
+                  Era repetição pura — o Placar entre-mãos já mostrou essa mão inteira, com mais
+                  detalhe, trinta segundos antes, e o ranking logo acima já mostra onde ela
+                  deixou cada um. No fim de partida a pergunta é "quem venceu", não "como foi a
+                  última mão". */}
 
               {/* AQUI ficava um bloco "Progressão" com barra vazia e o texto "XP e conquistas
                   entram na Fase 7". Saiu inteiro: "Fase 7" é nome de etapa interna do projeto,
@@ -358,10 +363,9 @@ function usePrefersReducedMotion(): boolean {
  * Escolhe o destaque memorável a partir das estatísticas REAIS do motor.
  * Ordem de preferência: o que for mais raro/expressivo primeiro.
  */
-function construirDestaques(
+export function construirDestaques(
   game: LeituraDaPartida,
   stats: ReturnType<LeituraDaPartida["stats"]>,
-  finais: RankRow[],
   eu: Seat,
   empate: boolean,
   venci: boolean,
@@ -422,8 +426,6 @@ function construirDestaques(
 
   const chips = [
     `Melhor mão da partida: ${nome(stats.biggestHand!.seat)} ${fmtSigned(stats.biggestHand!.score)} (Mão ${stats.biggestHand!.handNumber})`,
-    `Negativas ilesas: ${meu.cleanNegatives}/${meu.negativeHands}`,
-    ...(finais.length ? [`Amplitude: ${finais[0].score - finais[finais.length - 1].score} pontos`] : []),
   ];
 
   return { titulo: top.titulo, texto: top.texto, chips };

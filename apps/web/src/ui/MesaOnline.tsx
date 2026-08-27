@@ -21,6 +21,8 @@ import {
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao, RelogioRecebido } from "../game/useKingOnline.js";
 import { agoraMonotonico } from "../game/monotonico.js";
+import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
+import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
 
 /** O contexto multiplayer que a Mesa e o Placar recebem. Ausente = modo local. */
 export interface MesaMultiplayer {
@@ -138,8 +140,10 @@ export function AvisoDeRecusa({ recusa }: { recusa: { mensagem: string; nonce: n
  * permanecem intactos; isto entra apenas no lugar do botão.
  */
 export function ConsensoDaProximaMao({
-  mp, players, onAdvance, onCancelar,
+  game, mp, players, onAdvance, onCancelar,
 }: {
+  /** Só para resolver identidade — o consenso em si é todo do servidor. */
+  game: LeituraDaPartida;
   mp: MesaMultiplayer;
   players: string[];
   onAdvance: () => void;
@@ -150,6 +154,17 @@ export function ConsensoDaProximaMao({
   const faltam = players
     .map((nome, s) => ({ nome, s: s as Seat }))
     .filter(({ s }) => !mp.prontos.includes(s));
+
+  const pronto = mp.pediProximaMao;
+  /** Já não dá para voltar atrás: os quatro confirmaram e a mão vai começar. */
+  const travado = faltam.length === 0;
+  const legenda = !pronto
+    ? "quando quiser seguir"
+    : travado
+      ? "começando…"
+      : faltam.length === 1
+        ? `aguardando ${faltam[0].nome} · toque para desfazer`
+        : `aguardando ${faltam.length} jogadores · toque para desfazer`;
 
   return (
     <div className="pl-consenso">
@@ -164,36 +179,43 @@ export function ConsensoDaProximaMao({
               className={`pl-pronto s${i}${ok ? " ok" : ""}${ausente ? " ausente" : ""}`}
               title={`${nome}${ok ? " · pronto" : " · aguardando"}`}
             >
-              {nome[0]}
+              {/* O mesmo bicho da mesa. Aqui a lista serve para procurar UMA pessoa
+                  específica ("falta o Sapo"), e procurar por inicial não funciona quando
+                  dois nomes começam com a mesma letra. */}
+              <InsigniaEmLinha
+                seat={s}
+                avatar={etiquetaDoAvatar(game, assentos, s)}
+                nome={nome}
+                classe="pl-pronto-av"
+              />
             </span>
           );
         })}
       </div>
-      {/* PRONTO É REVERSÍVEL.
-          Antes, confirmar virava um aviso de espera e acabava ali: quem tocasse por engano ficava
-          preso olhando os outros. Agora o mesmo lugar da tela é o caminho de volta, com o estado
-          dito por extenso ("✓ Pronto") e o que fazer para desfazer logo abaixo. Quem manda
-          continua sendo o servidor: isto envia `ready:false`, e a lista de prontos que todos veem
-          vem do `READY_STATE` dele. */}
-      {mp.pediProximaMao ? (
-        <button
-          className="btn ghost pl-desfazer"
-          onClick={onCancelar}
-          disabled={!onCancelar || faltam.length === 0}
-          aria-label="Desfazer o pedido da próxima mão"
-        >
-          <b>✓ Pronto</b>
-          <i>
-            {faltam.length === 0
-              ? "começando…"
-              : faltam.length === 1
-                ? `aguardando ${faltam[0].nome} · toque para desfazer`
-                : `aguardando ${faltam.length} jogadores · toque para desfazer`}
-          </i>
-        </button>
-      ) : (
-        <button className="btn gold" autoFocus onClick={onAdvance}>Próxima mão ▸</button>
-      )}
+      {/* UM BOTÃO SÓ, E A MESMA CAIXA NOS DOIS ESTADOS.
+          Eram dois botões diferentes trocando de lugar: um `btn gold` de uma linha quando não
+          pronto, um `pl-desfazer` de duas linhas quando pronto. Cada toque trocava um elemento
+          por outro de altura e largura diferentes, o rodapé mudava de tamanho, o `.placar` (que é
+          `overflow:auto`) passava a caber ou não caber, e nascia uma barra de rolagem no meio da
+          interação. Quem tocasse duas vezes via a tela inteira se reorganizar embaixo do dedo.
+
+          Agora é o MESMO botão com a mesma geometria: duas linhas sempre, largura fixa, a segunda
+          linha reticenciada quando o texto é maior. O que muda entre os estados é a cor, o texto e
+          o que o clique faz — nada que ocupe espaço. Alternar não pode mexer no layout.
+
+          A reversibilidade continua sendo do SERVIDOR: marcar envia `ready:true`, desmarcar envia
+          `ready:false`, e a lista de prontos que os quatro veem vem do `READY_STATE` dele. */}
+      <button
+        className={`btn ${pronto ? "ghost" : "gold"} pl-toggle${pronto ? " on" : ""}`}
+        autoFocus={!pronto}
+        onClick={pronto ? onCancelar : onAdvance}
+        disabled={pronto && (!onCancelar || travado)}
+        aria-pressed={pronto}
+        aria-label={pronto ? "Desfazer o pedido da próxima mão" : "Confirmar a próxima mão"}
+      >
+        <b>{pronto ? "✓ Pronto" : "Estou pronto"}</b>
+        <i>{legenda}</i>
+      </button>
     </div>
   );
 }
