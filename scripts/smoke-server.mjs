@@ -27,7 +27,21 @@ const ENTRADA = fileURLToPath(new URL("apps/server/dist/index.js", RAIZ));
 const PORTA = Number(process.env.SMOKE_PORT ?? 2599);
 const URL_HTTP = `http://127.0.0.1:${PORTA}`;
 const URL_WS = `ws://127.0.0.1:${PORTA}`;
-const PROTOCOL_VERSION = 1;
+/**
+ * A VERSÃO DO PROTOCOLO VEM DO ARTEFATO, NÃO DESTE ARQUIVO.
+ *
+ * Estava fixada em 1, e ficou desatualizada no primeiro bump — o CI reprovou com
+ * "Protocolo incompatível: cliente 1, servidor 2", que é exatamente a mensagem certa para o
+ * problema errado. Um smoke que carrega a própria cópia da constante não testa o servidor: testa
+ * se alguém lembrou de editar dois arquivos.
+ *
+ * Aqui ela é lida do MESMO `dist/` que acabou de ser construído e que o processo sob teste está
+ * executando. Se um dia o número divergir entre cliente e servidor, quem acusa é o teste do
+ * protocolo, não este.
+ */
+const { PROTOCOL_VERSION } = await import(
+  new URL("apps/server/dist/protocol/index.js", RAIZ).href
+);
 
 const passos = [];
 const ok = (t) => { passos.push("  ✓ " + t); console.log("  ✓ " + t); };
