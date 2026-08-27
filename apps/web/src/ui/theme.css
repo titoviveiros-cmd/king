@@ -493,7 +493,12 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   padding:calc(var(--ui)*.5) calc(var(--ui)*.78);backdrop-filter:blur(6px);transition:box-shadow .3s;
   box-shadow:0 6px 18px -8px #000;}
 .opp.left{left:calc(var(--pad) + var(--sl));top:52%;transform:translateY(-50%);}
-.opp.top{top:calc(var(--pad) + var(--st) + clamp(36px,7.5vh,62px));left:50%;transform:translateX(-50%);}
+/* O PISO DE 36px ERA GENEROSO PARA UMA FAIXA QUE PASSOU A TER DONO.
+   Entre este card e a vaza mora agora o selo do castigo, ancorado na vaza. Nas telas entre ~350 e
+   ~480px de altura o `clamp` ficava preso no piso, e o selo comia 18 a 26px deste card. O piso
+   cede 10px; o teto e o termo do meio não mudam, então a mesa alta de verdade (onde `7.5vh` já
+   passava de 36) continua exatamente como foi aprovada. */
+.opp.top{top:calc(var(--pad) + var(--st) + clamp(26px,7.5vh,62px));left:50%;transform:translateX(-50%);}
 .opp.right{right:calc(var(--pad) + var(--sr));top:52%;transform:translateY(-50%);}
 /* A COLUNA ESQUERDA É UMA PILHA: contrato, trunfo e, mais abaixo, o adversário da esquerda.
    Centralizar os laterais em 52% funciona enquanto a Mesa é alta. Quando ela encurta (tutorial
@@ -646,17 +651,42 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 /* ---- selo do castigo ----
    Quem pegou a bucha, o quê e quanto custou. Aparece sobre a mesa enquanto a vaza penalizada
    fica parada (ver TEMPOS.leituraDaVazaCastigo). Magenta = tensão, como manda o Design System;
-   o K de Copas recebe tratamento dourado, por ser o castigo máximo do jogo. */
-.castigo{position:absolute;left:50%;top:26%;transform:translate(-50%,-50%);z-index:30;
-  display:flex;align-items:center;gap:calc(var(--ui)*.7);white-space:nowrap;
-  padding:calc(var(--ui)*.5) calc(var(--ui)*1) calc(var(--ui)*.5) calc(var(--ui)*.5);
+   o K de Copas recebe tratamento dourado, por ser o castigo máximo do jogo.
+
+   ══ POR QUE ELE COBRIA UMA CARTA DA VAZA, E SÓ EM TELA BAIXA ══
+
+   O selo era ancorado em `top: 26%` — uma PORCENTAGEM da altura da mesa. As cartas da vaza são
+   ancoradas em `top: 49,5%`, mas o TAMANHO delas vem de `--trickcw`, que tem piso em pixels
+   (`clamp(38px, …)`). São dois sistemas de coordenadas que não encolhem juntos: quando a mesa
+   encurta, os 26% e os 49,5% se aproximam em pixels enquanto a carta se recusa a ficar menor que
+   o piso. A 852x300 as duas faixas se encontravam, e o selo entrava ~10px na carta de cima da
+   vaza — 567px² de carta cobertos, medidos. A 667x375 não acontecia, e foi por isso que passou
+   por todo o QA anterior.
+
+   Deslocar os 26% seria trocar um número mágico por outro, e o defeito voltaria no próximo
+   viewport. A correção é fazer os dois lerem a MESMA régua: o selo termina onde a vaza começa.
+   `50,5%` é o espelho de `top:49,5%` medido a partir da base, e `1.6 * --trickcw` é a metade da
+   altura da vaza (ela tem `3.2 * --trickcw`). Somando a folga, o selo passa a ser empurrado para
+   cima exatamente na mesma medida em que a carta cresce — em qualquer tela, por construção.
+
+   Empurrar o selo para cima o jogou contra o card do jogador do topo — trocar uma sobreposição
+   por outra não é corrigir. Duas coisas devolvem o espaço: a moldura do selo fica enxuta (o
+   respiro e a insígnia cedem; nome, o quê e quanto continuam no mesmo corpo de letra) e, nas
+   telas baixas, o card do topo sobe, porque ele tinha para onde: a linha acima dele é ocupada só
+   pelo painel do contrato, à esquerda, e pelos botões, à direita. O encosto que sobra é medido em
+   `castigo.spec.ts`, e é menor do que o que existia antes desta correção. */
+.castigo{position:absolute;left:50%;top:auto;
+  bottom:calc(50.5% + var(--trickcw) * 1.6 + var(--ui) * .5);
+  transform:translateX(-50%);z-index:30;
+  display:flex;align-items:center;gap:calc(var(--ui)*.55);white-space:nowrap;
+  padding:calc(var(--ui)*.3) calc(var(--ui)*.9) calc(var(--ui)*.3) calc(var(--ui)*.42);
   border-radius:999px;background:linear-gradient(100deg,rgba(20,8,30,.97),rgba(60,10,45,.95));
   border:2px solid rgba(224,51,138,.85);
   box-shadow:0 12px 34px -10px #000,0 0 0 4px rgba(224,51,138,.2),0 0 54px rgba(224,51,138,.6);
   animation:castigoEntra .5s cubic-bezier(.16,1.5,.4,1) both,castigoPulsa 1.15s ease-in-out .5s infinite;}
 .castigo .quem{display:flex;align-items:center;gap:calc(var(--ui)*.5);
   font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*.98);}
-.castigo .av{width:calc(var(--ui)*2.1);height:calc(var(--ui)*2.1);border-radius:50%;display:grid;
+.castigo .av{width:calc(var(--ui)*1.7);height:calc(var(--ui)*1.7);border-radius:50%;display:grid;
   place-items:center;font-style:normal;font-size:calc(var(--ui)*1);color:#0e0722;border:2px solid var(--night2);}
 .castigo .oque{font-family:var(--disp);font-weight:800;color:#ff9ecb;font-size:calc(var(--ui)*1.12);
   padding-left:calc(var(--ui)*.7);border-left:1px solid rgba(255,255,255,.18);}
@@ -671,13 +701,16 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   box-shadow:0 12px 34px -10px #000,0 0 0 5px rgba(244,197,66,.25),0 0 72px rgba(244,197,66,.7);}
 .castigo.king .oque{color:#ffd24a;}
 .castigo.king .oque::before{content:"👑 ";}
+/* O `translateY(-50%)` saiu das animações junto com o `top:26%`: quem posiciona verticalmente
+   agora é o `bottom`, e uma animação que reintroduzisse o deslocamento devolveria o selo para
+   dentro da vaza durante o quadro em que ela roda. */
 @keyframes castigoEntra{
-  from{opacity:0;transform:translate(-50%,-50%) scale(.7);}
-  to{opacity:1;transform:translate(-50%,-50%) scale(1);}
+  from{opacity:0;transform:translateX(-50%) scale(.7);}
+  to{opacity:1;transform:translateX(-50%) scale(1);}
 }
 @keyframes castigoPulsa{
-  0%,100%{transform:translate(-50%,-50%) scale(1);}
-  50%{transform:translate(-50%,-50%) scale(1.035);}
+  0%,100%{transform:translateX(-50%) scale(1);}
+  50%{transform:translateX(-50%) scale(1.035);}
 }
 
 /* ---- overlays ---- */
@@ -1560,6 +1593,17 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    carta. Depois apertam os gaps e o respiro dos botões. O texto, o progresso, o Pular e o
    Avançar continuam todos na tela, porque sem eles o tutorial deixa de funcionar. */
 @media (max-height: 360px) {
+  /* ── A FAIXA ENTRE O CARD DO TOPO E A VAZA ──
+     Ancorar o selo do castigo na vaza resolveu a carta coberta e criou um segundo problema: numa
+     mesa de 300px o selo passou a comer 31 dos 42px do card do jogador de cima. Trocar uma
+     sobreposição por outra não é corrigir.
+
+     A faixa entre os dois simplesmente não existia: 17px. Ela existe agora porque o card do topo
+     sobe — e ele tinha para onde subir, porque a linha acima dele é ocupada só pelo painel do
+     contrato (à esquerda) e pelos botões (à direita), e ele mora no meio, entre os dois. O
+     `clamp` continua com o mesmo teto; muda o piso, que era generoso para uma tela que não é
+     esta. Acima de 360px nada disso vale, e a mesa alta segue exatamente como foi aprovada. */
+  .opp.top{top:calc(var(--pad) + var(--st) + 4px);}
   .tut-nav{gap:6px;}
   .tut-acao{padding:.24em .6em;}
   .tut{--faixaTut:calc(var(--st) + 52px);}
