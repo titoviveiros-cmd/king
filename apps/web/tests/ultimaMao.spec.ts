@@ -44,6 +44,11 @@ test("aparece na mão 10, some sozinho e não deixa nada interceptando", async (
 
   const selo = page.locator(".um-selo");
   await expect(selo).toBeVisible({ timeout: 15_000 });
+  // O RELÓGIO COMEÇA AQUI, no instante em que ele fica visível — e não no fim das medições.
+  // A mão 10 nasce pedindo trunfo e o anúncio espera essa decisão sair da frente, então "quando
+  // ele aparece" deixou de ser "logo depois do load". Medir a permanência a partir de um instante
+  // indefinido transformaria a asserção numa corrida contra o tempo das próprias medições.
+  const desdeQueApareceu = Date.now();
   await expect(selo).toContainText("ÚLTIMA MÃO");
   await expect(selo).toContainText("Tudo pode mudar");
 
@@ -58,7 +63,7 @@ test("aparece na mão 10, some sozinho e não deixa nada interceptando", async (
   // 3,3s de permanência + 0,42s de saída — cerca de 3,7s de presença. O teste cobra o piso novo:
   // ainda na tela depois de 3s. É proposital que ele meça o PISO e não o valor exato: o número
   // pode ser afinado de novo, o que não pode é encolher para menos do que se lê.
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(Math.max(0, 3000 - (Date.now() - desdeQueApareceu)));
   await expect(page.locator(".um-selo"), "sumiu antes de dar para ler").toBeVisible();
 
   // E SAI SOZINHO. Nada de exigir toque.
@@ -80,6 +85,12 @@ test("não aparece duas vezes na mesma mão", async ({ page }, ti) => {
   test.skip(ti.project.name !== "667x375", "comportamento, não geometria");
   await mesaNaMao(page, 10);
 
+  // ESPERAR ELE APARECER PRIMEIRO, e não só "não estar na tela". A mão 10 nasce pedindo trunfo e o
+  // anúncio agora espera essa decisão sair da frente — checar `count() === 0` logo de cara
+  // passaria de graça, e o laço abaixo pegaria a PRIMEIRA aparição achando que era a segunda.
+  const trunfo = page.locator(".trumpbtn").first();
+  if (await trunfo.count()) await trunfo.click().catch(() => {});
+  await expect(page.locator(".um"), "o anúncio não chegou a aparecer").toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".um")).toHaveCount(0, { timeout: 15_000 });
 
   // A Mesa redesenha muitas vezes por mão (bots, relógio, cartas). Nenhum desses redesenhos pode
