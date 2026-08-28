@@ -1,0 +1,3 @@
+# Scripts que rodam na VPS precisam de LF: o `git show` entrega o blob como ele foi gravado,
+# e um  no fim da linha faz o bash reclamar de comando inexistente.
+*.sh text eol=lf
