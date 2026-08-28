@@ -9,7 +9,7 @@ import {
   type Card, type Trump, type Seat, type MatchState,
 } from "@king/engine";
 import { LeituraDaPartida } from "./leituraDaPartida.js";
-import { avatarLocalDoAssento } from "./adversarios.js";
+import { avatarDeBotLocal } from "./adversarios.js";
 
 export type { Phase } from "./leituraDaPartida.js";
 
@@ -53,7 +53,9 @@ export class KingGame extends LeituraDaPartida {
    */
   avatarDoAssento(seat: Seat): string | undefined {
     if (seat === this.humanSeat && this.#avatarDoHumano) return this.#avatarDoHumano;
-    return avatarLocalDoAssento(seat);
+    // E os bots desviam do bicho que o jogador escolheu: escolher o Sapo punha duas rãs na mesa,
+    // porque o "Fura-Vaza" já era o Sapo.
+    return avatarDeBotLocal(seat, this.#avatarDoHumano);
   }
 
   // ---- ações do humano ----

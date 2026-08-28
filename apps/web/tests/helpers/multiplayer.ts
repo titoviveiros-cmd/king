@@ -35,14 +35,31 @@ async function abrirPainelDeAmigos(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 15_000 });
 }
 
+/**
+ * Escolhe o avatar no diálogo que a ação acabou de abrir.
+ *
+ * A Home deixou de trazer um bicho pré-selecionado e o seletor saiu de dentro do painel de
+ * multiplayer: nada nasce escolhido, e é a AÇÃO que abre o diálogo. Antes disto, os helpers
+ * clicavam num botão de avatar que não existe mais e o teste ficava parado — foi o que derrubou
+ * `avatarPendente` e todo o `compacto` no CI.
+ *
+ * Tolerante de propósito: se o diálogo não abrir (porque o fluxo já tem avatar), segue em frente.
+ */
+async function escolherAvatar(page: Page, avatar: string): Promise<void> {
+  const dialogo = page.locator(".hm-avdialogo");
+  if (!(await dialogo.count())) return;
+  await page.locator(`.hm-avdialogo .hm-av[aria-label="${avatar}"]`).click();
+  await expect(dialogo).toHaveCount(0, { timeout: 10_000 });
+}
+
 /** Cria a sala e devolve o código de 4 dígitos. */
 export async function criarSala(page: Page, apelido: string, avatar: string): Promise<string> {
   await prepararSessao(page);
   await abrirPainelDeAmigos(page);
 
   await page.locator(".hm-online input").first().fill(apelido);
-  await page.getByRole("button", { name: avatar, exact: true }).click();
   await page.getByRole("button", { name: "Criar uma sala" }).click();
+  await escolherAvatar(page, avatar);
 
   const codigo = page.locator(".sl-cod");
   await expect(codigo).toBeVisible({ timeout: 20_000 });
@@ -59,9 +76,9 @@ export async function entrarNaSala(page: Page, codigo: string, apelido: string, 
 
   const campos = page.locator(".hm-online input");
   await campos.first().fill(apelido);
-  await page.getByRole("button", { name: avatar, exact: true }).click();
   await campos.last().fill(codigo);
   await page.getByRole("button", { name: "Entrar na sala" }).click();
+  await escolherAvatar(page, avatar);
 
   await expect(page.locator(".sl-lugares")).toBeVisible({ timeout: 20_000 });
 }

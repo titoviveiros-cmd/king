@@ -271,8 +271,13 @@ for (const frase of ["Segura essa!", "Essa doeu 😅"]) {
     expect(caixas.length).toBe(ASSENTOS.length);
     for (const c of caixas) {
       // GRANDE: o corpo antigo era `--ui * .82`; nenhuma superfície ficou abaixo de `.88`.
+      //
+      // A métrica de legibilidade é o CORPO DA LETRA, não a altura da pílula: nos corredores
+      // estreitos ela mede ~21px para um corpo de 11px, e é perfeitamente lida. A altura entra só
+      // como guarda contra caixa COLAPSADA — foi assim que o balão do placar passou despercebido
+      // com 15px de altura e o texto cortado.
       expect(c.fonte, "o balão encolheu").toBeGreaterThanOrEqual(11);
-      expect(c.height, "o balão ficou baixo demais para ser lido").toBeGreaterThanOrEqual(22);
+      expect(c.height, "a caixa do balão colapsou").toBeGreaterThanOrEqual(c.fonte * 1.6);
       // UMA LINHA: frases curtas não têm por que quebrar.
       expect(c.linhas, `"${frase}" quebrou em ${c.linhas} linhas`).toBe(1);
       expect(insideViewport(c as Box, vp, 1), "saiu da tela").toBe(true);

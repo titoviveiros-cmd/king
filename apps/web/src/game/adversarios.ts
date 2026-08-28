@@ -70,6 +70,25 @@ export function avatarLocalDoAssento(seat: number): Avatar | undefined {
   return MESA_LOCAL[seat]?.avatar;
 }
 
+/**
+ * O avatar de um BOT da mesa local, sabendo o que o humano escolheu.
+ *
+ * A mesa local sempre teve identidade fixa — os mesmos quatro bichos, toda partida. Isso deixou
+ * de bastar quando o jogador passou a escolher o dele: escolher o Sapo colocava duas rãs na mesa,
+ * porque o "Fura-Vaza" já era o Sapo. Dois desenhos iguais, distinguíveis só pela cor do assento.
+ *
+ * A regra é a mesma do servidor (`avatarDeBot`): o determinismo cede quando há colisão, e só
+ * então. O bot atingido recebe o primeiro bicho livre do catálogo, na ordem — nada de sorteio,
+ * para a mesa continuar reproduzível.
+ */
+export function avatarDeBotLocal(seat: number, avatarDoHumano?: string): Avatar | undefined {
+  const meu = MESA_LOCAL[seat]?.avatar;
+  if (!meu || !avatarDoHumano || meu !== avatarDoHumano) return meu;
+  const ocupados = new Set<string>([avatarDoHumano, ...MESA_LOCAL.map((a) => a.avatar)]);
+  ocupados.delete(meu);
+  return AVATARES.find((a) => !ocupados.has(a)) ?? meu;
+}
+
 /** Guarda de tipo usada pelos testes: toda etiqueta daqui existe na coleção. */
 export const todosOsAvataresSaoValidos = (): boolean =>
   MESA_LOCAL.every((a) => (AVATARES as readonly string[]).includes(a.avatar));

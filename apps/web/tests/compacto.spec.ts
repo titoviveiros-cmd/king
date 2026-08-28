@@ -19,7 +19,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { criarSala, mesaEmPartida, prepararSessao } from "./helpers/multiplayer.js";
-import { SEL } from "./helpers/mesa.js";
+import { SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
 
 interface Caixa { t: number; l: number; r: number; b: number; w: number; h: number }
 
@@ -118,7 +118,8 @@ test("MESA: nenhuma carta é cortada, e a mesa não rola", async ({ page }, ti) 
   const vp = page.viewportSize()!;
   await prepararSessao(page);
   await page.goto("/");
-  await page.getByRole("button", { name: /Jogar agora/ }).click();
+  // "Jogar agora" abre o seletor de avatar antes de começar: nada nasce escolhido.
+  await iniciarPartidaLocal(page);
   await expect(page.locator(SEL.youtagActive)).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(SEL.handCard)).toHaveCount(13, { timeout: 20_000 });
 
@@ -152,7 +153,8 @@ test("MESA: as zonas não se sobrepõem", async ({ page }, ti) => {
   const vp = page.viewportSize()!;
   await prepararSessao(page);
   await page.goto("/");
-  await page.getByRole("button", { name: /Jogar agora/ }).click();
+  // "Jogar agora" abre o seletor de avatar antes de começar: nada nasce escolhido.
+  await iniciarPartidaLocal(page);
   await expect(page.locator(SEL.handCard)).toHaveCount(13, { timeout: 20_000 });
 
   const leque = await caixaDoLeque(page);
