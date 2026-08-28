@@ -16,12 +16,19 @@ export function contractTitle(kind?: ContractKind): string {
   }
 }
 
+/**
+ * Forma CURTA da penalidade, para o card do contrato na Mesa.
+ *
+ * Q, K e J são NOMES DE CARTA, e nome de carta é maiúsculo — é assim em `contractTitle` ("Não
+ * pegar Q", "Não pegar K e J"), na tela do castigo e no baralho desenhado. Aqui tinham escapado
+ * em minúsculo, e a mesma tela mostrava "Não pegar Q" em cima de "−50 / q".
+ */
 export function penaltyText(kind?: ContractKind): string {
   switch (kind) {
     case "no-tricks": return "−20 / vaza";
     case "no-hearts": return "−20 / copa";
-    case "no-queens": return "−50 / q";
-    case "no-men": return "−30 / k e j";
+    case "no-queens": return "−50 / Q";
+    case "no-men": return "−30 / K e J";
     case "no-king": return "K de Copas = −160";
     case "no-last-two": return "−90 na 12ª e na 13ª";
     case "positive": return "+25 / vaza";
