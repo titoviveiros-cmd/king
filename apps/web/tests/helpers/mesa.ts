@@ -36,6 +36,25 @@ export const SEL = {
 } as const;
 
 /**
+ * Começa uma partida local — escolhendo o avatar, como faz quem joga.
+ *
+ * A Home deixou de trazer um bicho pré-selecionado: nada nasce escolhido, e as ações que precisam
+ * de identidade abrem o seletor antes de seguir. Um teste que só clicasse "Jogar agora" ficaria
+ * parado no seletor esperando uma Mesa que não vem — e foi exatamente o que aconteceu com toda a
+ * suíte no primeiro build depois da mudança.
+ *
+ * O avatar é escolhido pelo RÓTULO, não pela posição: a ordem do catálogo já mudou uma vez.
+ */
+export async function iniciarPartidaLocal(page: Page, avatar = "Sapo"): Promise<void> {
+  await page.locator(SEL.startBtn).click();
+  const seletor = page.locator(".hm-avdialogo");
+  if (await seletor.count()) {
+    await page.locator(`.hm-avdialogo .hm-av[aria-label="${avatar}"]`).click();
+    await expect(seletor).toHaveCount(0, { timeout: 10_000 });
+  }
+}
+
+/**
  * Vai para a Home, começa a partida com a semente fixa e espera o cenário de máxima pressão
  * (13 no leque + 3 na vaza + é a vez do humano). Retorna quando o DOM está estável para medir.
  */
@@ -61,7 +80,7 @@ export async function openMesaStress(page: Page, seed: number = SEED): Promise<v
   });
 
   await page.goto(`/?seed=${seed}`);
-  await page.locator(SEL.startBtn).click();
+  await iniciarPartidaLocal(page);
 
   // Espera a vez do humano na 1ª vaza: leque com 13 e vaza com 3 (estado determinístico).
   await expect(page.locator(SEL.youtagActive)).toBeVisible({ timeout: 20_000 });

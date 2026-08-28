@@ -34,12 +34,27 @@ export class KingGame extends LeituraDaPartida {
    * assento do jogador para suportar o multiplayer. No modo local ele continua sendo 0 — o
    * comportamento é idêntico ao de antes, byte a byte.
    */
-  constructor(players: string[], seed: number, humanSeat: Seat = 0, maoInicial = 1) {
+  /** O bicho que o jogador escolheu para ESTA partida. Ausente = a mesa local decide. */
+  readonly #avatarDoHumano?: string;
+
+  constructor(
+    players: string[], seed: number, humanSeat: Seat = 0, maoInicial = 1, avatarDoHumano?: string,
+  ) {
     super(partidaNova(players, seed, maoInicial), humanSeat);
+    this.#avatarDoHumano = avatarDoHumano;
   }
 
-  /** A mesa local tem identidade fixa: os mesmos quatro, com os mesmos avatares, toda partida. */
-  avatarDoAssento(seat: Seat): string | undefined { return avatarLocalDoAssento(seat); }
+  /**
+   * A mesa local tem identidade fixa para os bots — e a do humano é DELE.
+   *
+   * Antes, jogar contra bots dava sempre o Leão a quem jogava, viesse de onde viesse: o avatar
+   * escolhido só existia no multiplayer. A mesma pessoa era uma no solo e outra na sala, e a
+   * escolha que ela acabou de fazer não aparecia em lugar nenhum da partida.
+   */
+  avatarDoAssento(seat: Seat): string | undefined {
+    if (seat === this.humanSeat && this.#avatarDoHumano) return this.#avatarDoHumano;
+    return avatarLocalDoAssento(seat);
+  }
 
   // ---- ações do humano ----
   playHuman(card: Card): void { playCard(this.m, this.humanSeat, card); }

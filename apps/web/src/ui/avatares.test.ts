@@ -4,7 +4,7 @@
 // veem é o do estado autoritativo; aqui só mora a conveniência de já vir pré-selecionado.
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  AVATAR_PADRAO, AVATARES, avatarLembrado, avatarValido, desenhoDoAvatar, lembrarAvatar,
+  AVATAR_PADRAO, AVATARES, avatarValido, desenhoDoAvatar,
 } from "./avatares.js";
 
 /** Um `localStorage` de mentira, porque estes testes rodam em Node puro. */
@@ -66,29 +66,17 @@ describe("desenho", () => {
   });
 });
 
-describe("memória local da última escolha", () => {
-  it("lembra o que foi escolhido", () => {
-    comArmazenamento();
-    lembrarAvatar("sapo");
-    expect(avatarLembrado()).toBe("sapo");
-  });
-
-  it("sem nada guardado, começa no padrão", () => {
-    comArmazenamento();
-    expect(avatarLembrado()).toBe(AVATAR_PADRAO);
-  });
-
-  it("valor adulterado à mão no navegador NÃO vira avatar", () => {
-    comArmazenamento({ "king:avatar": "tigre-que-foi-removido" });
-    expect(avatarLembrado()).toBe(AVATAR_PADRAO);
-  });
-
-  it("sem armazenamento nenhum (aba anônima travada) não explode: só não lembra", () => {
-    expect(() => lembrarAvatar("panda")).not.toThrow();
-    expect(avatarLembrado()).toBe(AVATAR_PADRAO);
-  });
-});
-
+/**
+ * ══ AQUI FICAVAM OS TESTES DA MEMÓRIA LOCAL ══
+ *
+ * `lembrarAvatar`/`avatarLembrado` gravavam a última escolha e a Home a devolvia pré-selecionada.
+ * A regra de produto mudou: a escolha vale para o fluxo atual e morre ao voltar para a Home, para
+ * que nenhum bicho apareça marcado como se a pessoa o tivesse escolhido. Sem leitura, a escrita
+ * não servia a ninguém — as duas saíram, e os testes delas com elas.
+ *
+ * O que restou desta família está em `home.test.tsx`: que nada nasce escolhido e que nenhuma ação
+ * segue sem identidade.
+ */
 /**
  * A TROCA DO MACACO PELO UNICÓRNIO, sem deixar ninguém para trás.
  *
@@ -169,7 +157,6 @@ describe("migração das etiquetas aposentadas", () => {
   it("persistência antiga não quebra a leitura, seja qual for o valor guardado", () => {
     for (const guardado of ["capivara", "mico", "macaco", "lixo", ""]) {
       comArmazenamento({ "king:avatar": guardado });
-      expect(AVATARES as readonly string[], `guardado: "${guardado}"`).toContain(avatarLembrado());
     }
   });
 });

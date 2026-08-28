@@ -26,14 +26,16 @@ async function abrirSeletor(page: Page): Promise<void> {
     } catch { /* headless sem storage: segue */ }
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Jogar com amigos" }).click();
-  await expect(page.locator(".hm-avatares")).toBeVisible({ timeout: 15_000 });
+  // O SELETOR MUDOU DE LUGAR: ele não mora mais dentro do painel de multiplayer. Nada nasce
+  // escolhido, e ele aparece quando uma ação precisa de identidade — aqui, "Jogar agora".
+  await page.locator(".home .btn.gold").click();
+  await expect(page.locator(".hm-avdialogo")).toBeVisible({ timeout: 15_000 });
 }
 
 test("são oito, na ordem oficial, com Macaco e Unicórnio", async ({ page }) => {
   await abrirSeletor(page);
 
-  const opcoes = page.locator(".hm-avatares button");
+  const opcoes = page.locator(".hm-avdialogo .hm-av");
   await expect(opcoes).toHaveCount(8);
 
   const rotulos = await opcoes.evaluateAll(
@@ -47,22 +49,43 @@ test("são oito, na ordem oficial, com Macaco e Unicórnio", async ({ page }) =>
   expect(rotulos.join(" | ")).not.toMatch(/Capivara/i);
 });
 
-test("Macaco, Unicórnio e Sapo são escolhíveis", async ({ page }) => {
-  await abrirSeletor(page);
-
+/**
+ * ESCOLHER É UM TOQUE, e o toque leva a ação junto.
+ *
+ * O seletor deixou de ser uma fileira parada na tela com um bicho já marcado: ele é a primeira
+ * metade de uma ação que a pessoa já pediu. Escolher fecha o diálogo e a partida começa — não
+ * existe estado intermediário de "escolhido mas parado", e é por isso que este teste não procura
+ * mais um `aria-pressed` que sobrevive ao clique.
+ */
+test("Macaco, Unicórnio e Sapo são escolhíveis, e a escolha inicia a partida", async ({ page }) => {
   for (const nome of ["Macaco", "Unicórnio", "Sapo"]) {
-    const b = page.getByRole("button", { name: nome, exact: true });
+    await abrirSeletor(page);
+    const b = page.locator(`.hm-avdialogo .hm-av[aria-label="${nome}"]`);
     await expect(b, `${nome} não está no seletor`).toBeVisible();
     await b.click();
-    // A escolha fica marcada: identidade sem retorno visual é escolha que a pessoa não confirma.
-    await expect(b).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".hm-avdialogo")).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.locator(".mesa"), "escolher não levou à partida").toBeVisible({ timeout: 20_000 });
   }
+});
+
+/**
+ * E O AVATAR ESCOLHIDO É O DO JOGADOR NA MESA — inclusive jogando só contra bots.
+ *
+ * Antes, o solo dava sempre o Leão a quem jogava: o avatar escolhido só existia no multiplayer, e
+ * a mesma pessoa era uma no solo e outra na sala.
+ */
+test("o avatar escolhido é o do jogador na partida contra bots", async ({ page }) => {
+  await abrirSeletor(page);
+  await page.locator('.hm-avdialogo .hm-av[aria-label="Unicórnio"]').click();
+  await expect(page.locator(".mesa")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".youtag .av"), "o solo ignorou a escolha")
+    .toHaveAttribute("aria-label", "Unicórnio");
 });
 
 test("as oito cabem na tela, alcançáveis pelo dedo", async ({ page }, ti) => {
   await abrirSeletor(page);
   const vp = page.viewportSize()!;
-  const opcoes = page.locator(".hm-avatares button");
+  const opcoes = page.locator(".hm-avdialogo .hm-av");
 
   for (let i = 0; i < 8; i++) {
     const c = await boxOf(opcoes.nth(i), `avatar ${i + 1}`);
@@ -81,22 +104,30 @@ test("as oito cabem na tela, alcançáveis pelo dedo", async ({ page }, ti) => {
   expect(overflow, "o seletor criou rolagem horizontal").toBe(false);
 });
 
-test("um avatar aposentado guardado no aparelho não quebra a abertura", async ({ page }) => {
+/**
+ * O QUE FICOU GUARDADO EM APARELHOS ANTIGOS NÃO PODE VOLTAR A DECIDIR NADA.
+ *
+ * Este teste medía a MIGRAÇÃO do avatar guardado: quem tinha "capivara" (aposentada) abria o
+ * seletor com o unicórnio já marcado. A regra de produto mudou — nada nasce escolhido, e o jogo
+ * não lê mais `king:avatar`. A chave continua no `localStorage` de quem jogou antes, e o que
+ * importa agora é o oposto do que se media: que ela seja IGNORADA.
+ */
+test("avatar guardado por versões antigas é ignorado, não pré-seleciona nada", async ({ page }) => {
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem("king.audio",
         JSON.stringify({ music: false, sfx: false, haptics: false, musicVol: 0, sfxVol: 0 }));
       window.localStorage.setItem("king:tutorial",
         JSON.stringify({ iniciado: true, concluido: true, passo: 0 }));
-      // Quem escolheu a capivara antes da troca.
+      // Quem escolheu a capivara antes da troca, e quem escolheu o sapo antes desta rodada.
       window.localStorage.setItem("king:avatar", "capivara");
     } catch { /* headless sem storage: segue */ }
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Jogar com amigos" }).click();
-  await expect(page.locator(".hm-avatares")).toBeVisible({ timeout: 15_000 });
+  await page.locator(".home .btn.gold").click();
+  await expect(page.locator(".hm-avdialogo")).toBeVisible({ timeout: 15_000 });
 
-  // Cai no unicórnio, e não no leão padrão: a escolha antiga migra em vez de sumir.
-  await expect(page.getByRole("button", { name: "Unicórnio", exact: true }))
-    .toHaveAttribute("aria-pressed", "true");
+  // NENHUM dos oito aparece marcado — nem o migrado, nem o padrão.
+  const marcados = await page.locator('.hm-avdialogo .hm-av[aria-checked="true"]').count();
+  expect(marcados, "o valor guardado voltou a pré-selecionar um avatar").toBe(0);
 });

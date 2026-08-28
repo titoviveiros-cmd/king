@@ -93,12 +93,18 @@ export const avatarValido = (id: unknown): Avatar => {
 };
 
 /** Onde a última escolha do jogador é lembrada. Conveniência local — NUNCA a fonte da verdade. */
-const CHAVE = "king:avatar";
-
-export function lembrarAvatar(id: Avatar): void {
-  try { localStorage?.setItem(CHAVE, id); } catch { /* sem persistência: só não lembra */ }
-}
-
-export function avatarLembrado(): Avatar {
-  try { return avatarValido(localStorage?.getItem(CHAVE)); } catch { return AVATAR_PADRAO; }
-}
+/**
+ * ══ AQUI MORAVA A MEMÓRIA DO ÚLTIMO AVATAR ══
+ *
+ * `lembrarAvatar` gravava a escolha em `localStorage` e `avatarLembrado` a devolvia pré-selecionada
+ * na Home. Era conveniência, e virou o contrário: quem abria o jogo encontrava um bicho já
+ * marcado, como se ele tivesse escolhido — e ao criar uma sala levava essa escolha silenciosa
+ * junto. Avatar é identidade; identidade que aparece sozinha não é escolha.
+ *
+ * A regra passou a ser: a escolha vale para o FLUXO ATUAL e morre ao voltar para a Home. Sem
+ * leitura não há pré-seleção, e sem pré-seleção a escrita não serve a ninguém — guardar algo que
+ * nunca é lido é a pior das combinações, porque parece intenção e não é.
+ *
+ * Quem quiser reintroduzir memória entre sessões precisa resolver antes o que ela significa na
+ * tela: sugerir sem parecer decidido.
+ */

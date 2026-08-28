@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
-import { AVATARES, avatarLembrado, desenhoDoAvatar, lembrarAvatar, type Avatar } from "./avatares.js";
+import { AVATARES, desenhoDoAvatar, type Avatar } from "./avatares.js";
 
 /**
  * O código da sala tem QUATRO DÍGITOS e é sempre string.
@@ -34,7 +34,7 @@ export interface OnlineDaHome {
 export function Home({
   onStart, onOpenAudio, online, tutorial,
 }: {
-  onStart: () => void;
+  onStart: (avatar: Avatar) => void;
   onOpenAudio: () => void;
   /** Ausente = build sem multiplayer. A Home continua a de sempre. */
   online?: OnlineDaHome;
@@ -43,9 +43,36 @@ export function Home({
   const [painel, setPainel] = useState(false);
   const [nick, setNick] = useState("");
   const [codigo, setCodigo] = useState("");
-  // A escolha anterior volta pré-selecionada. É conveniência local e nada mais: quem manda no
-  // avatar que os outros veem é o servidor, que revalida a etiqueta na entrada.
-  const [avatar, setAvatar] = useState<Avatar>(avatarLembrado);
+  /**
+   * NENHUM AVATAR VEM ESCOLHIDO, e a escolha é pedida quando faz falta.
+   *
+   * Antes, a Home abria com o último avatar já marcado (lido do `localStorage`) e o fluxo seguia
+   * com ele. Parecia conveniência; na prática o jogo escolhia por quem chegava, e criar uma sala
+   * levava essa decisão silenciosa junto.
+   *
+   * Agora: `null` até haver um toque. Quem pede uma ação que precisa de identidade — jogar solo,
+   * criar sala, entrar numa sala — abre o seletor primeiro, e a ação continua sozinha assim que a
+   * escolha acontece. A Home não vira ficha de cadastro para quem só quer jogar rápido: o seletor
+   * só aparece quando é necessário, e uma vez por passagem pela Home.
+   *
+   * A escolha morre ao voltar para cá — este estado é da montagem atual do componente. Dentro da
+   * partida ou da sala ela vale normalmente, e "Jogar novamente" a conserva porque não passa por
+   * aqui: é continuação da mesma experiência.
+   */
+  const [avatar, setAvatar] = useState<Avatar | null>(null);
+  /** A ação que espera a escolha. `null` = seletor fechado. */
+  const [pedindoAvatar, setPedindoAvatar] = useState<((a: Avatar) => void) | null>(null);
+
+  /**
+   * Executa `acao` — pedindo o avatar antes, se ainda não houver um.
+   *
+   * O seletor não é um passo separado que a pessoa precisa lembrar de cumprir: ele é a primeira
+   * metade da ação que ela já pediu, e a segunda metade acontece sozinha na sequência.
+   */
+  const comAvatar = (acao: (a: Avatar) => void) => {
+    if (avatar) { acao(avatar); return; }
+    setPedindoAvatar(() => acao);
+  };
 
   const nome = nick.trim() || "Jogador";
 
@@ -54,7 +81,9 @@ export function Home({
       <div className="kw">KING</div>
       <div className="tg">Fuja do <b>King</b>. Domine a mesa.</div>
       <div className="row">
-        <button className="btn gold" autoFocus onClick={onStart}>▶ Jogar agora</button>
+        <button className="btn gold" autoFocus onClick={() => { sfxTap(); comAvatar(onStart); }}>
+          ▶ Jogar agora
+        </button>
         {online && (
           <button className="btn violet" onClick={() => { sfxTap(); setPainel((v) => !v); }}>
             Jogar com amigos
@@ -92,26 +121,10 @@ export function Home({
                 maxLength={14}
               />
             </label>
-            <fieldset className="hm-avatares">
-              <legend>Seu avatar</legend>
-              {AVATARES.map((id) => {
-                const d = desenhoDoAvatar(id);
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    className={`hm-av${id === avatar ? " escolhido" : ""}`}
-                    aria-pressed={id === avatar}
-                    aria-label={d.rotulo}
-                    title={`${d.rotulo} — ${d.persona}`}
-                    onClick={() => { sfxTap(); setAvatar(id); lembrarAvatar(id); }}
-                  >
-                    {d.glifo}
-                  </button>
-                );
-              })}
-            </fieldset>
-            <button className="btn violet wide" onClick={() => { sfxTap(); online.onCriar(nome, avatar); }}>
+            <button
+              className="btn violet wide"
+              onClick={() => { sfxTap(); comAvatar((a) => online.onCriar(nome, a)); }}
+            >
               Criar uma sala
             </button>
             <div className="hm-ou">ou</div>
@@ -129,12 +142,53 @@ export function Home({
             <button
               className="btn gold wide"
               disabled={codigo.length < TAMANHO_CODIGO}
-              onClick={() => { sfxTap(); online.onEntrar(codigo, nome, avatar); }}
+              onClick={() => { sfxTap(); comAvatar((a) => online.onEntrar(codigo, nome, a)); }}
             >
               Entrar na sala
             </button>
           </div>
         )
+      )}
+
+      {/* O SELETOR SOB DEMANDA.
+          Ele não fica na tela esperando ser notado: aparece quando uma ação precisa de
+          identidade, e some assim que a escolha acontece — levando a ação junto. Nenhum bicho
+          nasce marcado, e é isso que separa "escolher" de "aceitar o que já estava lá". */}
+      {pedindoAvatar && (
+        <>
+          <div className="hm-avscrim" onClick={() => setPedindoAvatar(null)} aria-hidden />
+          <div className="hm-avdialogo" role="dialog" aria-label="Escolha o seu avatar">
+            <span className="hm-avtitulo">Escolha o seu avatar</span>
+            <div className="hm-avatares" role="radiogroup" aria-label="Escolha o seu avatar">
+              {AVATARES.map((id) => {
+                const d = desenhoDoAvatar(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={false}
+                    aria-label={d.rotulo}
+                    title={`${d.rotulo} — ${d.persona}`}
+                    className="hm-av"
+                    onClick={() => {
+                      sfxTap();
+                      const acao = pedindoAvatar;
+                      setAvatar(id);
+                      setPedindoAvatar(null);
+                      acao(id);
+                    }}
+                  >
+                    {d.glifo}
+                  </button>
+                );
+              })}
+            </div>
+            <button className="hm-avcancela" onClick={() => { sfxTap(); setPedindoAvatar(null); }}>
+              agora não
+            </button>
+          </div>
+        </>
       )}
 
       <div className="foot">1 jogador + 3 bots · 4 jogadores · 10 mãos · base jogável (motor real)</div>
