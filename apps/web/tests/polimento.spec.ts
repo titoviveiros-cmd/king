@@ -17,7 +17,7 @@ import { boxOf, SEL, openMesaStress, iniciarPartidaLocal } from "./helpers/mesa.
 const SUBPIXEL = 1;
 
 /** Nomes de teste, do curto ao limite do campo (14). "W" é o glifo mais largo da fonte. */
-const NOMES = ["Leo", "Tito", "Alexandre", "João Guilherme", "Christopher", "WWWWWWWWWWWWWW"];
+const NOMES = ["Você", "Leo", "Tito", "Alexandre", "João Guilherme", "Christopher", "WWWWWWWWWWWWWW"];
 
 /**
  * Uma MESA com slot de trunfo na tela, pelo caminho mais curto que ainda é a tela de verdade.
@@ -292,19 +292,48 @@ test("o card de Sem Trunfo tem o mesmo tamanho do card de um naipe", async ({ pa
     await botoes.nth(indice).click();
     await expect(page.locator(".trumpslot")).toBeVisible({ timeout: 10_000 });
     const caixa = await page.locator(".trumpslot").boundingBox();
-    return { w: Math.round(caixa!.width), h: Math.round(caixa!.height) };
+    // O card ter o mesmo TAMANHO não bastou: ele cumpria a promessa por fora enquanto, por
+    // dentro, "Sem Trunfo" tomava a largura da linha e o nome de quem escolheu virava "v…". Um
+    // `not.toHaveText("")` passava tranquilo — `textContent` continua "Você" mesmo reticenciado
+    // pelo CSS. Então mede-se o CORTE: `scrollWidth` maior que a caixa é reticência.
+    const nomes: Record<string, boolean> = {};
+    // O nome real volta ao fim: a evidência é uma foto da TELA, e uma foto com "WWWWWWWWWWWWWW"
+    // no card mostra o instrumento em vez do produto.
+    const original = (await page.locator(".trumpslot .who").textContent()) ?? "";
+    for (const nome of [...NOMES, original]) {
+      await page.locator(".trumpslot .who").evaluate((el, n) => { el.textContent = n; }, nome);
+      await page.waitForTimeout(60);
+      nomes[nome] = await page.locator(".trumpslot .who").evaluate(
+        (el) => el.scrollWidth > Math.ceil(el.getBoundingClientRect().width) + 1);
+    }
+    const simCortado = await page.locator(".trumpslot .sym").evaluate(
+      (el) => el.scrollWidth > Math.ceil(el.getBoundingClientRect().width) + 1);
+    return { w: Math.round(caixa!.width), h: Math.round(caixa!.height), nomes, simCortado };
   };
 
   const comNaipe = await escolher(0);          // Copas
   const semTrunfo = await escolher(4);         // Sem Trunfo, o último
 
-  expect(semTrunfo, `[${ti.project.name}] o card mudou de tamanho conforme a escolha`)
-    .toEqual(comNaipe);
+  expect({ w: semTrunfo.w, h: semTrunfo.h },
+    `[${ti.project.name}] o card mudou de tamanho conforme a escolha`)
+    .toEqual({ w: comNaipe.w, h: comNaipe.h });
+
+  // A ESCOLHA NÃO PODE CUSTAR O NOME.
+  //
+  // Nome comprido reticenciar é o desenho: a caixa tem largura fixa e o apelido é quem cede. O
+  // que não pode é a reticência DEPENDER da escolha do trunfo — "Você" cabia com Copas e não
+  // cabia com Sem Trunfo, e a mesma pessoa aparecia nomeada ou não conforme o contrato da mão.
+  // Por isso a afirmação é de IGUALDADE entre os dois estados, e não uma lista de quais nomes
+  // cabem: essa lista muda com o viewport, e a promessa não.
+  expect(semTrunfo.nomes,
+    `[${ti.project.name}] "Sem Trunfo" corta nomes que um naipe não cortava`)
+    .toEqual(comNaipe.nomes);
 
   // E o texto continua legível: não é o card que encolhe nem a letra que some.
   await expect(page.locator(".trumpslot .sym")).toHaveText(/Sem Trunfo/);
   const corpo = await page.locator(".trumpslot .sym").evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
   expect(corpo, "'Sem Trunfo' ficou pequeno demais para ser lido").toBeGreaterThanOrEqual(13);
+  expect(semTrunfo.simCortado, "'Sem Trunfo' saiu reticenciado").toBe(false);
   // e quem escolheu continua nomeado
   await expect(page.locator(".trumpslot .who")).not.toHaveText("");
 

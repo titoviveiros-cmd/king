@@ -1861,4 +1861,16 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   .trumpslot .who{flex:1 1 auto;min-width:0;text-align:left;}
   .trumpslot .sym{font-size:calc(var(--ui)*1.6);margin-top:0;}
   .trumpslot .who{margin-top:0;}
+  /* DEITADO, "SEM TRUNFO" NÃO CABE COM A ETIQUETA JUNTO — e quem pagava a conta era o nome.
+     A linha é `TRUNFO · <escolha> · <quem escolheu>` numa caixa de largura fixa. Um naipe é um
+     glifo; "Sem Trunfo" são dez caracteres, e a diferença saía toda do apelido: medido a 852×300,
+     "Você" caía de 37px para 8px e virava "v…" com reticência. A caixa cumpria a promessa de não
+     mudar de tamanho, e o conteúdo dela é que deixava de ser legível.
+
+     A etiqueta sai porque, nesta escolha, ela é redundante: "Sem Trunfo" já diz a palavra. Fica
+     `Sem Trunfo · Você`, que é a mesma informação com uma repetição a menos. E a escolha passa a
+     caber numa linha, em vez de quebrar em duas dentro de um card baixo. */
+  .trumpslot.nt .lb{display:none;}
+  .trumpslot.nt .sym{white-space:nowrap;font-size:calc(var(--ui)*1.05);line-height:1.1;
+    text-align:left;flex:0 0 auto;}
 }
