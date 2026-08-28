@@ -294,7 +294,7 @@ for (const frase of ["Segura essa!", "Essa doeu 😅"]) {
     }
 
     if (PASTA) {
-      const nome = frase.replace(/[^w]+/g, "-").replace(/^-|-$/g, "");
+      const nome = frase.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
       await page.screenshot({ path: `${PASTA}/social-frase-${nome}-${ti.project.name}.png` });
     }
   });
