@@ -26,7 +26,7 @@
  * clientes de verdade e o servidor no meio.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { SEL } from "./helpers/mesa.js";
+import { SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
 import { insideViewport, overlapArea, type Box } from "./helpers/geometry.js";
 
 const PASTA = process.env.KING_SHOTS;
@@ -56,7 +56,7 @@ async function mesaPositivaComTrunfo(page: Page): Promise<boolean> {
   });
   // A mão 7 é positiva: é ela que faz nascer o card de Trunfo, que é o vizinho em disputa.
   await page.goto("/?seed=42&mao=7");
-  await page.locator(SEL.startBtn).click();
+  await iniciarPartidaLocal(page);
   await expect(page.locator(SEL.hud)).toBeVisible({ timeout: 20_000 });
   for (let i = 0; i < 40; i++) {
     if (await page.locator(".trumpslot").count()) return true;
@@ -127,10 +127,11 @@ for (const assento of ASSENTOS) {
       ).toBe(0);
     }
 
-    // ── 4 · NEM O CARD DE OUTRO JOGADOR. Cobrir o próprio é aceitável quando não há para onde
-    //        ir (é o caso do topo em tela baixa); cobrir o de outro trocaria o autor da fala.
+    // ── 4 · NEM CARD DE JOGADOR NENHUM, INCLUSIVE O DO PRÓPRIO REMETENTE.
+    //        Cobrir o card de quem falou parecia barato e não é: ele diz quem é a pessoa, quanto
+    //        ela tem e quantas cartas restam. Foi essa exigência que derrubou a colocação
+    //        anterior e mandou os balões para as faixas laterais.
     for (const outro of ASSENTOS) {
-      if (outro.sel === assento.sel) continue;
       for (const alvo of await caixasDe(page, outro.sel)) {
         expect(
           Math.round(overlapArea(balao!, alvo)),
@@ -193,3 +194,103 @@ test("os quatro balões coexistem sem se cobrirem", async ({ page }, ti) => {
 
   if (PASTA) await page.screenshot({ path: `${PASTA}/social-quatro-assentos-${ti.project.name}.png` });
 });
+
+/**
+ * NÃO REGRESSÃO: SOCIAL × TRUNFO, medido isoladamente.
+ *
+ * O card de Trunfo foi o primeiro a ser reportado e é o mais caro de cobrir: ele é informação
+ * PERMANENTE e estratégica, enquanto o balão dura segundos. Os testes acima já o incluem entre os
+ * intocáveis, mas ele merece uma asserção com nome próprio — quando falhar, a mensagem tem de
+ * dizer "trunfo", não "um dos intocáveis".
+ *
+ * E mede a distância, não só a ausência de sobreposição: encostar sem cruzar já é aviso de que a
+ * faixa está fechando.
+ */
+test("nenhum balão encosta no card de Trunfo", async ({ page }, ti) => {
+  test.setTimeout(120_000);
+  test.skip(!(await mesaPositivaComTrunfo(page)), "a mão positiva não montou dentro do orçamento");
+
+  const trunfo = (await caixasDe(page, ".trumpslot"))[0];
+  expect(trunfo, "esta mão não tem card de trunfo").toBeTruthy();
+
+  for (const assento of ASSENTOS) {
+    const balao = await balaoEm(page, assento.sel);
+    if (!balao) continue;
+    expect(
+      Math.round(overlapArea(balao, trunfo)),
+      `[${ti.project.name}] o balão do ${assento.rotulo} COBRE o card de Trunfo`,
+    ).toBe(0);
+
+    // E não encosta: se a folga chegar a zero, a próxima mudança de tipografia volta a colidir.
+    const folga = Math.max(
+      trunfo.x - (balao.x + balao.width), balao.x - (trunfo.x + trunfo.width),
+      trunfo.y - (balao.y + balao.height), balao.y - (trunfo.y + trunfo.height),
+    );
+    expect(
+      Math.round(folga),
+      `[${ti.project.name}] o balão do ${assento.rotulo} está colado no Trunfo`,
+    ).toBeGreaterThan(0);
+  }
+
+  if (PASTA) await page.screenshot({ path: `${PASTA}/social-trunfo-nao-regressao-${ti.project.name}.png` });
+});
+
+/**
+ * AS FRASES DO RELATO, no tamanho novo.
+ *
+ * Os testes acima usam a MAIOR frase do catálogo, que é o pior caso de largura. Estas duas são as
+ * que apareceram no aparelho — "Segura essa!" e "Essa doeu" — e o que se cobra delas é o oposto:
+ * que sejam grandes. Elas têm 12 e 9 caracteres e não deveriam pagar pelo pior caso.
+ */
+for (const frase of ["Segura essa!", "Essa doeu 😅"]) {
+  test(`"${frase}" fica legível e sem sobrepor nada`, async ({ page }, ti) => {
+    test.setTimeout(120_000);
+    const vp = page.viewportSize()!;
+    test.skip(!(await mesaPositivaComTrunfo(page)), "a mão positiva não montou dentro do orçamento");
+
+    const caixas = await page.evaluate(({ alvos, texto }) => {
+      document.querySelectorAll(".balao").forEach((n) => n.remove());
+      for (const sel of alvos) {
+        const card = document.querySelector(sel);
+        if (!card) continue;
+        const b = document.createElement("span");
+        b.className = "balao";
+        b.textContent = texto;
+        card.appendChild(b);
+      }
+      return [...document.querySelectorAll(".balao")].map((b) => {
+        const r = b.getBoundingClientRect();
+        const cs = getComputedStyle(b);
+        return {
+          x: r.x, y: r.y, width: r.width, height: r.height,
+          fonte: parseFloat(cs.fontSize), linhas: Math.round(r.height / parseFloat(cs.lineHeight)),
+        };
+      });
+    }, { alvos: ASSENTOS.map((a) => a.sel), texto: frase });
+
+    expect(caixas.length).toBe(ASSENTOS.length);
+    for (const c of caixas) {
+      // GRANDE: o corpo antigo era `--ui * .82`; nenhuma superfície ficou abaixo de `.88`.
+      expect(c.fonte, "o balão encolheu").toBeGreaterThanOrEqual(11);
+      expect(c.height, "o balão ficou baixo demais para ser lido").toBeGreaterThanOrEqual(22);
+      // UMA LINHA: frases curtas não têm por que quebrar.
+      expect(c.linhas, `"${frase}" quebrou em ${c.linhas} linhas`).toBe(1);
+      expect(insideViewport(c as Box, vp, 1), "saiu da tela").toBe(true);
+    }
+
+    // E nada de sobreposição, nem entre eles nem com carta/trunfo/HUD/botões.
+    const proibidos = [...INTOCAVEIS, ".card", ...ASSENTOS.map((a) => a.sel)];
+    for (const c of caixas) {
+      for (const sel of proibidos) {
+        for (const alvo of await caixasDe(page, sel)) {
+          expect(Math.round(overlapArea(c as Box, alvo)), `cobre ${sel}`).toBe(0);
+        }
+      }
+    }
+
+    if (PASTA) {
+      const nome = frase.replace(/[^w]+/g, "-").replace(/^-|-$/g, "");
+      await page.screenshot({ path: `${PASTA}/social-frase-${nome}-${ti.project.name}.png` });
+    }
+  });
+}

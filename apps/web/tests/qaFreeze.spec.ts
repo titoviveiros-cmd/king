@@ -13,7 +13,7 @@
  *     QUALQUER mesa não pode mudar nada além da cor.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { boxOf, SEL } from "./helpers/mesa.js";
+import { boxOf, SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
 import { insideViewport, intersects, type Box } from "./helpers/geometry.js";
 import { mesaEmPartida } from "./helpers/multiplayer.js";
 
@@ -293,7 +293,7 @@ test("o placar final chega inteiro e sem os quatro elementos removidos", async (
   });
   // A mão 10 é a última: jogá-la até o fim é o caminho mais curto até a tela de encerramento.
   await page.goto("/?seed=42&mao=10");
-  await page.locator(SEL.startBtn).click();
+  await iniciarPartidaLocal(page);
   await expect(page.locator(SEL.hud)).toBeVisible({ timeout: 20_000 });
 
   // O anúncio da última mão entra primeiro e sai sozinho; um toque encurta.

@@ -23,7 +23,7 @@
  * e as treze do leque. Não "os dois elementos existem", não "parece bom": área de interseção zero.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { boxOf, SEL } from "./helpers/mesa.js";
+import { boxOf, SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
 import { insideViewport, intersects, overlapArea, type Box } from "./helpers/geometry.js";
 
 const PASTA = process.env.KING_SHOTS;
@@ -53,7 +53,7 @@ async function mesaNaMao(page: Page, seed: number, mao: number): Promise<void> {
     } catch { /* headless sem storage: segue */ }
   });
   await page.goto(`/?seed=${seed}&mao=${mao}`);
-  await page.locator(SEL.startBtn).click();
+  await iniciarPartidaLocal(page);
   await expect(page.locator(SEL.hud)).toBeVisible({ timeout: 20_000 });
   // Na mão 10 o anúncio da última mão entra antes; um toque o encurta.
   const anuncio = page.locator(".um");

@@ -12,7 +12,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { intersects, insideViewport, fmt, type Box } from "./helpers/geometry.js";
-import { boxOf, SEL, openMesaStress } from "./helpers/mesa.js";
+import { boxOf, SEL, openMesaStress, iniciarPartidaLocal } from "./helpers/mesa.js";
 
 const SUBPIXEL = 1;
 
@@ -259,4 +259,56 @@ test.describe("mini perfil", () => {
     }));
     expect(rolagem, "a página não pode rolar com o perfil aberto").toEqual({ v: false, h: false });
   });
+});
+
+/**
+ * "SEM TRUNFO" É DO MESMO TAMANHO QUE UM NAIPE.
+ *
+ * O card já prometia não mudar de tamanho por causa do NOME de quem escolheu. Faltava a mesma
+ * promessa para o CONTEÚDO: um naipe é um glifo grande, "Sem Trunfo" é texto miúdo, e o card
+ * encolhia 22px (80x73 contra 80x51 a 667x375). A mesma informação parecia menos importante por
+ * acaso de tipografia.
+ *
+ * O teste escolhe as duas coisas na mesma mesa, pela interface, e compara as caixas.
+ */
+test("o card de Sem Trunfo tem o mesmo tamanho do card de um naipe", async ({ page }, ti) => {
+  test.setTimeout(120_000);
+
+  const escolher = async (indice: number) => {
+    await page.addInitScript(() => {
+      try {
+        window.localStorage.setItem("king.audio",
+          JSON.stringify({ music: false, sfx: false, haptics: false, musicVol: 0, sfxVol: 0 }));
+        window.localStorage.setItem("king:tutorial",
+          JSON.stringify({ iniciado: true, concluido: true, passo: 0 }));
+      } catch { /* headless sem storage: segue */ }
+    });
+    // A mão 7 é positiva e a rotação põe a escolha do trunfo na mão do jogador local.
+    await page.goto("/?seed=42&mao=7");
+    await iniciarPartidaLocal(page);
+    await expect(page.locator(SEL.hud)).toBeVisible({ timeout: 20_000 });
+    const botoes = page.locator(".trumpbtn");
+    await expect(botoes.first()).toBeVisible({ timeout: 15_000 });
+    await botoes.nth(indice).click();
+    await expect(page.locator(".trumpslot")).toBeVisible({ timeout: 10_000 });
+    const caixa = await page.locator(".trumpslot").boundingBox();
+    return { w: Math.round(caixa!.width), h: Math.round(caixa!.height) };
+  };
+
+  const comNaipe = await escolher(0);          // Copas
+  const semTrunfo = await escolher(4);         // Sem Trunfo, o último
+
+  expect(semTrunfo, `[${ti.project.name}] o card mudou de tamanho conforme a escolha`)
+    .toEqual(comNaipe);
+
+  // E o texto continua legível: não é o card que encolhe nem a letra que some.
+  await expect(page.locator(".trumpslot .sym")).toHaveText(/Sem Trunfo/);
+  const corpo = await page.locator(".trumpslot .sym").evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(corpo, "'Sem Trunfo' ficou pequeno demais para ser lido").toBeGreaterThanOrEqual(13);
+  // e quem escolheu continua nomeado
+  await expect(page.locator(".trumpslot .who")).not.toHaveText("");
+
+  if (process.env.KING_SHOTS) {
+    await page.screenshot({ path: `${process.env.KING_SHOTS}/trunfo-sem-trunfo-${ti.project.name}.png` });
+  }
 });

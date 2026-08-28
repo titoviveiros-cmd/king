@@ -7,7 +7,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { insideViewport, type Box } from "./helpers/geometry.js";
-import { boxOf, SEL } from "./helpers/mesa.js";
+import { boxOf, SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
 
 const SUBPIXEL = 1;
 
@@ -28,7 +28,7 @@ async function mesaNaMao(page: Page, mao: number): Promise<void> {
     } catch { /* headless sem storage: segue */ }
   });
   await page.goto(`/?seed=42&mao=${mao}`);
-  await page.locator(SEL.startBtn).click();
+  await iniciarPartidaLocal(page);
   await expect(page.locator(SEL.hud)).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(`${SEL.hud} .ph`)).toContainText(`Mão ${mao}`);
 }

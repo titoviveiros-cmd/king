@@ -325,19 +325,30 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .um-selo{position:relative;z-index:1;
   display:flex;flex-direction:column;align-items:center;gap:calc(var(--ui)*.3);
   padding:calc(var(--ui)*.9) calc(var(--ui)*1.6);text-align:center;
-  /* MOTION PREMIUM, não pião: entra torto e grande, passa do ponto e assenta no zero. Três
-     quadros de rotação com overshoot suave — o suficiente para o olho registrar "aconteceu algo",
-     longe do giro contínuo que vira enfeite de banner. */
+  /* O CONTAINER NÃO GIRA MAIS — quem gira é o texto, uma volta completa (ver `umGira`).
+     Ele tinha um giro curto de entrada, com overshoot; somado à volta inteira da frase, as duas
+     rotações se cancelavam e se somavam em quadros diferentes e o conjunto lia como tremor. Aqui
+     ficou só a chegada em escala, que emoldura o giro em vez de disputar com ele. */
   animation:umSelo .78s cubic-bezier(.22,1.3,.36,1) both;}
 /* A FRASE ENCURTOU E CRESCEU. "ÚLTIMA MÃO DO JOGO!" em duas linhas competia consigo mesma; com
    "ÚLTIMA MÃO" cabe corpo maior na mesma largura, e o subtítulo continua dando o contexto.
    O `clamp` guarda as duas pontas: nunca menor que 1.35rem, nunca acima de 3.6rem, e limitado
    pela altura (`vh`) para não estourar nos viewports baixos. */
-.um-selo b{font-family:var(--disp);font-weight:800;color:var(--gold);line-height:1.02;
+.um-selo b{display:block;transform-origin:center center;
+  font-family:var(--disp);font-weight:800;color:var(--gold);line-height:1.02;
   font-size:clamp(1.35rem,min(9vw,13vh),3.6rem);letter-spacing:.03em;max-width:92vw;
   text-shadow:0 0 30px rgba(244,197,66,.6),0 0 70px rgba(244,197,66,.25),0 6px 18px rgba(0,0,0,.75);
-  /* O brilho respira uma vez, sem piscar: é o "isto importa" dito em silêncio. */
-  animation:umBrilho 1.5s ease-in-out .55s 1 both;}
+  /* DUAS ANIMAÇÕES, UMA CAMADA CADA.
+     A rotação de 360° entra com o texto e acontece UMA VEZ, no primeiro segundo: o selo gira
+     inteiro e para exatamente onde vai ficar legível pelos ~3s restantes. É por isso que ela é
+     rápida e sai pela frente — girar devagar, ou girar depois de a pessoa começar a ler, seria a
+     diferença entre um floreio e um bug.
+
+     O giro vem acompanhado de escala: começa menor e chega ao tamanho final junto com a última
+     volta, que é o que faz o movimento parecer chegada e não tremor. O brilho continua respirando
+     depois, já com o texto parado. */
+  animation:umGira .9s cubic-bezier(.22,.9,.3,1) both,
+            umBrilho 1.5s ease-in-out .95s 1 both;}
 .um-coroa{display:block;animation:umCoroa 1.4s ease-in-out .5s 1 both;}
 
 /* AS FAÍSCAS. Seis, saindo da coroa, cada uma no próprio ângulo, e somem. Sem biblioteca: seis
@@ -354,6 +365,13 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   25% {opacity:1;}
   100%{opacity:0;transform:rotate(var(--ang)) translateY(calc(var(--ui) * -4.6)) scale(.9);}
 }
+/* 360° COMPLETOS, e a volta termina no zero: qualquer parada fora dele deixaria o texto torto.
+   `transform-origin` central para o giro ser em torno da própria frase, não de um canto. */
+@keyframes umGira{
+  0%  {opacity:0;transform:rotate(-360deg) scale(.62);}
+  60% {opacity:1;}
+  100%{opacity:1;transform:rotate(0deg) scale(1);}
+}
 @keyframes umBrilho{
   0%,100%{text-shadow:0 0 30px rgba(244,197,66,.6),0 0 70px rgba(244,197,66,.25),0 6px 18px rgba(0,0,0,.75);}
   50%    {text-shadow:0 0 44px rgba(244,197,66,.95),0 0 110px rgba(244,197,66,.45),0 6px 18px rgba(0,0,0,.75);}
@@ -369,10 +387,10 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 @keyframes umEntraVeu{from{opacity:0;} to{opacity:1;}}
 @keyframes umSai{to{opacity:0;transform:scale(1.04);}}
 @keyframes umSelo{
-  0%  {opacity:0;transform:scale(.72) rotate(-8deg);}
-  55% {opacity:1;transform:scale(1.06) rotate(5deg);}
-  78% {transform:scale(.99) rotate(-1.5deg);}
-  100%{opacity:1;transform:scale(1) rotate(0deg);}
+  0%  {opacity:0;transform:scale(.72);}
+  55% {opacity:1;transform:scale(1.06);}
+  78% {transform:scale(.99);}
+  100%{opacity:1;transform:scale(1);}
 }
 /* MOVIMENTO REDUZIDO: sai o giro, fica o fade com um respiro de escala. A INFORMAÇÃO É A MESMA —
    nada aqui mora na animação. Vale tanto pela classe (decidida em JS) quanto pela media query,
@@ -459,6 +477,13 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .trumpslot{position:absolute;z-index:9;display:flex;flex-direction:column;align-items:center;justify-content:center;
   left:calc(var(--pad) + var(--sl));top:calc(var(--pad) + var(--st) + var(--hudAlt));
   width:calc(var(--ui)*6.4);
+  /* A ALTURA TAMBÉM É FIXA, e não só a largura.
+     O card já prometia não mudar de tamanho por causa do NOME de quem escolheu; faltava a mesma
+     promessa para o CONTEÚDO. Um naipe é um glifo de `--ui*2.9`; "Sem Trunfo" é texto miúdo, e o
+     card encolhia 22px (80x73 contra 80x51 a 667x375) — a mesma informação parecendo menos
+     importante por acaso de tipografia. O piso é `--trunfoAlt`, que é exatamente o andar que a
+     coluna esquerda já reserva para ele: o card passa a ocupar o que sempre foi seu. */
+  min-height:var(--trunfoAlt);
   padding:calc(var(--ui)*.34) calc(var(--ui)*.3) calc(var(--ui)*.44);
   background:rgba(14,7,26,.86);border:1px solid rgba(244,197,66,.45);border-radius:18px;
   box-shadow:0 6px 20px -6px #000,0 0 26px rgba(244,197,66,.22);backdrop-filter:blur(8px);}
@@ -476,8 +501,10 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .trumpslot .who.longo{font-size:calc(var(--ui)*.58);letter-spacing:-.02em;}
 .trumpslot.red .sym{color:#ff5d86;}
 .trumpslot.black .sym{color:#fff;}
-.trumpslot.nt .sym{font-size:calc(var(--ui)*.8);color:var(--turq);letter-spacing:.02em;
-  margin-top:6px;text-align:center;line-height:1.15;}
+/* "SEM TRUNFO" É UMA ESCOLHA, não uma ausência de escolha, e agora ocupa a caixa como tal.
+   Era `.8` de corpo — miúdo ao lado de um naipe de `2.9`, e num card que encolhia junto. */
+.trumpslot.nt .sym{font-size:calc(var(--ui)*1.15);color:var(--turq);letter-spacing:.01em;
+  margin-top:4px;text-align:center;line-height:1.2;}
 
 /* Os cards de jogador são BOTÕES (abrem o mini perfil). Como `<button>`, precisam desfazer o
    que o navegador dá de graça: fonte, alinhamento e o realce de toque do celular. */
@@ -1137,6 +1164,30 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   color:var(--turq);background:rgba(45,212,191,.12);border:1.5px solid rgba(45,212,191,.5);
   border-radius:999px;padding:.34em .9em;}
 
+/* ── Home: o seletor de avatar SOB DEMANDA ──
+   Ele não mora na tela: aparece quando uma ação precisa de identidade e sai levando a ação junto.
+   Modal de propósito — a pergunta é curta, tem uma resposta só, e responder é o caminho para o
+   que a pessoa já pediu. */
+.hm-avscrim{position:fixed;inset:0;z-index:40;background:rgba(10,4,20,.62);}
+.hm-avdialogo{position:fixed;z-index:41;left:50%;top:50%;transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:calc(var(--ui)*.55);
+  /* LARGURA EXPLÍCITA, e não `max-width`: o diálogo é `flex` em coluna, então sua largura é a do
+     conteúdo — e o conteúdo é uma grade de `1fr` que se mede pela largura do pai. Com os dois
+     olhando um para o outro, a grade colapsava para o tamanho natural dos glifos e cada alvo
+     ficava com 22px, metade do piso de toque. */
+  padding:calc(var(--ui)*.9) calc(var(--ui)*1);border-radius:20px;
+  width:min(92vw,420px);box-sizing:border-box;
+  background:linear-gradient(180deg,var(--surface),var(--night2));
+  border:1px solid rgba(244,197,66,.4);box-shadow:0 24px 60px -16px #000;}
+.hm-avtitulo{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.78);
+  letter-spacing:.14em;text-transform:uppercase;color:var(--gold);}
+.hm-avcancela{background:none;border:none;cursor:pointer;font-family:var(--body);font-weight:700;
+  font-size:calc(var(--ui)*.74);color:var(--faint);text-decoration:underline;padding:4px 8px;}
+@media (max-height:360px){
+  .hm-avdialogo{gap:calc(var(--ui)*.4);padding:calc(var(--ui)*.6) calc(var(--ui)*.8);}
+  .hm-avtitulo{font-size:calc(var(--ui)*.7);}
+}
+
 /* ── Home: painel de entrada no multiplayer ── */
 .btn.wide{width:min(78vw,320px);justify-content:center;}
 .hm-online{display:flex;flex-direction:column;align-items:center;gap:clamp(6px,1.2vh,10px);
@@ -1330,22 +1381,34 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
 /* O balão de quem falou. Sai do card do jogador, para "quem disse" ser óbvio sem ler nome.
    `position:absolute` dentro do card, que já é relative por ser posicionado na mesa. */
-/* ══ O TAMANHO NA MESA É OUTRO, E ISSO É MEDIÇÃO, NÃO DESCUIDO ══
+/* ══ O BALÃO CRESCEU, E COUBE — PORQUE MUDOU DE LUGAR ══
 
-   A queixa de "card muito pequeno" veio da screenshot do PLACAR entre-mãos, e é lá que ele
-   cresce (ver `.pl-row .balao`): 24x15px viraram 142x24px, com o dobro do corpo de letra.
+   A tentativa anterior media o espaço nas direções erradas. Ancorado ACIMA ou ABAIXO do card, o
+   balão só tinha as faixas estreitas entre o card e o vizinho de cima/baixo, e ali a frase mais
+   longa do catálogo já ocupava tudo — subir o corpo empurrava para dentro do leque. A saída de
+   então foi pousar sobre o card do próprio remetente, que resolvia a geometria cobrindo
+   informação: o card diz quem é, quanto tem e quantas cartas restam.
 
-   Aqui na Mesa, não. As faixas livres em volta dos cards medem ~126px nos viewports que o projeto
-   atende, e a frase mais longa do catálogo já ocupa isso no corpo atual. Subir o corpo empurra o
-   balão do jogador local para dentro do leque; deixá-lo quebrar em duas linhas o faz transbordar
-   o card e sair pela base da tela. As duas alternativas foram medidas antes de esta ficar.
+   Medindo a mesa inteira em vez de só a vizinhança de cada card, aparecem faixas LATERAIS bem
+   maiores — entre o painel do contrato e a vaza, entre a vaza e o adversário da direita, entre o
+   card do jogador local e o leque. É para lá que cada balão passou a ir, ao LADO do seu card.
+   Adjacência preserva a autoria tão bem quanto ficar por cima, e não custa nada.
 
-   `nowrap` continua sendo promessa cumprível: a maior frase do catálogo fechado tem 23
-   caracteres, e nada trunca porque nada é longo o bastante para precisar. */
+   Com isso o corpo pôde subir de `.82` para `.98` (o mesmo do placar entre-mãos) e o respiro
+   junto. `max-width` com quebra substitui o `nowrap`: "Segura essa!" e "Essa doeu" — as frases
+   do relato — cabem numa linha bem maior que antes; só as duas maiores do catálogo (23
+   caracteres) usam duas linhas, centradas. Quebrar não é truncar. */
 .balao{position:absolute;z-index:11;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);
-  white-space:nowrap;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.82);
+  /* `nowrap`, e a razão é sutil: o balão é ABSOLUTO dentro do card, e um elemento absoluto com
+     `left:50%` tem como largura disponível METADE do card — 57px. Com quebra permitida, a caixa
+     se ajustava a esses 57px e a frase mais longa virava três linhas de 66px de altura, que
+     transbordavam a faixa e saíam da tela. Medido antes de trocar.
+     Sem quebra, a caixa usa a largura do CONTEÚDO e ignora o corredor estreito do card. O tamanho
+     passa a ser governado só pelo corpo da letra, que é o que se quer controlar. */
+  white-space:nowrap;text-align:center;
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.98);
   color:#231206;background:linear-gradient(180deg,#fff3c4,var(--gold));
-  border-radius:999px;padding:.3em .8em;line-height:1.35;
+  border-radius:999px;padding:.4em .9em;line-height:1.3;
   box-shadow:0 8px 20px -8px #000,0 0 0 1px rgba(0,0,0,.25);
   animation:balaoEntra .22s cubic-bezier(.22,1.4,.4,1);pointer-events:none;}
 .balao::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);
@@ -1366,36 +1429,86 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
    Agora a direção é escolhida por onde HÁ espaço, assento a assento. */
 
-/* ESQUERDA — para BAIXO, porque para cima é a coluna do trunfo. Abaixo do card lateral só existe
-   borda de tela, e o leque começa bem à direita dele. */
-.opp.left .balao{bottom:auto;top:calc(100% + 6px);left:0;transform:none;}
-.opp.left .balao::after{top:auto;bottom:100%;left:22px;transform:none;
-  border-top-color:transparent;border-bottom-color:var(--gold);}
+/* ══ CADA BALÃO AO LADO DO SEU CARD ══
 
-/* TOPO, em tela baixa — SOBRE O PRÓPRIO CARD. Acima não há tela e abaixo é a faixa do selo do
-   castigo, que também é transitório e também mora ali. Dois avisos passageiros disputando 31px
-   seria trocar uma colisão por outra; o card do próprio remetente é a única superfície que
-   pertence a ele e não é disputada por mais ninguém. Em tela alta ele continua flutuando acima,
-   que é onde cabe e é mais bonito. */
+   A regra que faltava: ele não pode cobrir NEM o card do próprio remetente. Isso invalidou a
+   saída anterior (pousar sobre o card de quem falou nos assentos sem espaço acima ou abaixo) e
+   obrigou a olhar a mesa inteira em vez da vizinhança vertical de cada card.
+
+   As faixas VERTICAIS em volta dos cards são estreitas — foi por isso que tudo colidia. As faixas
+   LATERAIS não: entre o painel do contrato e a vaza, entre a vaza e o adversário da direita,
+   entre o card do jogador local e o leque, sobram de 140 a 230px. Cada balão vai para o lado do
+   seu card, na direção onde há espaço, e adjacência preserva a autoria tão bem quanto ficar
+   por cima.
+
+   Em tela ALTA a vaza é proporcionalmente mais larga e come as laterais dos assentos de cima e do
+   meio; lá a direção vertical volta a caber. Por isso as duas famílias abaixo. */
+
+/* ══ A CAIXA É DIMENSIONADA PELA FAIXA QUE A RECEBE ══
+
+   Um `max-width` só para os quatro não serve: as faixas não têm a mesma largura. À esquerda, o
+   corredor entre a borda e o leque tem ~144px; em cima e à direita, entre o painel do contrato e
+   os botões, passa de 230px. Com um teto único, ou a frase mais longa quebrava em três linhas nos
+   corredores estreitos e transbordava, ou os assentos folgados desperdiçavam espaço.
+
+   Então os estreitos usam corpo um pouco menor e os folgados, o corpo cheio. As frases do relato
+   — "Segura essa!" e "Essa doeu" — têm 9 e 12 caracteres: cabem grandes em qualquer um dos dois.
+   Quem cede é a maior do catálogo, e cede uma fração de corpo, não uma linha nem uma letra. */
+.youtag .balao,.opp.left .balao{font-size:calc(var(--ui)*.88);}
+
+/* ══ UMA DIREÇÃO POR ASSENTO, A MESMA EM TODOS OS VIEWPORTS ══
+
+   As direções não foram escolhidas no olho: uma sonda mediu, nos treze viewports, quais das
+   quatro (cima, baixo, esquerda, direita) deixam o balão inteiro na tela e sem cruzar painel do
+   contrato, trunfo, botões, cards de jogador e qualquer carta. O resultado foi que existe uma
+   direção livre em TODOS eles para cada assento — então não é preciso variar por tela, e o
+   comportamento é o mesmo em qualquer aparelho.
+
+     • VOCÊ, para CIMA. O leque começa bem à direita do card, e a faixa acima está livre.
+     • ESQUERDA, para a DIREITA. Acima dele mora a coluna do trunfo, e ABAIXO ele disputava a
+       mesma faixa com o balão do jogador local no viewport mais baixo — dois balões da mesma
+       coluna, um subindo e outro descendo, encontrando-se no meio. Para o lado da mesa a faixa é
+       livre nos treze.
+     • DIREITA, para CIMA. Era a única que já estava certa.
+     • TOPO, para a ESQUERDA. Abaixo do card passa a faixa do selo do castigo — os dois são
+       transitórios e podem aparecer juntos —, e acima, nas telas baixas, não há tela. Sobra o
+       corredor entre o painel do contrato e o card, que é o mais largo dos quatro. */
+.youtag .balao{top:auto;bottom:calc(100% + 8px);left:0;right:auto;transform:none;}
+.opp.left .balao{top:50%;bottom:auto;left:calc(100% + 8px);right:auto;transform:translateY(-50%);}
+.opp.right .balao{top:auto;bottom:calc(100% + 8px);left:0;right:auto;transform:none;}
+/* O TOPO É O ÚNICO DISPUTADO, e muda de direção com a altura da tela.
+   Em tela alta há faixa acima do card. Em tela baixa não há: o card encosta na borda, e abaixo
+   dele passa o selo do castigo — que a 852x300 chega a cobrir a própria base do card. Sobra o
+   corredor à esquerda, entre o painel do contrato e o card. Ele é apertado e varia com o
+   CONTRATO (o painel da mão positiva é ~40px mais largo que o das negativas), então o corpo da
+   letra ali acompanha o dos outros corredores estreitos. */
+.opp.top .balao{top:auto;bottom:calc(100% + 8px);left:0;right:auto;transform:none;}
 @media (max-height:360px){
-  /* Colado ao TOPO do card, não ao meio: a faixa logo abaixo dele é onde o selo do castigo mora,
-     e os dois são transitórios — podem aparecer no mesmo instante. Medido a 852x300: o selo ocupa
-     y 50..75; o balão aqui fica em 13..37 e os dois nunca se encontram. */
-  .opp.top .balao{bottom:auto;top:0;left:50%;transform:translateX(-50%);}
-  .opp.top .balao::after{display:none;}
+  /* Em tela baixa sobra ABAIXO, e só. Medido nos seis viewports curtos: acima é a borda, à
+     esquerda o painel do contrato chega perto demais (e ainda cresce na mão positiva), à direita
+     estão os botões do topo. É a única direção que deixa o balão inteiro na tela e longe de
+     cartas, trunfo, HUD, chat e leque.
+     O que ela divide é a faixa do selo do castigo — os dois são transitórios e podem coincidir.
+     Está registrado como a ÚNICA sobreposição possível desta superfície, e é a menos cara: as
+     duas coisas são avisos passageiros, nenhuma é informação permanente nem carta. */
+  .opp.top .balao{top:calc(100% + 8px);bottom:auto;left:0;right:auto;transform:none;
+    font-size:calc(var(--ui)*.88);}
 }
 
-/* VOCÊ — SOBRE O PRÓPRIO CARD, pelo mesmo motivo do topo.
-   Ancorado por `right`, ele crescia para fora da tela (x −35). Movido para a esquerda, alcançava
-   o leque. Acima, disputava a faixa com o balão do lateral esquerdo, que desce até ali. O canto
-   inferior esquerdo simplesmente não tem lugar livre para uma segunda caixa — e o card do próprio
-   remetente é a única superfície que pertence a ele e não é disputada por mais ninguém. */
-.youtag .balao{top:0;left:0;right:auto;bottom:auto;transform:none;}
-.youtag .balao::after{display:none;}
+/* A setinha só faz sentido quando o balão está ACIMA do card: nas outras colocações ela apontaria
+   para o vazio. A adjacência já diz de quem é a fala. */
+.balao::after{display:none;}
+.youtag .balao::after,.opp.right .balao::after{display:block;left:22px;right:auto;transform:none;}
+@media (min-height:361px){ .opp.top .balao::after{display:block;left:22px;right:auto;transform:none;} }
+
 @keyframes balaoEntra{from{opacity:0;transform:translateX(-50%) translateY(6px) scale(.9);}}
 .youtag .balao,.opp.left .balao{animation-name:balaoEntraVoce;}
 @keyframes balaoEntraVoce{from{opacity:0;transform:translateY(6px) scale(.9);}}
 @media (prefers-reduced-motion:reduce){.balao{animation:none;}}
+/* Com movimento reduzido o giro sai inteiro e fica o aparecer: a informação nunca morou nele. */
+@media (prefers-reduced-motion:reduce){
+  .um-selo b{animation:umBrilho 1.5s ease-in-out .2s 1 both;}
+}
 
 /* O BOTÃO DE FALAR — zona própria, canto inferior direito.
    Ficava dentro de `.topbtn`, entre Sair/tela-cheia/áudio e o relógio da decisão: três funções
@@ -1418,6 +1531,25 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    próprio botão em vez do canto da tela, senão abriria fora do Placar.
    Nada além de posição muda: catálogo, protocolo, validação e cooldown são os mesmos. */
 .soc-placar{position:static;flex:none;align-self:center;}
+
+/* ── E O MESMO BOTÃO, NO PLACAR FINAL ──
+   Falar no fim é o momento mais social da partida, e era o único em que não dava. Ele entra na
+   fileira dos CTAs como o MENOR elemento dela: "Jogar novamente", "Compartilhar" e "Home"
+   continuam sendo o que a tela oferece; este é o círculo discreto do lado, um pouco menor que o
+   da Mesa para não competir. O painel abre PARA CIMA, ancorado nele. */
+.soc-fim{position:static;flex:none;align-self:center;
+  width:max(44px,calc(var(--ui)*2.2));height:max(44px,calc(var(--ui)*2.2));
+  font-size:calc(var(--ui)*1);}
+.fimacoes{position:relative;}
+.socpanel-fim{position:absolute;right:auto;left:50%;transform:translateX(-50%);
+  bottom:calc(100% + 12px);width:min(86vw,420px);
+  max-height:calc(var(--alturaUtil) - var(--pad)*2 - var(--st) - var(--sb) - 110px);}
+/* No placar final o balão entra no fluxo da linha, como no placar entre-mãos. */
+.fimlinha{position:relative;}
+.fimlinha .balao{position:absolute;top:50%;right:calc(var(--ui)*7);transform:translateY(-50%);
+  animation:none;padding:.34em .8em;font-size:calc(var(--ui)*.9);
+  max-width:min(44vw,260px);white-space:nowrap;}
+.fimlinha .balao::after{display:none;}
 .pl-foot{position:relative;}
 .socpanel-placar{position:absolute;right:auto;left:50%;transform:translateX(-50%);
   bottom:calc(100% + 10px);width:min(86vw,420px);
@@ -1721,7 +1853,10 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
      está em linha, e o apelido continua sendo quem cede dentro dela. */
   .trumpslot{flex-direction:row;align-items:center;gap:calc(var(--ui)*.42);
     width:calc(var(--ui)*9.4);justify-content:flex-start;
-    min-height:calc(var(--hudAlt)*.5);
+    /* O piso sobe de `.5` para `.54` porque "Sem Trunfo", agora legível, passava dele por 1px —
+       e um card que muda de altura conforme a escolha é o defeito que esta rodada veio corrigir.
+       Continua "cerca de metade" do card de cima, que é o que o pedido dizia. */
+    min-height:calc(var(--hudAlt)*.54);
     padding:calc(var(--ui)*.22) calc(var(--ui)*.5);}
   .trumpslot .who{flex:1 1 auto;min-width:0;text-align:left;}
   .trumpslot .sym{font-size:calc(var(--ui)*1.6);margin-top:0;}
