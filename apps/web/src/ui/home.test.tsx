@@ -54,7 +54,7 @@ describe("o fluxo de entrada", () => {
   it("nada de avatar é gravado nem lido do armazenamento local", () => {
     // Só a parte EXECUTÁVEL: os comentários citam `localStorage` de propósito, para explicar por
     // que ele saiu. Um teste que lesse a prosa junto proibiria contar a própria história.
-    const codigo = FONTE.replace(//*[sS]*?*//g, "").replace(/^s*//.*$/gm, "");
+    const codigo = FONTE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     expect(codigo).not.toContain("lembrarAvatar");
     expect(codigo).not.toContain("localStorage");
   });
