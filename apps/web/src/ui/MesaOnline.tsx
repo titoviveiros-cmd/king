@@ -263,7 +263,7 @@ export function BotaoSocial({ status, onEnviar, variante = "mesa" }: {
    * sistema social com um segundo conjunto de regras para divergir, que é exatamente o que não
    * se quer. O que muda entre os dois é só ONDE o gatilho se ancora, e isso é CSS.
    */
-  variante?: "mesa" | "placar";
+  variante?: "mesa" | "placar" | "fim";
 }) {
   const [aberto, setAberto] = useState(false);
   const [tudo, setTudo] = useState(false);

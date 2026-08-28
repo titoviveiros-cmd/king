@@ -10,7 +10,7 @@ import { interpolar, saldosAntes, scoresPorAssento } from "./placarFinalDados.js
 import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVictory } from "../audio/sounds.js";
 import { analytics } from "../analytics/analytics.js";
 import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
-import type { MesaMultiplayer } from "./MesaOnline.js";
+import { BalaoSocial, BotaoSocial, type MesaMultiplayer } from "./MesaOnline.js";
 
 /**
  * PLACAR FINAL — o encerramento da partida. Não é "o Placar entre-mãos sem o botão":
@@ -168,6 +168,15 @@ export function PlacarFinal({
               </button>
               <Compartilhar game={game} finais={finais} empate={empate} />
               <button className="btn violet" onClick={() => { sfxTap(); onHome(); }}>Home</button>
+              {/* FALAR NO FIM É O MOMENTO MAIS SOCIAL DA PARTIDA — e era o único em que não dava.
+                  Quem ganhou quer provocar, quem perdeu quer reclamar, e os quatro estão parados
+                  olhando a mesma tela.
+
+                  Ele entra na fileira dos CTAs como o MENOR elemento dela: os três botões
+                  principais continuam sendo o que a tela oferece, e este é o círculo discreto do
+                  lado. Mesmo componente da Mesa e do placar entre-mãos — mesmo catálogo fechado,
+                  mesma etiqueta viajando, mesma validação e mesmo anti-spam do servidor. */}
+              {mp && <BotaoSocial status="finished" variante="fim" onEnviar={mp.onEnviarMensagem} />}
             </div>
           )}
         </div>
@@ -196,6 +205,9 @@ export function PlacarFinal({
                   <span className={`sc ${pontos[r.seat] < 0 ? "neg" : pontos[r.seat] > 0 ? "pos" : ""}`}>
                     {fmtSigned(pontos[r.seat] ?? r.score)}
                   </span>
+                  {/* E a mensagem aparece NA LINHA de quem falou, como no placar entre-mãos: a
+                      atribuição é posicional, sem precisar repetir o nome dentro do balão. */}
+                  {mp && <BalaoSocial mensagem={mp.mensagens[r.seat]} />}
                 </div>
               );
             })}
