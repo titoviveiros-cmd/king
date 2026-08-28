@@ -35,7 +35,7 @@ export function PlacarFinal({
   game: LeituraDaPartida;
   onRestart: () => void;
   onHome: () => void;
-  /** Presente só no multiplayer. Aqui serve a uma coisa: resolver o avatar de cada assento. */
+  /** Presente só no multiplayer: resolve o avatar de cada assento e abre a conversa do fim. */
   mp?: MesaMultiplayer;
 }) {
   const resumo = game.summary();
