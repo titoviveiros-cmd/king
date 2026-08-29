@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Card, Trump, Seat } from "@king/engine";
-import { RANK_ORDER, cardId } from "@king/engine";
+import { RANK_ORDER, TOTAL_HANDS, cardId } from "@king/engine";
 import { contractTitle, penaltyText, trumpLabel } from "./contractText.js";
 import { Placar } from "./Placar.js";
 import { PlacarFinal } from "./PlacarFinal.js";
@@ -83,6 +83,7 @@ function useCoarsePointer(): boolean {
 
 export function Mesa({
   game, reviewing, shake, castigo, onPlay, onChooseTrump, onAdvance, onHome, onRestart, onOpenAudio, mp,
+  suspender,
 }: {
   game: LeituraDaPartida;
   reviewing: boolean;
@@ -96,6 +97,12 @@ export function Mesa({
   onOpenAudio: () => void;
   /** Presente SÓ no multiplayer. Ausente = modo local, e a Mesa se comporta exatamente como antes. */
   mp?: MesaMultiplayer;
+  /**
+   * Congela o andamento da partida enquanto uma tela cobre a Mesa.
+   *
+   * Ausente no tutorial, que monta a Mesa com uma partida encenada e nunca chega à mão 10.
+   */
+  suspender?: (v: boolean) => void;
 }) {
   // Você sempre embaixo. No modo local `eu` é 0 e a rotação devolve o mapa antigo intacto.
   const eu = game.humanSeat;
@@ -108,13 +115,28 @@ export function Mesa({
   const scores = game.liveScores();
   const turn = game.turn();
   const trump = game.trump();
-  const humanTurn = game.isHumanTurn();
+
+  /**
+   * O ANÚNCIO DA MÃO 10 É DECIDIDO AQUI EM CIMA, e não lá embaixo junto dos overlays.
+   *
+   * Porque ele não é um overlay: enquanto está na tela, a mão 10 AINDA NÃO COMEÇOU. É a resposta
+   * a "existe vez do humano?", "quais cartas são jogáveis?", "o que há no leque?" que muda — e
+   * essas três perguntas são respondidas nas linhas seguintes. Decidir depois delas seria
+   * esconder o resultado em vez de mudar a pergunta.
+   */
+  const maoAtual = contract?.hand ?? 0;
+  const [dispensadaEm, setDispensadaEm] = useState(0);
+  const anunciandoUltimaMao = maoAtual === TOTAL_HANDS && dispensadaEm !== TOTAL_HANDS;
+
+  const humanTurn = game.isHumanTurn() && !anunciandoUltimaMao;
   const legal = humanTurn ? game.legalCards() : [];
   // Otimismo visual limitado: a carta tocada continua na mão, elevada, até o servidor confirmar.
   // Enquanto isso o leque não aceita um segundo toque — é o que impede jogar duas cartas.
   const emVoo = mp?.emVoo ?? null;
   const travado = !!mp?.aguardando;
-  const hand = sortDisplay(game.view().yourHand);
+  // O leque da mão 10 só é DISTRIBUÍDO quando o anúncio sai: as treze cartas entram depois dele,
+  // não por baixo dele. Enquanto isso a Mesa mostra a moldura — HUD, cards, placar — e mais nada.
+  const hand = anunciandoUltimaMao ? [] : sortDisplay(game.view().yourHand);
 
   const coarse = useCoarsePointer();
   // Consulta às 10 mãos. Estado de LEITURA e nada mais: não pausa, não cancela, não avança.
@@ -166,25 +188,45 @@ export function Mesa({
    * O que se guarda é o NÚMERO da mão dispensada, não um booleano: uma revanche volta para a
    * mão 1 com o mesmo componente montado, e o zero devolve o anúncio para a partida seguinte.
    */
-  const maoAtual = contract?.hand ?? 0;
-  const [dispensadaEm, setDispensadaEm] = useState(0);
   /**
-   * E ESPERA A ESCOLHA DO TRUNFO SAIR DA FRENTE.
+   * E VEM ANTES DE TUDO O QUE É DA MÃO 10 — não depois, e não junto.
    *
-   * A mão 10 é positiva: ela NASCE pedindo trunfo. Os dois entravam juntos, e a auditoria de
-   * sobreposição mediu o resultado — a 667x375, quem estava no topo no centro do selo era a faixa
-   * "está escolhendo o trunfo", não o anúncio.
+   * Antes havia um `phase !== "trump"` aqui, e a razão era boa: a mão 10 nasce pedindo trunfo, os
+   * dois entravam juntos e a auditoria mediu a sobreposição — a 667×375 quem ficava no centro do
+   * selo era a faixa "está escolhendo o trunfo". A solução foi adiar o anúncio até a escolha sair
+   * da frente.
    *
-   * Subir o anúncio por cima da escolha resolveria o pixel e criaria coisa pior: uma celebração
-   * cobrindo a primeira decisão da mão, que é justamente o que este componente promete não fazer.
-   * A ordem certa é a outra — a decisão primeiro, o anúncio depois, inteiro e sozinho. Custa dois
-   * segundos e devolve as duas telas sem disputa.
+   * Resolveu a colisão e criou outra, pior, porque adiar não é sequenciar: o anúncio passou a
+   * entrar com a mão JÁ EM CURSO atrás dele. Medido a 852×393, dois bots jogavam sob o véu e a vez
+   * do humano abria antes de a animação terminar. Quem parou para assistir saía do anúncio com a
+   * vaza em andamento — a celebração cobrindo justamente o começo que ela veio anunciar.
+   *
+   * A ordem certa é a terceira: o anúncio PRIMEIRO, inteiro e sozinho, com a Mesa sem nada da mão
+   * nova; a escolha do trunfo e as cartas DEPOIS. As duas telas deixam de disputar porque deixam
+   * de ser simultâneas, e não porque uma cedeu espaço à outra.
+   *
+   * A visibilidade continua DERIVADA, não disparada — `mão 10 e ainda não dispensada`. Ninguém
+   * "abre" o anúncio, então nenhum redesenho pode reabri-lo, e a Mesa redesenha a cada passo de
+   * bot e a cada tique do relógio. O que se guarda é o NÚMERO da mão dispensada, não um booleano:
+   * uma revanche volta para a mão 1 com o mesmo componente montado, e o zero devolve o anúncio
+   * para a partida seguinte. (A constante está logo acima, junto do que ela governa.)
    */
-  const anunciandoUltimaMao = maoAtual === 10 && dispensadaEm !== 10 && phase !== "trump";
   useEffect(() => {
     // Revanche: a partida nova volta para a mão 1, e o anúncio fica disponível de novo.
-    if (maoAtual > 0 && maoAtual < 10) setDispensadaEm(0);
+    if (maoAtual > 0 && maoAtual < TOTAL_HANDS) setDispensadaEm(0);
   }, [maoAtual]);
+  /**
+   * ENQUANTO O ANÚNCIO ESTÁ NA TELA, A MÃO 10 AINDA NÃO COMEÇOU — nem visualmente, nem de fato.
+   *
+   * Esconder as cartas não bastaria: o motor local continuaria dando o passo dos bots, e no
+   * multiplayer a fila continuaria consumindo o que o servidor mandou. Por isso a suspensão desce
+   * até a camada de apresentação, que é a mesma que já congela a mesa para ler a vaza. O anúncio
+   * é uma pausa de leitura como qualquer outra — só que da mão inteira, e uma vez por partida.
+   */
+  useEffect(() => {
+    suspender?.(anunciandoUltimaMao);
+    return () => suspender?.(false);
+  }, [anunciandoUltimaMao, suspender]);
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => { if (!humanTurn) setSelected(null); }, [humanTurn]);
 
@@ -241,7 +283,7 @@ export function Mesa({
   const kb = useRef({ phase, humanTurn, hand, legal, selected, onPlay, onChooseTrump, setSelected, chooseTrump: false });
   kb.current = {
     phase, humanTurn, hand, legal, selected, onPlay, onChooseTrump, setSelected,
-    chooseTrump: phase === "trump" && game.humanChoosesTrump(),
+    chooseTrump: phase === "trump" && !anunciandoUltimaMao && game.humanChoosesTrump(),
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -280,7 +322,10 @@ export function Mesa({
   // vaza a mostrar: a corrente, ou a última resolvida durante a pausa de leitura
   const cur = game.currentTrick();
   const last = game.lastCompletedTrick();
-  const shownTrick = cur.length > 0 ? cur : (reviewing && last ? last.cards : []);
+  // Vazio durante o anúncio: a vaza da mão 10 é a primeira coisa que apareceria por baixo dele.
+  const shownTrick = anunciandoUltimaMao
+    ? []
+    : cur.length > 0 ? cur : (reviewing && last ? last.cards : []);
   const winnerSeat = cur.length === 0 && reviewing && last ? last.winner : null;
 
   const oppSeats: Seat[] = adversariosDe(eu);
@@ -289,11 +334,15 @@ export function Mesa({
   return (
     // `comtrunfo` avisa ao CSS que a coluna esquerda ganhou mais um andar: com o slot de trunfo
     // na tela, os adversários laterais precisam de um piso para não subirem por baixo dele.
+    //
+    // A classe anda JUNTO com o slot, inclusive na ausência dele durante o anúncio. Sem o
+    // `!anunciandoUltimaMao` aqui, o andar era reservado para um card que não estava desenhado e
+    // a coluna descia 24px atrás do véu — o anúncio "movia" a Mesa sem mostrar por quê.
     <div
       // `temsocial` declara que o canto inferior direito TEM um botão flutuante. Quem desenha
       // ali — hoje o "Toque de novo" — sobe para não disputar o mesmo lugar. É condição de
       // layout, não de estado da partida, e por isso mora numa classe e não numa medida de JS.
-      className={`mesa${shaking ? " shaking" : ""}${contract?.isPositive && trump ? " comtrunfo" : ""}${mp ? " temsocial" : ""}`}
+      className={`mesa${shaking ? " shaking" : ""}${contract?.isPositive && trump && !anunciandoUltimaMao ? " comtrunfo" : ""}${mp ? " temsocial" : ""}`}
       /* O tema vem do estado AUTORITATIVO da sala, não de preferência local: todo mundo joga na
          mesma mesa. Sem multiplayer cai no padrão, que é a mesa aprovada. */
       data-tema={temaDaMesa(mp?.sala?.tableTheme)}
@@ -338,11 +387,11 @@ export function Mesa({
 
       {vendoUltimaVaza && <UltimaVaza game={game} onFechar={() => setVendoUltimaVaza(false)} />}
 
-      {anunciandoUltimaMao && <UltimaMao onFim={() => setDispensadaEm(10)} />}
+      {anunciandoUltimaMao && <UltimaMao onFim={() => setDispensadaEm(TOTAL_HANDS)} />}
 
       {/* Slot de trunfo — só existe nas mãos positivas (Design System). Símbolo grande:
           é consultado o tempo todo durante a mão. */}
-      {contract?.isPositive && trump && (
+      {contract?.isPositive && trump && !anunciandoUltimaMao && (
         <div className={`trumpslot ${trump === "no-trump" ? "nt" : isRedSuit(trump) ? "red" : "black"}`}>
           <span className="lb">Trunfo</span>
           <span className="sym">{trumpLabel(trump)}</span>
@@ -353,7 +402,11 @@ export function Mesa({
           )}
         </div>
       )}
-      {mp && <ChipDoRelogio relogio={mp.relogio} eu={eu} />}
+      {/* O relógio da decisão não conta na cara de quem está vendo o anúncio: durante ele não há
+          decisão a tomar, e um cronômetro correndo sobre uma tela que não aceita jogada só diz
+          "você está perdendo tempo". Quem conta o prazo é o servidor, e é ele quem dá o respiro
+          da abertura — ver `aberturaDaUltimaMao` em `apps/server/src/match/tempos.ts`. */}
+      {mp && !anunciandoUltimaMao && <ChipDoRelogio relogio={mp.relogio} eu={eu} />}
       {mp && <FaixaDaConexao conexao={mp.conexao} codigo={mp.sala?.roomCode ?? ""} />}
       {mp && <AvisoDeRecusa recusa={mp.recusa} />}
       {/* ZONA SOCIAL — canto inferior direito, longe de tudo.
@@ -506,10 +559,12 @@ export function Mesa({
       </div>
 
       {/* overlays */}
-      {phase === "trump" && game.humanChoosesTrump() && (
+      {/* A ESCOLHA DO TRUNFO VEM DEPOIS DO ANÚNCIO, e é esta a inversão da rodada: antes era o
+          anúncio que esperava a escolha, e chegava com a mão já andando atrás dele. */}
+      {phase === "trump" && !anunciandoUltimaMao && game.humanChoosesTrump() && (
         <TrumpOverlay onChoose={onChooseTrump} />
       )}
-      {phase === "trump" && !game.humanChoosesTrump() && (
+      {phase === "trump" && !anunciandoUltimaMao && !game.humanChoosesTrump() && (
         <div className="pickmsg">
           {oppName(game.awaitingTrumpFrom() as Seat)} está escolhendo o trunfo…
         </div>

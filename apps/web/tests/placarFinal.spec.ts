@@ -91,14 +91,34 @@ async function chegarAoFim(page: Page): Promise<void> {
   await expect(page.locator(".fim"), "a partida não chegou ao placar final").toBeVisible({ timeout: 20_000 });
 }
 
-/** As linhas se reposicionam por `transform` com transição: medir no meio dela mede um quadro. */
+/**
+ * Espera a tela PARAR de se mexer. Medir no meio de uma animação mede um quadro, não a tela.
+ *
+ * São duas coisas em movimento, e a primeira versão esperava só uma. As LINHAS se reposicionam por
+ * `transform` com transição — era o que estava coberto. A COLUNA DO HERÓI também anima: a coroa
+ * entra em escala, o título chega com `soco`, e os CTAs só nascem na etapa final. Enquanto isso o
+ * `scrollHeight` dela passa do `clientHeight` por um ou dois pixels, e a asserção de transbordo
+ * acusava um defeito que era só o quadro em que ela caiu — passava isolada e falhava sob carga,
+ * que é a assinatura de teste que mede animação em vez de layout.
+ */
 async function estabilizar(page: Page): Promise<void> {
   await expect(async () => {
-    const a1 = await page.locator(".fimlinha").first().boundingBox();
+    const antes = await instantaneo(page);
     await page.waitForTimeout(120);
-    const a2 = await page.locator(".fimlinha").first().boundingBox();
-    expect(a2?.y).toBe(a1?.y);
-  }).toPass({ timeout: 10_000 });
+    expect(await instantaneo(page)).toEqual(antes);
+  }).toPass({ timeout: 15_000 });
+}
+
+/** Y da primeira linha e a caixa do herói — o suficiente para saber se algo ainda se move. */
+async function instantaneo(page: Page): Promise<string> {
+  return await page.evaluate(() => {
+    const l = document.querySelector(".fimlinha") as HTMLElement | null;
+    const h = document.querySelector(".fimheroi") as HTMLElement | null;
+    return JSON.stringify({
+      linha: l ? Math.round(l.getBoundingClientRect().y) : null,
+      heroi: h ? [h.scrollHeight, h.clientHeight] : null,
+    });
+  });
 }
 
 /** `scrollHeight` × `clientHeight`: o conteúdo transborda a própria caixa? */

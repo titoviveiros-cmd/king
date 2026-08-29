@@ -55,11 +55,35 @@ export function useApresentacao() {
   /** A mesa está congelada mostrando a vaza resolvida? */
   const emLeitura = useCallback(() => Date.now() < reviewUntil.current, []);
 
+  /**
+   * SUSPENSÃO — a mesa está com uma tela por cima, e a mão não deve andar por baixo dela.
+   *
+   * A pausa de leitura já era isto para a vaza que fecha: a mesa congela, ninguém joga, e o
+   * andamento retoma sozinho. Faltava o mesmo para o anúncio da ÚLTIMA MÃO, que é a única tela
+   * do jogo que cobre a Mesa inteira enquanto uma mão nova está começando.
+   *
+   * Sem isto o anúncio virava um véu translúcido com a partida correndo atrás: medido a
+   * 852×393, dois bots jogavam e a vez do humano abria antes de a animação terminar. Quem
+   * assistiu ao anúncio saía dele com a vaza já em curso — a celebração cobrindo justamente o
+   * começo que ela veio anunciar.
+   *
+   * É um `ref` e não estado porque quem consulta é um `setInterval`: o intervalo precisa ler o
+   * valor de agora, não o do fechamento em que nasceu — a mesma razão de `reviewUntil`.
+   */
+  const suspenso = useRef(false);
+  const suspender = useCallback((v: boolean) => {
+    suspenso.current = v;
+    bump();
+  }, []);
+
+  /** A mesa está parada por QUALQUER motivo de apresentação — leitura da vaza ou anúncio. */
+  const emPausa = useCallback(() => suspenso.current || Date.now() < reviewUntil.current, []);
+
   /** Corta a pausa e limpa o selo — usado ao virar a mão e ao ressincronizar. */
   const limpar = useCallback(() => {
     reviewUntil.current = 0;
     setCastigo(null);
   }, []);
 
-  return { castigo, shake, bump, announceTrick, afterPlay, emLeitura, limpar };
+  return { castigo, shake, bump, announceTrick, afterPlay, emLeitura, emPausa, suspender, limpar };
 }

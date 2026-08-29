@@ -60,7 +60,7 @@ export interface AutoAcaoRecebida extends AcaoAutomatica {
 
 export function useKingOnline(abridor?: AbridorDeSessao) {
   const ap = useApresentacao();
-  const { bump, afterPlay, emLeitura, limpar } = ap;
+  const { bump, afterPlay, emLeitura, emPausa, suspender, limpar } = ap;
 
   const sessao = useRef<SessaoKing | null>(null);
   const partida = useRef<PartidaRemota | null>(null);
@@ -125,7 +125,10 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     if (screen !== "mesa") return;
     const id = setInterval(() => {
       if (relogio) bump(); // contagem regressiva viva na tela
-      if (emLeitura()) { bump(); return; }
+      // Pausa de apresentação: a leitura da vaza que fechou, ou o anúncio da última mão por cima
+      // da Mesa. A fila NÃO é descartada — ela REPRESA. O que o servidor mandar durante o anúncio
+      // é apresentado depois dele, na ordem, em vez de acontecer atrás do véu.
+      if (emPausa()) { bump(); return; }
       const passo = proximoPasso(fila.current, LIMITE_DA_FILA);
       if (!passo.proxima) return;
       fila.current = passo.resto;
@@ -134,7 +137,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       aplicar(passo.proxima);
     }, TEMPOS.botPasso);
     return () => clearInterval(id);
-  }, [screen, aplicar, bump, emLeitura, limpar, relogio]);
+  }, [screen, aplicar, bump, emPausa, limpar, relogio]);
 
   useSonsDeTransicao(partida.current, screen === "mesa");
 
@@ -377,6 +380,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     shake: ap.shake,
     castigo: ap.castigo,
     playCard, chooseTrump, advanceHand, cancelarProximaMao, goHome,
+    suspender,
 
     // ---- só multiplayer ----
     sala,

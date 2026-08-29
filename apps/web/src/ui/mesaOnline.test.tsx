@@ -713,13 +713,7 @@ describe("o anúncio da mão 10", () => {
     return g;
   }
 
-  /**
-   * A mão 10 com o trunfo JÁ RESOLVIDO.
-   *
-   * A mão 10 é positiva: ela nasce pedindo trunfo, e o anúncio agora espera essa decisão sair da
-   * frente — foi a sobreposição que a auditoria encontrou (a faixa da escolha tem `z-index` 52
-   * contra 28 do anúncio, e passava por cima do selo).
-   */
+  /** A mão 10 com o trunfo já resolvido — o estado em que ela é jogável. */
   function naMao10Jogavel(): KingGame {
     const g = naMao(10);
     if (g.needsBotTrump()) g.stepBotTrump();
@@ -727,10 +721,28 @@ describe("o anúncio da mão 10", () => {
     return g;
   }
 
-  it("ESPERA a escolha do trunfo: na mão 10 a decisão vem primeiro", () => {
+  /**
+   * O ANÚNCIO VEM PRIMEIRO — e este teste já afirmou o contrário.
+   *
+   * A mão 10 é positiva: nasce pedindo trunfo. Os dois entravam juntos e a auditoria mediu a
+   * sobreposição (a faixa da escolha tem `z-index` 52 contra 28 do anúncio, e passava por cima
+   * do selo), então o anúncio passou a ESPERAR a decisão sair da frente. Era o que este teste
+   * travava.
+   *
+   * Adiar não é sequenciar. O anúncio passou a entrar com a mão já em curso atrás dele — medido
+   * a 852×393, dois bots jogavam sob o véu e a vez do humano abria antes de a animação acabar.
+   * A ordem certa é a terceira: anúncio primeiro, inteiro e sozinho; decisão e cartas depois. As
+   * duas telas deixam de disputar porque deixam de ser simultâneas.
+   */
+  it("a mão 10 nasce pedindo trunfo, e o anúncio entra ANTES dessa decisão", () => {
     const g = naMao(10);
     expect(g.phase(), "a mão 10 deveria nascer pedindo trunfo").toBe("trump");
-    expect(render(g).querySelectorAll(".um")).toHaveLength(0);
+    const root = render(g);
+    expect(root.querySelectorAll(".um"), "o anúncio ainda espera a escolha do trunfo").toHaveLength(1);
+    expect(root.querySelectorAll(".trumpov"), "a escolha do trunfo dividiu a tela com o anúncio")
+      .toHaveLength(0);
+    expect(root.querySelectorAll(".pickmsg"), "o aviso do trunfo dividiu a tela com o anúncio")
+      .toHaveLength(0);
   });
 
   it("aparece na mão 10", () => {

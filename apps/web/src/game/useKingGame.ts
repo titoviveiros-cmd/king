@@ -54,7 +54,7 @@ export function useKingGame() {
   const ref = useRef<KingGame | null>(null);
   const [screen, setScreen] = useState<"home" | "mesa">("home");
   const ap = useApresentacao();
-  const { bump, afterPlay, emLeitura, limpar } = ap;
+  const { bump, afterPlay, emLeitura, emPausa, suspender, limpar } = ap;
 
   /**
    * O avatar da partida em curso.
@@ -99,7 +99,9 @@ export function useKingGame() {
     const id = setInterval(() => {
       const g = ref.current;
       if (!g) return;
-      if (emLeitura()) { bump(); return; } // pausa p/ ler a vaza
+      // Pausa de apresentação: a leitura da vaza que fechou, ou o anúncio da última mão
+      // por cima da Mesa. Nos dois casos os bots esperam — a mão não anda atrás de uma tela.
+      if (emPausa()) { bump(); return; }
       const ph = g.phase();
       if (ph === "trump" && g.needsBotTrump()) { g.stepBotTrump(); sfxTrump(); bump(); return; }
       if (ph === "play" && g.needsBotPlay()) {
@@ -111,7 +113,7 @@ export function useKingGame() {
       // handEnd / matchEnd / vez do humano → aguarda clique
     }, TEMPOS.botPasso);
     return () => clearInterval(id);
-  }, [screen, afterPlay, bump, emLeitura]);
+  }, [screen, afterPlay, bump, emPausa]);
 
   useSonsDeTransicao(ref.current, screen === "mesa");
 
@@ -139,5 +141,6 @@ export function useKingGame() {
     shake: ap.shake,
     castigo: ap.castigo,
     start, goHome, playCard, chooseTrump, advanceHand,
+    suspender,
   };
 }

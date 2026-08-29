@@ -132,6 +132,7 @@ function ModoLocal({
       onHome={goHome}
       onRestart={g.start}
       onOpenAudio={onOpenAudio}
+      suspender={g.suspender}
     />
   );
 }

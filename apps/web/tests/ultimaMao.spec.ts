@@ -45,9 +45,8 @@ test("aparece na mão 10, some sozinho e não deixa nada interceptando", async (
   const selo = page.locator(".um-selo");
   await expect(selo).toBeVisible({ timeout: 15_000 });
   // O RELÓGIO COMEÇA AQUI, no instante em que ele fica visível — e não no fim das medições.
-  // A mão 10 nasce pedindo trunfo e o anúncio espera essa decisão sair da frente, então "quando
-  // ele aparece" deixou de ser "logo depois do load". Medir a permanência a partir de um instante
-  // indefinido transformaria a asserção numa corrida contra o tempo das próprias medições.
+  // Medir a permanência a partir de um instante indefinido transformaria a asserção numa corrida
+  // contra o tempo das próprias medições.
   const desdeQueApareceu = Date.now();
   await expect(selo).toContainText("ÚLTIMA MÃO");
   await expect(selo).toContainText("Tudo pode mudar");
@@ -85,11 +84,8 @@ test("não aparece duas vezes na mesma mão", async ({ page }, ti) => {
   test.skip(ti.project.name !== "667x375", "comportamento, não geometria");
   await mesaNaMao(page, 10);
 
-  // ESPERAR ELE APARECER PRIMEIRO, e não só "não estar na tela". A mão 10 nasce pedindo trunfo e o
-  // anúncio agora espera essa decisão sair da frente — checar `count() === 0` logo de cara
-  // passaria de graça, e o laço abaixo pegaria a PRIMEIRA aparição achando que era a segunda.
-  const trunfo = page.locator(".trumpbtn").first();
-  if (await trunfo.count()) await trunfo.click().catch(() => {});
+  // ESPERAR ELE APARECER PRIMEIRO, e não só "não estar na tela": checar `count() === 0` logo de
+  // cara passaria de graça, e o laço abaixo pegaria a PRIMEIRA aparição achando que era a segunda.
   await expect(page.locator(".um"), "o anúncio não chegou a aparecer").toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".um")).toHaveCount(0, { timeout: 15_000 });
 
@@ -170,19 +166,41 @@ test("o anúncio cobre a Mesa por projeto, e não move nada", async ({ page }, t
 
   // E NENHUMA CAMADA DE DECISÃO ESTÁ ABERTA JUNTO COM ELE.
   // Esta é a sobreposição que a auditoria encontrou: a mão 10 nasce pedindo trunfo, e a faixa da
-  // escolha (`z-index` 52, contra 28 do anúncio) passava por cima do selo. A ordem passou a ser a
-  // outra — decisão primeiro, anúncio depois —, e é isso que se trava aqui.
+  // escolha (`z-index` 52, contra 28 do anúncio) passava por cima do selo. A primeira tentativa
+  // foi adiar o anúncio até a escolha sair da frente, e o preço foi a mão inteira correndo atrás
+  // dele. Hoje a ordem é a inversa — ANÚNCIO primeiro, decisão depois — e as duas telas deixaram
+  // de disputar porque deixaram de ser simultâneas.
   await expect(page.locator(".trumpov"), "o anúncio dividiu a tela com a escolha do trunfo")
     .toHaveCount(0);
   await expect(page.locator(".pickmsg"), "o anúncio dividiu a tela com o aviso do trunfo")
     .toHaveCount(0);
 
-  const antes: Record<string, string> = {};
-  for (const [sel, rotulo] of ELEMENTOS_DA_MESA) {
-    const n = await page.locator(sel).count();
-    if (n === 0) continue; // trunfo e relógio não existem em toda mão; medir o que existe
-    antes[rotulo] = JSON.stringify(await page.locator(sel).first().boundingBox());
-  }
+  /**
+   * A MESA NÃO SE MEXE ENQUANTO O ANÚNCIO ESTÁ NELA — e a medição é DENTRO da janela dele.
+   *
+   * Antes esta comparação era "durante" contra "depois", e fazia sentido na ordem antiga: o
+   * trunfo já estava escolhido quando o anúncio entrava, então a Mesa era a mesma dos dois lados.
+   *
+   * Na ordem nova a decisão do trunfo cai ENTRE as duas medições, e ela move a coluna esquerda —
+   * o card de trunfo aparece e os adversários ganham um andar (`comtrunfo`). Medido a 852×300, o
+   * card do adversário desce de y=134,8 para y=159,1. Não é o anúncio deslocando a Mesa: é a mão
+   * começando, que é exatamente o que ele estava segurando. Esse deslocamento existe em toda mão
+   * positiva, no instante em que o trunfo é escolhido, e sempre existiu.
+   *
+   * Comparar através dele mediria duas transições e culparia a errada. Então as duas leituras
+   * ficam dentro da janela do anúncio: se ele empurrar alguma coisa ao entrar ou enquanto anima,
+   * a diferença aparece aqui.
+   */
+  const medir = async (): Promise<Record<string, string>> => {
+    const m: Record<string, string> = {};
+    for (const [sel, rotulo] of ELEMENTOS_DA_MESA) {
+      if ((await page.locator(sel).count()) === 0) continue;
+      m[rotulo] = JSON.stringify(await page.locator(sel).first().boundingBox());
+    }
+    return m;
+  };
+
+  const antes = await medir();
   expect(Object.keys(antes).length, "nada da Mesa foi medido").toBeGreaterThan(2);
 
   const captura = process.env.KING_SHOTS;
@@ -190,12 +208,24 @@ test("o anúncio cobre a Mesa por projeto, e não move nada", async ({ page }, t
     await page.screenshot({ path: `${captura}/ultima-mao-${ti.project.name}.png` });
   }
 
+  // Ainda DURANTE, com a animação já adiantada.
+  await page.waitForTimeout(1200);
+  await expect(page.locator(".um"), "o anúncio saiu antes da segunda medição").toHaveCount(1);
+  const durante = await medir();
+  for (const rotulo of Object.keys(antes)) {
+    expect(durante[rotulo], `o anúncio deslocou "${rotulo}" enquanto estava na tela`)
+      .toBe(antes[rotulo]);
+  }
+
   // ── DEPOIS ──
   await expect(page.locator(".um")).toHaveCount(0, { timeout: 9000 });
-  for (const [sel, rotulo] of ELEMENTOS_DA_MESA) {
+  // O que NÃO depende da mão que começa continua onde estava. O painel da mão e os botões do topo
+  // são moldura: nenhuma decisão da mão 10 os move, então eles respondem pelo anúncio sozinho.
+  for (const rotulo of ["painel da mão", "botões do topo"]) {
     if (!(rotulo in antes)) continue;
+    const sel = ELEMENTOS_DA_MESA.find(([, r]) => r === rotulo)![0];
     const depois = JSON.stringify(await page.locator(sel).first().boundingBox());
-    expect(depois, `o anúncio deslocou "${rotulo}"`).toBe(antes[rotulo]);
+    expect(depois, `o anúncio deslocou "${rotulo}" ao sair`).toBe(antes[rotulo]);
   }
 
   // e nenhum ponto da Mesa continua respondendo por `.um`
@@ -208,4 +238,140 @@ test("o anúncio cobre a Mesa por projeto, e não move nada", async ({ page }, t
     return pontos.filter(([x, y]) => document.elementFromPoint(x, y)?.closest(".um")).length;
   });
   expect(presos, "sobrou camada do anúncio interceptando a Mesa").toBe(0);
+});
+
+/**
+ * O SEQUENCIAMENTO, MEDIDO NO TEMPO — que é a única forma de medi-lo.
+ *
+ * ══ O DEFEITO ══
+ *
+ * O anúncio esperava a escolha do trunfo sair da frente e entrava DEPOIS dela, com a mão já em
+ * curso atrás do véu. Medido a 852×393: aos 1000ms havia uma carta na vaza, aos 1500ms havia duas
+ * e a vez do humano já estava aberta — tudo por baixo da animação. Quem parou para assistir saía
+ * do anúncio com a vaza em andamento, e a celebração cobria justamente o começo que ela anunciava.
+ *
+ * ══ POR QUE UM TESTE DE INSTANTE NÃO SERVIRIA ══
+ *
+ * "Não há carta na vaza quando o anúncio está na tela" passa de graça se for perguntado no
+ * primeiro quadro: a mão leva quase um segundo para começar a andar. O defeito vive no INTERVALO,
+ * então o que se mede é o intervalo inteiro: amostra a Mesa de 200 em 200ms enquanto o anúncio
+ * estiver visível, e UMA amostra suja reprova.
+ *
+ * As duas metades do pedido, na ordem:
+ *   anúncio visível  → nenhuma carta, nenhum controle, nenhuma jogada;
+ *   anúncio encerrado → as cartas entram e o gameplay é liberado.
+ */
+test("enquanto o anúncio está na tela, a mão 10 não começa", async ({ page }, ti) => {
+  test.setTimeout(120_000);
+  await mesaNaMao(page, 10);
+  await expect(page.locator(".um"), "o anúncio não apareceu").toBeVisible({ timeout: 15_000 });
+
+  /** O que existe na Mesa AGORA, do que pertence à mão 10. */
+  const retrato = () => page.evaluate(() => ({
+    anuncio: !!document.querySelector(".um"),
+    vaza: document.querySelectorAll(".trick .card").length,
+    leque: document.querySelectorAll(".hand .card").length,
+    jogaveis: document.querySelectorAll(".hand .card.legal").length,
+    trunfoBtn: document.querySelectorAll(".trumpbtn").length,
+    painelTrunfo: document.querySelectorAll(".trumpov").length,
+    avisoTrunfo: document.querySelectorAll(".pickmsg").length,
+    slotTrunfo: document.querySelectorAll(".trumpslot").length,
+    relogio: document.querySelectorAll(".mprelogio").length,
+    suaVez: document.querySelectorAll(".suavez").length,
+  }));
+
+  const sujas: string[] = [];
+  let amostras = 0;
+  for (let i = 0; i < 40; i++) {
+    const r = await retrato();
+    if (!r.anuncio) break;
+    amostras++;
+    const problemas = Object.entries(r)
+      .filter(([k, v]) => k !== "anuncio" && v !== 0 && v !== false)
+      .map(([k, v]) => `${k}=${v}`);
+    if (problemas.length) sujas.push(`${i * 200}ms: ${problemas.join(" ")}`);
+    await page.waitForTimeout(200);
+  }
+
+  expect(amostras, "o anúncio saiu rápido demais para medir o intervalo").toBeGreaterThan(5);
+  expect(sujas,
+    `a mão 10 começou por baixo do anúncio — ${sujas.length} de ${amostras} amostras sujas`)
+    .toEqual([]);
+
+  if (process.env.KING_SHOTS) {
+    await page.screenshot({ path: `${process.env.KING_SHOTS}/um-sequencia-durante-${ti.project.name}.png` });
+  }
+});
+
+/**
+ * A ORDEM DOS ACONTECIMENTOS — anúncio, depois cartas, depois jogo.
+ *
+ * ══ POR QUE ORDEM, E NÃO ESTADO ══
+ *
+ * A tentação é olhar a tela logo depois que o anúncio sai e exigir que o trunfo ainda esteja
+ * pendente. Não funciona, e a razão é do jogo: `trumpChooserFor(10)` é o assento 3, que no solo é
+ * um bot. Assim que a suspensão levanta, ele escolhe no ciclo seguinte — o aviso "está escolhendo
+ * o trunfo" existe por menos de um intervalo de sondagem, e a asserção vira uma corrida.
+ *
+ * Já a ORDEM em que as coisas aparecem pela primeira vez não tem corrida nenhuma. E é ela que
+ * distingue as duas sequências possíveis, que é o que esta rodada mudou:
+ *
+ *   antiga:  trunfo pedido → trunfo escolhido → ANÚNCIO (com a mão andando atrás dele)
+ *   nova:    ANÚNCIO → trunfo pedido → trunfo escolhido → jogo
+ *
+ * Amostrar do carregamento até depois do anúncio e comparar os índices de primeira aparição
+ * responde as duas metades do pedido de uma vez, sem depender de pegar nenhum instante.
+ */
+test("quando o anúncio sai, as cartas entram e a jogada é liberada", async ({ page }, ti) => {
+  test.setTimeout(120_000);
+  await mesaNaMao(page, 10);
+
+  interface Quadro { um: boolean; trunfoNaTela: boolean; leque: number; jogaveis: number }
+  const quadros: Quadro[] = [];
+  for (let i = 0; i < 90; i++) {
+    quadros.push(await page.evaluate(() => ({
+      um: !!document.querySelector(".um"),
+      // Qualquer sinal de que a mão 10 chegou à decisão do trunfo: o painel de quem escolhe, o
+      // aviso de quem espera, ou o card do trunfo já resolvido.
+      trunfoNaTela: !!document.querySelector(".trumpov, .pickmsg, .trumpslot"),
+      leque: document.querySelectorAll(".hand .card").length,
+      jogaveis: document.querySelectorAll(".hand .card.legal").length,
+    })));
+    // Para de amostrar um pouco depois do anúncio ter saído e o jogo ter começado.
+    const q = quadros[quadros.length - 1];
+    if (quadros.some((x) => x.um) && !q.um && q.leque > 0 && q.trunfoNaTela) break;
+    await page.waitForTimeout(100);
+  }
+
+  const primeiro = (f: (q: Quadro) => boolean) => quadros.findIndex(f);
+  const ultimo = (f: (q: Quadro) => boolean) => quadros.map(f).lastIndexOf(true);
+
+  const iAnuncio = primeiro((q) => q.um);
+  const iFimDoAnuncio = ultimo((q) => q.um);
+  const iTrunfo = primeiro((q) => q.trunfoNaTela);
+  const iLeque = primeiro((q) => q.leque > 0);
+
+  const linhaDoTempo = `anúncio ${iAnuncio}..${iFimDoAnuncio}, trunfo ${iTrunfo}, leque ${iLeque}`;
+  expect(iAnuncio, `o anúncio não apareceu (${linhaDoTempo})`).toBeGreaterThanOrEqual(0);
+
+  // 1 · O ANÚNCIO VEM PRIMEIRO. Nada do trunfo antes dele.
+  expect(iTrunfo,
+    `a mão 10 pediu o trunfo antes do anúncio — ordem antiga (${linhaDoTempo})`)
+    .toBeGreaterThan(iFimDoAnuncio);
+
+  // 2 · AS CARTAS ENTRAM DEPOIS. Nenhum leque durante, treze depois.
+  expect(iLeque, `as cartas foram distribuídas durante o anúncio (${linhaDoTempo})`)
+    .toBeGreaterThan(iFimDoAnuncio);
+  await expect(page.locator(".hand .card"), "as cartas não foram distribuídas depois do anúncio")
+    .toHaveCount(13, { timeout: 10_000 });
+
+  // 3 · E O JOGO É LIBERADO — a mão 10 chega à vez de alguém.
+  await expect(async () => {
+    const vivo = await page.locator(".trick .card, .hand .card.legal, .trumpov, .pickmsg").count();
+    expect(vivo, "a mão 10 não começou depois que o anúncio saiu").toBeGreaterThan(0);
+  }).toPass({ timeout: 15_000 });
+
+  if (process.env.KING_SHOTS) {
+    await page.screenshot({ path: `${process.env.KING_SHOTS}/um-sequencia-depois-${ti.project.name}.png` });
+  }
 });

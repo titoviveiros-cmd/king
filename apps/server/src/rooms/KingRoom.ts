@@ -25,7 +25,7 @@ import {
 } from "./identidade.js";
 import { DURACAO_MS, RitmoSocial, mensagemValida } from "./social.js";
 import { ArraySchema, schema } from "@colyseus/schema";
-import type { Seat } from "@king/engine";
+import { TOTAL_HANDS, type Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import { TEMPOS } from "../match/tempos.js";
 import {
@@ -179,6 +179,9 @@ export class KingRoom extends Room<{
   #decisaoSeq = 0;
   /** Quando a mão corrente terminou — origem dos prazos de auto-ready. */
   #maoTerminouEm = 0;
+  /** Quando a mão corrente COMEÇOU, e qual é ela — origem do respiro da última mão. */
+  #maoComecouEm = 0;
+  #maoEmCurso = 0;
   /** Sala sem nenhuma conexão viva: se ninguém voltar, ela morre. */
   #timerOrfa: { clear(): void } | null = null;
 
@@ -492,16 +495,39 @@ export class KingRoom extends Room<{
     return a.bot || (a.assisted && !a.connected);
   }
 
+  /**
+   * O RESPIRO DA ABERTURA DA ÚLTIMA MÃO — quanto ainda falta dele, em ms.
+   *
+   * A décima mão começa e o cliente cobre a Mesa com o anúncio "ÚLTIMA MÃO": durante ele nada da
+   * mão nova é apresentado, e nada pode ser jogado. O servidor não sabe do anúncio; sabe que a
+   * primeira decisão da última mão cai numa janela em que ninguém está olhando para a mesa.
+   *
+   * Sem isto, os dois lados perdem: quem escolhe o trunfo perderia do próprio prazo o tempo do
+   * anúncio, e um bot escolheria por trás dele (cortesia de 900ms contra ~3,7s de animação) — a
+   * mesa reapareceria com a mão já em curso. Nenhum dos dois se conserta no cliente, porque o
+   * prazo é autoritativo e o bot é o servidor.
+   *
+   * DECAI SOZINHO, medido a partir do início da mão: não é um bônus somado a cada decisão. Se a
+   * escolha do trunfo consumir o respiro inteiro, a primeira jogada não ganha nada — o total
+   * nunca passa da duração do anúncio, que é o limite pedido.
+   */
+  #respiroDaAbertura(handNumber: number): number {
+    if (handNumber !== TOTAL_HANDS || this.#maoComecouEm === 0) return 0;
+    return Math.max(0, this.#maoComecouEm + TEMPOS.aberturaDaUltimaMao - Date.now());
+  }
+
   /** Qual decisão a partida espera agora, e por quanto tempo. */
   #decisaoPendente(): { tipo: TipoDeDecisao; seat: Seat | null; prazo: number } | null {
     if (this.state.status !== "playing") return null;
     const m = this.autoridade.estadoAutoritativo();
     if (!m || m.finished || !m.hand) return null;
     const h = m.hand;
+    const respiro = this.#respiroDaAbertura(h.handNumber);
 
     if (h.awaitingTrumpFrom !== null) {
       const seat = h.awaitingTrumpFrom;
-      return { tipo: "TRUMP", seat, prazo: this.#assistido(seat) ? TEMPOS.cortesiaDoBot : TEMPOS.trunfo };
+      const base = this.#assistido(seat) ? TEMPOS.cortesiaDoBot : TEMPOS.trunfo;
+      return { tipo: "TRUMP", seat, prazo: base + respiro };
     }
     if (h.handScores !== null) {
       // READY é de todos: o prazo é o do assento que estoura primeiro.
@@ -517,10 +543,13 @@ export class KingRoom extends Room<{
     }
     if (h.turn === null) return null;
     const seat = h.turn;
-    if (this.#assistido(seat)) return { tipo: "PLAY", seat, prazo: TEMPOS.cortesiaDoBot };
+    if (this.#assistido(seat)) return { tipo: "PLAY", seat, prazo: TEMPOS.cortesiaDoBot + respiro };
     // primeira jogada da mão: 13 cartas novas e um contrato novo para ler
     const primeira = h.completedTricks.length === 0 && h.currentTrick.length === 0;
-    return { tipo: "PLAY", seat, prazo: TEMPOS.turno + (primeira ? TEMPOS.primeiraJogadaExtra : 0) };
+    return {
+      tipo: "PLAY", seat,
+      prazo: TEMPOS.turno + (primeira ? TEMPOS.primeiraJogadaExtra : 0) + respiro,
+    };
   }
 
   /**
@@ -692,6 +721,13 @@ export class KingRoom extends Room<{
       if (this.#maoTerminouEm === 0) this.#maoTerminouEm = Date.now();
     } else {
       this.#maoTerminouEm = 0;
+    }
+    // instante em que a mão COMEÇOU: origem do respiro de abertura da última mão. Marcado pela
+    // TROCA do número da mão, e não pela ausência de `handScores` — senão cada publicação da
+    // mesma mão reiniciaria a contagem e o respiro nunca acabaria.
+    if (m?.hand && m.hand.handNumber !== this.#maoEmCurso) {
+      this.#maoEmCurso = m.hand.handNumber;
+      this.#maoComecouEm = Date.now();
     }
     for (const c of this.clients) this.#publicarPara(c as ClienteDoKing, causa);
     this.#reagendar();

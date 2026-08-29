@@ -49,7 +49,7 @@ let colyseus: ColyseusTestServer;
  */
 const avatarDoAssento = (seat: number) => AVATARES[seat % AVATARES.length];
 beforeAll(async () => {
-  configurarTempos({ pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000, turno: 3_600_000, trunfo: 3_600_000, primeiraJogadaExtra: 0 });
+  configurarTempos({ pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000, turno: 3_600_000, trunfo: 3_600_000, primeiraJogadaExtra: 0, aberturaDaUltimaMao: 0 });
   colyseus = await boot(servidor);
 });
 afterAll(() => restaurarTempos());

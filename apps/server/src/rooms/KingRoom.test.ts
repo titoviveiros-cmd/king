@@ -28,7 +28,7 @@ let colyseus: ColyseusTestServer;
 // cada avanço de mão custaria 8s reais e um turno lento viraria ação automática no meio do
 // roteiro. Os prazos em si têm suíte própria (timeout.test.ts).
 beforeAll(async () => {
-  configurarTempos({ pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000, turno: 3_600_000, trunfo: 3_600_000, primeiraJogadaExtra: 0 });
+  configurarTempos({ pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000, turno: 3_600_000, trunfo: 3_600_000, primeiraJogadaExtra: 0, aberturaDaUltimaMao: 0 });
   colyseus = await boot(servidor);
 });
 afterAll(() => restaurarTempos());

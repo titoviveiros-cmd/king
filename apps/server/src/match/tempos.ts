@@ -30,6 +30,23 @@ export interface Tempos {
    * acompanhar visualmente o que aconteceu.
    */
   cortesiaDoBot: number;
+  /**
+   * RESPIRO DA ABERTURA DA ÚLTIMA MÃO — o único lugar em que o servidor sabe da apresentação.
+   *
+   * O cliente anuncia "ÚLTIMA MÃO" quando a décima começa, e durante o anúncio a Mesa não
+   * apresenta nada da mão nova: nem trunfo, nem leque, nem vaza. O servidor não sabe do anúncio
+   * e não deveria saber. O que ele sabe é que a PRIMEIRA decisão da última mão acontece enquanto
+   * ninguém ainda está olhando para a mesa.
+   *
+   * Sem isto o cliente teria de escolher entre dois defeitos: deixar a partida correr atrás do
+   * véu (que é o defeito que esta rodada veio corrigir) ou represar a apresentação e ficar para
+   * trás — com quem escolhe o trunfo perdendo o tempo do anúncio do próprio prazo, e um bot
+   * decidindo por trás dele. Nenhum dos dois se resolve só no cliente: o prazo é autoritativo.
+   *
+   * O valor é o par de `DURACAO_MS + SAIDA_MS` de `apps/web/src/ui/UltimaMao.tsx`. Não é folga
+   * arbitrária: é exatamente a presença do anúncio, e o teste de contrato compara os dois.
+   */
+  aberturaDaUltimaMao: number;
   /** No LOBBY, o assento de quem cai fica reservado por este tempo. Depois é liberado. */
   lobbyReservaAposQueda: number;
   /** Sala sem nenhuma conexão viva morre depois disto. Evita sala órfã eterna. */
@@ -47,6 +64,7 @@ export const TEMPOS_PADRAO: Readonly<Tempos> = Object.freeze({
   autoReadyDesconectado: 20_000,
   autoReadyConectado: 45_000,
   cortesiaDoBot: 900,
+  aberturaDaUltimaMao: 3_720,
   lobbyReservaAposQueda: 60_000,
   salaOrfa: 120_000,
 });

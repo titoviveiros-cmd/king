@@ -32,6 +32,9 @@ const PARADO = {
   aviso: 60_000, critico: 30_000, pisoDoPlacar: 1,
   autoReadyDesconectado: HORA, autoReadyConectado: HORA,
   cortesiaDoBot: 5, lobbyReservaAposQueda: HORA, salaOrfa: HORA,
+  // Esta suíte não exercita o respiro da abertura: zerado para a mão 10 se comportar como as
+  // outras nove. Quem o exercita é `ultimaMao.test.ts`.
+  aberturaDaUltimaMao: 0,
 };
 
 let colyseus: ColyseusTestServer;

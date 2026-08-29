@@ -84,6 +84,7 @@ export default function ModoOnline({
       // No multiplayer não existe "nova partida" local: a saída é sempre sair da sala.
       onRestart={sair}
       onOpenAudio={onOpenAudio}
+      suspender={g.suspender}
       mp={mp}
     />
   );
