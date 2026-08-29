@@ -61,11 +61,29 @@ export function PlacarFinal({
   }, [venci, empate]);
 
   // ---- encenação ----
-  const pular = () => setEtapa("completo");
+  //
+  // OS QUATRO TEMPORIZADORES SÃO AGENDADOS DE UMA VEZ, no instante da montagem — cada etapa tem
+  // uma marca fixa na linha do tempo. É simples e é correto enquanto a encenação corre sozinha.
+  //
+  // Não era, quando alguém tocava para pular. `pular()` levava direto a "completo" e ia embora,
+  // deixando os quatro agendamentos vivos: eles continuavam disparando nas marcas deles e
+  // REBOBINAVAM a tela para "contagem", depois "ranking", depois "campeao". Quem tocou via a tela
+  // final aparecer inteira e voltar a se animar sozinha um instante depois — e no meio da
+  // reanimação as linhas do ranking se sobrepõem, que é a tela desarrumada do relato.
+  //
+  // Pular é DESISTIR da linha do tempo, não correr na frente dela. Por isso os identificadores
+  // ficam num ref: o toque cancela o que estava agendado antes de fixar a etapa final.
+  const temporizadores = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const cancelarEncenacao = () => {
+    temporizadores.current.forEach(clearTimeout);
+    temporizadores.current = [];
+  };
+  const pular = () => { cancelarEncenacao(); setEtapa("completo"); };
   useEffect(() => {
     if (reduzido) { setEtapa("completo"); return; }
-    const ids = ORDEM.slice(1).map((e) => setTimeout(() => setEtapa(e), MARCOS[e]));
-    return () => ids.forEach(clearTimeout);
+    temporizadores.current = ORDEM.slice(1).map((e) => setTimeout(() => setEtapa(e), MARCOS[e]));
+    return cancelarEncenacao;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reduzido]);
 
   // convergência dos pontos: sai do saldo ANTES da 10ª mão e chega no final

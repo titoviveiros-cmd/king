@@ -1544,8 +1544,15 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .socpanel-fim{position:absolute;right:auto;left:50%;transform:translateX(-50%);
   bottom:calc(100% + 12px);width:min(86vw,420px);
   max-height:calc(var(--alturaUtil) - var(--pad)*2 - var(--st) - var(--sb) - 110px);}
-/* No placar final o balão entra no fluxo da linha, como no placar entre-mãos. */
-.fimlinha{position:relative;}
+/* O BALÃO ANCORA NA LINHA — E A LINHA JÁ ERA UM ANCORADOURO.
+   Aqui havia um `.fimlinha{position:relative}`, escrito para dar à linha um bloco de contenção
+   que ela já tinha: `.fimlinha` nasce `position:absolute`. E a troca custou o layout inteiro da
+   tela final. O ranking é uma pilha de linhas ABSOLUTAS em `top:0`, cada uma deslocada por
+   `translateY(--fimrow * posição)` dentro de um container de altura fixa — é isso que permite a
+   reordenação animada. `relative` devolveu as quatro ao fluxo: cada linha passou a ocupar a
+   própria altura E a receber o deslocamento por cima, dobrando a lista. Medido a 852×300, a
+   última linha terminava 12px abaixo da tela e o conteúdo estourava o grid em 34px, cortado pelo
+   `overflow:hidden` do fundo. */
 .fimlinha .balao{position:absolute;top:50%;right:calc(var(--ui)*7);transform:translateY(-50%);
   animation:none;padding:.34em .8em;font-size:calc(var(--ui)*.9);
   max-width:min(44vw,260px);white-space:nowrap;}
