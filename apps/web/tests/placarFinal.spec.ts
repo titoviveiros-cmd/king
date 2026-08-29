@@ -26,7 +26,7 @@
  * é a que faltava.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { insideViewport, type Box } from "./helpers/geometry.js";
+import { fmt, insideViewport, intersects, type Box } from "./helpers/geometry.js";
 import { boxOf, SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
 
 const SUBPIXEL = 1;
@@ -370,4 +370,93 @@ test("um toque pula a encenação, e ela não volta sozinha", async ({ page }) =
   await expect(page.locator(".fimacoes"), "os botões sumiram depois do toque").toBeVisible();
   await expect(page.locator(".fimpular"), '"toque para pular" voltou depois do toque')
     .toHaveCount(0);
+});
+
+/**
+ * A MENSAGEM SOCIAL NA LINHA DO RANKING — medida, que é o que faltava.
+ *
+ * ══ O DEFEITO QUE ESTE ARQUIVO NÃO PEGOU ══
+ *
+ * O balão do placar final tinha teste de RENDER — a frase aparece na linha de quem falou, e em
+ * nenhuma outra. Passava, e estava certo: o elemento estava no lugar certo da árvore.
+ *
+ * O que ninguém mediu foi a CAIXA dele. O override de posicionamento trocava a ancoragem para
+ * `top`/`right` sem zerar o `left`/`bottom` da regra base, e um absoluto com as duas bordas
+ * definidas não se ajusta ao conteúdo: estica na horizontal e é esmagado na vertical. Medido a
+ * 852×300, o balão tinha 151px de largura por OITO de altura, atravessando o nome e encostando na
+ * pontuação, com o texto vazando. Na tela lia como um botão dourado colado sobre a linha — e foi
+ * um teste físico, não a suíte, que viu.
+ *
+ * Agora o balão divide a célula do nome e quem distribui o espaço é o flex. Estas asserções são
+ * de GEOMETRIA porque é onde o defeito morava: presença na árvore já estava provada.
+ *
+ * O balão só existe no multiplayer, e chegar a um placar final multiplayer custa dez mãos com
+ * dois navegadores. O elemento é injetado com as classes de verdade, como o botão social logo
+ * acima — a pergunta é de layout, e quem responde é o CSS.
+ */
+test("a mensagem social cabe na linha, sem cobrir nome, avatar, posição ou pontuação", async ({ page }, ti) => {
+  test.setTimeout(180_000);
+  await telaFinal(page);
+  const vp = page.viewportSize()!;
+
+  const LINHA_ALVO = 2; // a terceira, como na evidência do relato
+  await page.evaluate((i) => {
+    const linha = document.querySelectorAll(".fimlinha")[i];
+    const b = document.createElement("span");
+    b.className = "balao";
+    b.setAttribute("role", "status");
+    b.textContent = "Revanche?";
+    (linha.querySelector(".nmlinha") ?? linha).appendChild(b);
+  }, LINHA_ALVO);
+  await page.waitForTimeout(150);
+
+  const linha = page.locator(".fimlinha").nth(LINHA_ALVO);
+  const balao = linha.locator(".balao");
+  await expect(balao, "a mensagem não foi renderizada na linha").toHaveCount(1);
+
+  const cx = await boxOf(balao, "balão social");
+
+  // 1 · A CAIXA COMPORTA O TEXTO. Oito pixels de altura foi o defeito; o piso é a linha de texto.
+  const fonte = await balao.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(fonte, "a mensagem ficou pequena demais para ser lida").toBeGreaterThanOrEqual(11);
+  expect(cx.height, `a caixa do balão colapsou: ${cx.height}px para uma fonte de ${fonte}px`)
+    .toBeGreaterThanOrEqual(fonte * 1.4);
+
+  // 2 · A CAIXA É DO CONTEÚDO, e não esticada entre duas bordas. Uma caixa muito mais larga que o
+  // texto é a assinatura exata do `left` + `right` não zerados.
+  const larguraDoTexto = await balao.evaluate((el) => el.scrollWidth);
+  expect(cx.width, `o balão tem ${cx.width}px para um texto de ${larguraDoTexto}px — caixa esticada`)
+    .toBeLessThanOrEqual(larguraDoTexto + 4);
+
+  // 3 · NÃO COBRE NADA DA LINHA. É a exigência do relato, item a item.
+  for (const [sel, quem] of [
+    [".p", "a posição"], [".av", "o avatar"], [".nm", "o nome"], [".sc", "a pontuação"],
+  ] as [string, string][]) {
+    const alvo = linha.locator(sel);
+    if (!(await alvo.count())) continue;
+    const outro = await boxOf(alvo.first(), quem);
+    expect(intersects(cx as Box, outro as Box, SUBPIXEL),
+      `[${ti.project.name}] a mensagem cobre ${quem}\n   balão: ${fmt(cx)}\n   ${quem}: ${fmt(outro)}`,
+    ).toBe(false);
+  }
+
+  // 4 · CABE NA LINHA E NA TELA — nada de vazar por cima da linha vizinha.
+  const caixaDaLinha = await boxOf(linha, "linha do ranking");
+  expect(cx.y, "o balão subiu para fora da linha").toBeGreaterThanOrEqual(caixaDaLinha.y - SUBPIXEL);
+  expect(cx.y + cx.height, "o balão desceu para fora da linha")
+    .toBeLessThanOrEqual(caixaDaLinha.y + caixaDaLinha.height + SUBPIXEL);
+  expect(insideViewport(cx as Box, vp, SUBPIXEL),
+    `[${ti.project.name}] a mensagem saiu da tela: ${fmt(cx)}`).toBe(true);
+
+  // 5 · E NÃO SE DISFARÇA DE CTA. Os botões desta tela são pílulas douradas SÓLIDAS; a mensagem é
+  // o negativo disso. Se um dia alguém reaproveitar o estilo do botão aqui, isto acusa.
+  const fundo = await balao.evaluate((el) => getComputedStyle(el).backgroundImage);
+  expect(fundo, "o balão voltou a usar o gradiente dourado dos botões").toBe("none");
+
+  // 6 · E A TELA CONTINUA INTEIRA com a mensagem nela.
+  await cabeInteira(page, vp, "com mensagem social na linha");
+
+  if (process.env.KING_SHOTS) {
+    await page.screenshot({ path: `${process.env.KING_SHOTS}/fim-balao-${ti.project.name}.png` });
+  }
 });

@@ -1553,9 +1553,37 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    própria altura E a receber o deslocamento por cima, dobrando a lista. Medido a 852×300, a
    última linha terminava 12px abaixo da tela e o conteúdo estourava o grid em 34px, cortado pelo
    `overflow:hidden` do fundo. */
-.fimlinha .balao{position:absolute;top:50%;right:calc(var(--ui)*7);transform:translateY(-50%);
-  animation:none;padding:.34em .8em;font-size:calc(var(--ui)*.9);
-  max-width:min(44vw,260px);white-space:nowrap;}
+/* A MENSAGEM NA LINHA DO RANKING — no layout, e não por cima dele.
+   ══ O QUE ESTAVA ERRADO ══
+   Aqui havia um override que trocava a ancoragem do balão para `top`/`right` e não zerava o
+   `left:50%` nem o `bottom:calc(100% + 6px)` da regra base. Um elemento absoluto com `left` E
+   `right` definidos e largura automática NÃO se ajusta ao conteúdo: ele estica entre as duas
+   bordas. Com `top` e `bottom` acontece o mesmo na vertical, ao contrário — as duas bordas se
+   cruzam e a caixa é esmagada.
+   Medido a 852×300: 151px de largura por OITO de altura, atravessando o nome e encostando na
+   pontuação, com o texto vazando de uma caixa que não o comportava. Na tela lia como um botão
+   dourado colado sobre a linha, que foi o que o teste físico relatou.
+   ══ POR QUE AGORA É OUTRO ARRANJO ══
+   Reposicionar o absoluto consertaria o pixel e manteria a natureza do problema: um elemento
+   flutuando sobre uma linha cujo conteúdo varia — nome curto, nome no limite, saldo de quatro
+   dígitos — depende de a coordenada escolhida continuar livre em todos os casos. Não continua.
+   O balão passou a dividir a célula do nome. Quem distribui o espaço é o flex, e a sobreposição
+   deixa de ser possível por construção, em qualquer nome e em qualquer viewport. */
+.fimlinha .nmlinha{min-width:0;display:flex;align-items:center;gap:calc(var(--ui)*.6);}
+.fimlinha .nmlinha .nm{flex:0 1 auto;min-width:0;}
+.fimlinha .balao{position:static;transform:none;animation:none;
+  /* Encolhe TRÊS vezes mais rápido que o nome: numa linha apertada quem cede é a frase, não a
+     identidade de quem a disse. Um balão inteiro ao lado de "Tit…" perderia a atribuição, que é
+     justamente o que ele veio carregar. */
+  flex:0 3 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  padding:.26em .72em;font-size:calc(var(--ui)*.9);line-height:1.35;
+  /* NÃO é um CTA, e não pode parecer um. Os botões desta tela são pílulas douradas sólidas; a
+     linha do ranking já é uma caixa clara sobre o fundo. Um terceiro dourado sólido no meio dos
+     dois vira botão aos olhos. Aqui o balão é o negativo disso: fundo escuro translúcido, borda e
+     letra douradas — pertence à linha, se lê de relance e não convida ao toque. */
+  background:rgba(16,8,30,.72);color:var(--gold);
+  border:1px solid rgba(244,197,66,.55);box-shadow:none;
+  text-shadow:0 1px 2px rgba(0,0,0,.5);}
 .fimlinha .balao::after{display:none;}
 .pl-foot{position:relative;}
 .socpanel-placar{position:absolute;right:auto;left:50%;transform:translateX(-50%);

@@ -219,13 +219,18 @@ export function PlacarFinal({
                     nome={r.player}
                     classe="av"
                   />
-                  <span className="nm">{r.player}</span>
+                  {/* A MENSAGEM DIVIDE A CÉLULA COM O NOME, em vez de flutuar por cima dela.
+                      Ela aparece NA LINHA de quem falou — a atribuição é posicional, sem precisar
+                      repetir o nome dentro do balão —, e dividir a célula é o que torna a
+                      sobreposição impossível por construção: quem distribui o espaço é o layout,
+                      não uma coordenada escolhida a dedo. */}
+                  <span className="nmlinha">
+                    <span className="nm">{r.player}</span>
+                    {mp && <BalaoSocial mensagem={mp.mensagens[r.seat]} />}
+                  </span>
                   <span className={`sc ${pontos[r.seat] < 0 ? "neg" : pontos[r.seat] > 0 ? "pos" : ""}`}>
                     {fmtSigned(pontos[r.seat] ?? r.score)}
                   </span>
-                  {/* E a mensagem aparece NA LINHA de quem falou, como no placar entre-mãos: a
-                      atribuição é posicional, sem precisar repetir o nome dentro do balão. */}
-                  {mp && <BalaoSocial mensagem={mp.mensagens[r.seat]} />}
                 </div>
               );
             })}
