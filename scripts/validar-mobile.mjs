@@ -11,7 +11,7 @@
 // não gerada; mas se for pedida explicitamente e não existir, aí sim reprova.
 //
 // Sai 0 se tudo passa, 1 se qualquer verificação falha. É portão de CI, não relatório.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const RAIZ = new URL("../", import.meta.url);
@@ -158,6 +158,57 @@ if (pedido === "ios" && !TEM_IOS) {
   } else {
     falhar("assets web AUSENTES em ios/App/App/public — falta `cap sync`");
   }
+}
+
+
+// ───────────────────── O ENDEREÇO DO MULTIPLAYER, DENTRO DO PACOTE ─────────────────────
+//
+// O bundle empacotado não tem de onde ler variável de ambiente: o que valeu na hora do
+// `vite build` é o que o app vai usar para sempre. Se `VITE_KING_SERVER_URL` não estiver
+// definida naquele instante, o KING não inventa endereço — ele publica um app em que o
+// multiplayer simplesmente não existe, e isso COMPILA PERFEITAMENTE. É a falha mais cara possível
+// nesta fase: só aparece com o APK instalado na mão de alguém.
+//
+// Um app de loja também não pode carregar `localhost` nem a URL de um Preview temporário: o
+// primeiro não existe no aparelho de quem instalou, e o segundo morre quando o deploy expira.
+//
+// Por isso a conferência é do ARTEFATO, e não da configuração: lê-se o que foi realmente copiado
+// para dentro do projeto nativo.
+function conferirEndpoint(rotulo, dir) {
+  if (!existsSync(caminho(dir))) return;
+  const arquivos = readdirSync(caminho(dir)).filter((f) => f.endsWith(".js"));
+  if (arquivos.length === 0) { falhar(`${rotulo}: nenhum .js empacotado em ${dir}`); return; }
+  const tudo = arquivos.map((f) => readFileSync(caminho(dir + f), "utf8")).join("");
+
+  const wss = [...tudo.matchAll(/wss:\/\/[a-z0-9.-]+/gi)].map((m) => m[0]);
+  const proprios = [...new Set(wss)];
+  if (proprios.length === 0) {
+    falhar(`${rotulo}: nenhum endpoint wss:// no bundle — o app foi empacotado SEM multiplayer ` +
+      "(defina VITE_KING_SERVER_URL antes do build)");
+  } else {
+    ok(`${rotulo}: multiplayer aponta para ${proprios.join(", ")}`);
+  }
+
+  // O default interno do SDK do Colyseus (`ws://127.0.0.1:2567`) fica de fora: é string morta,
+  // só usada por quem constrói o cliente sem URL, e o KING sempre passa a dele.
+  const proibidos = [...new Set([
+    ...[...tudo.matchAll(/wss?:\/\/localhost[:0-9]*/gi)].map((m) => m[0]),
+    ...[...tudo.matchAll(/https?:\/\/[a-z0-9-]+\.vercel\.app/gi)].map((m) => m[0]),
+  ])];
+  if (proibidos.length > 0) {
+    falhar(`${rotulo}: endereço que não sobrevive fora desta máquina: ${proibidos.join(", ")}`);
+  } else {
+    ok(`${rotulo}: sem localhost nem URL de Preview embutidos`);
+  }
+}
+
+if (TEM_ANDROID && pedido !== "ios") {
+  console.log("\n── ENDPOINT (Android) ──");
+  conferirEndpoint("Android", "apps/web/android/app/src/main/assets/public/assets/");
+}
+if (TEM_IOS && pedido !== "android") {
+  console.log("\n── ENDPOINT (iOS) ──");
+  conferirEndpoint("iOS", "apps/web/ios/App/App/public/assets/");
 }
 
 if (!TEM_ANDROID && !TEM_IOS && !pedido) {
