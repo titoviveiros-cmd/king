@@ -121,6 +121,31 @@ npm ci || abortar "npm ci falhou"
 npm run build:server || abortar "build falhou"
 echo "  ok artefato compilado"
 
+echo "=== O ARTEFATO CARREGA O QUE FOI APROVADO ==="
+# Conferencia de ARTEFATO, e nao de comportamento. O portao bloqueante responde "o binario certo
+# esta no ar"; "a mao 10 se comporta certo" e pergunta de outra natureza, ja respondida pela
+# suite de servidor no CI e reconferida depois por `verificar-ultima-mao.mjs`, que roda FORA do
+# caminho transacional. Um portao que exigisse jogar dez maos reais reverteria implantacoes boas
+# por lentidao de rede, que e pior do que nao ter o portao.
+conferir_artefato() {
+  local ARQ="$1" PADRAO="$2" QUE="$3"
+  [ -f "$ARQ" ] || { echo "  xx $ARQ nao existe"; return 1; }
+  grep -qE "$PADRAO" "$ARQ" || { echo "  xx $QUE ausente em $ARQ"; return 1; }
+  echo "  ok $QUE"
+  return 0
+}
+ART=""
+# `3_720` no fonte sobrevive a compilacao com o separador; o padrao aceita as duas grafias.
+conferir_artefato "apps/server/dist/match/tempos.js" \
+  "aberturaDaUltimaMao: 3_?720" "constante aberturaDaUltimaMao = 3720" || ART="$ART constante"
+conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
+  "respiroDaAbertura" "respiro da abertura integrado a KingRoom" || ART="$ART integracao"
+conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
+  "aberturaDaUltimaMao" "prazo da decisao consulta a constante" || ART="$ART consulta"
+conferir_artefato "apps/server/dist/protocol/index.js" \
+  "PROTOCOL_VERSION = 3" "PROTOCOL_VERSION = 3 no artefato" || ART="$ART protocolo"
+[ -z "$ART" ] || abortar "artefato nao carrega a correcao aprovada:$ART"
+
 echo "=== SMOKE EM PORTA SEPARADA (2599) ==="
 SMOKE_PORT=2599 npm run smoke:server || abortar "o artefato novo nao sobe"
 
@@ -144,8 +169,22 @@ if [ -n "$FALHA" ]; then
 fi
 
 echo ""
-echo "  ok Nginx . UFW . 2567 fechada . contrato aprovado . logs limpos"
+echo "=== SHA IMPLANTADO, CONFERIDO DEPOIS DE TUDO ==="
+# Repetido de proposito no fim. A conferencia anterior foi ANTES do build e do restart; esta
+# responde "o que ficou no ar e o alvo", que e outra pergunta — entre as duas houve `npm ci`,
+# compilacao e reinicio, e um portao de implantacao afirma sobre o estado final.
+FINAL=$(git rev-parse HEAD)
+case "$FINAL" in
+  "$ALVO"*) echo "  ok commit implantado = ${FINAL:0:7}" ;;
+  *) echo "xx commit implantado ${FINAL:0:7}, esperado $ALVO"; reverter; exit 1 ;;
+esac
+
+echo ""
+echo "  ok Nginx . UFW . 2567 fechada . contrato aprovado . logs limpos . artefato conferido"
 echo ""
 echo "IMPLANTACAO CONCLUIDA - ${NOVO:0:7}"
+echo ""
+echo "PROXIMO PASSO (fora do caminho transacional, sem rollback automatico):"
+echo "  cd $RAIZ && node scripts/verificar-ultima-mao.mjs ws://127.0.0.1:2567"
 echo "retorno manual: cd $RAIZ && git reset --hard ${ANTERIOR:0:7} && npm ci && npm run build:server && pm2 restart $APP"
 exit 0
