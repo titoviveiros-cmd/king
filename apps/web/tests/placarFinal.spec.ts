@@ -102,20 +102,64 @@ async function chegarAoFim(page: Page): Promise<void> {
  * que é a assinatura de teste que mede animação em vez de layout.
  */
 async function estabilizar(page: Page): Promise<void> {
+  // PRIMEIRO, esperar as animações ACABAREM — e não parecerem paradas.
+  //
+  // Comparar duas leituras separadas por um intervalo é um teste de "parece parado", e `soco`
+  // engana esse teste: a curva achata no pico (`scale:1.06` aos 55%), então duas medições
+  // arredondadas podem coincidir bem no alto e passar por estáveis. Foi essa a leitura que o CI
+  // pegou a 1024×768, acusando o título 4px fora da tela quando em repouso ele cabe exato.
+  //
+  // `getAnimations()` responde a pergunta certa: o navegador sabe quando acabou, e não há
+  // amostragem que erre isso.
+  await expect(async () => {
+    const correndo = await page.evaluate(() => {
+      const alvo = document.querySelector(".fim");
+      if (!alvo) return -1;
+      return alvo.getAnimations({ subtree: true }).filter((a) => {
+        if (a.playState !== "running") return false;
+        // A coroa flutua para sempre (`floatIdle`, `infinite`) enquanto a tela final existir.
+        // Esperar por ela seria esperar o resto da partida: o que interessa são as animações de
+        // ENTRADA, que terminam. Uma repetição infinita nunca "acaba" e não desloca nada.
+        const t = a.effect?.getComputedTiming();
+        return !!t && t.iterations !== Infinity;
+      }).length;
+    });
+    expect(correndo, "a encenação do placar final ainda está animando").toBe(0);
+  }).toPass({ timeout: 15_000 });
+
+  // E DEPOIS confirmar a quietude por medição — as linhas do ranking se movem por transição, que
+  // termina, mas o `toPass` acima pode ganhar num quadro em que a próxima ainda não começou.
   await expect(async () => {
     const antes = await instantaneo(page);
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(200);
     expect(await instantaneo(page)).toEqual(antes);
   }).toPass({ timeout: 15_000 });
 }
 
-/** Y da primeira linha e a caixa do herói — o suficiente para saber se algo ainda se move. */
+/**
+ * O bastante para saber se alguma coisa ainda se move — e são TRÊS coisas, não duas.
+ *
+ * A caixa do herói responde pelo que muda o LAYOUT (a coroa entrando, os CTAs nascendo). O título
+ * precisa de leitura própria porque a animação dele é `scale`, e `scale` não mexe em layout
+ * nenhum: `scrollHeight` fica parado enquanto o elemento ainda cresce e encolhe na tela.
+ *
+ * `soco` passa por `scale:1.06` aos 55% e termina em `1`. Medido a 1024×768 no CI, o título
+ * apanhado nesse pico tinha 434px numa coluna de 409 — e a asserção de "cabe na tela" acusava o
+ * nome do vencedor saindo 4px pela esquerda. Não estava: a caixa em repouso é exatamente a
+ * coluna. Era a comemoração, fotografada no meio.
+ */
 async function instantaneo(page: Page): Promise<string> {
   return await page.evaluate(() => {
-    const l = document.querySelector(".fimlinha") as HTMLElement | null;
+    const cx = (sel: string) => {
+      const el = document.querySelector(sel) as HTMLElement | null;
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+    };
     const h = document.querySelector(".fimheroi") as HTMLElement | null;
     return JSON.stringify({
-      linha: l ? Math.round(l.getBoundingClientRect().y) : null,
+      linha: cx(".fimlinha"),
+      titulo: cx(".fimtitulo"),
       heroi: h ? [h.scrollHeight, h.clientHeight] : null,
     });
   });
