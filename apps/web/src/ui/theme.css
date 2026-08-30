@@ -301,14 +301,19 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 }
 .topbtn{position:absolute;top:calc(var(--pad) + var(--st));right:calc(var(--pad) + var(--sr));z-index:9;
   display:flex;gap:clamp(6px,1.2vw,10px);align-items:center;}
-/* ÚLTIMA VAZA — descobrível sem ser dominante.
-   Em telas largas mostra o texto; abaixo de 800px vira só o símbolo, e o `aria-label` continua
-   dizendo o que é. A alternativa seria roubar largura do que já está no topo, e nada aqui vale
-   mais que o botão de sair. */
+/* ÚLTIMA VAZA — descobrível sem ser dominante, e COM O NOME À MOSTRA.
+   Havia aqui um `@media (max-width:800px)` que escondia o texto, e o comentário ao lado explicava:
+   "a alternativa seria roubar largura do que já está no topo". Plausível — e nunca medido.
+   Um aparelho Android de 800px em paisagem revelou o custo: o controle virava um símbolo solto,
+   e um `↺` sem rótulo não se descobre, ele se adivinha. O `aria-label` salvava o leitor de tela e
+   não salvava ninguém que enxerga.
+   Medido com o rótulo forçado, de 667 a 800 de largura: a fileira do topo ocupa de 263 a 285px,
+   começa em x=395 no pior caso e não encosta no HUD, no card de trunfo nem no adversário da
+   direita. Não havia largura sendo roubada de ninguém — havia uma suposição.
+   O rótulo fica. Quem garante que continua cabendo é o teste de geometria, não este comentário. */
 .topvaza{display:inline-flex;align-items:center;gap:.4em;min-height:34px;}
 .topvaza b{font-size:calc(var(--ui)*1.05);line-height:1;}
 .topvaza i{font-style:normal;}
-@media (max-width:800px){ .topvaza i{display:none;} .topvaza{padding-inline:.55em;} }
 .topvaza:disabled{opacity:.38;cursor:default;}
 
 /* ══════════════════ ÚLTIMA MÃO DO JOGO ══════════════════
@@ -926,6 +931,47 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .pl-name{font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*1.06);line-height:1.15;min-width:0;}
 .pl-detail{display:block;font-family:var(--body);font-weight:700;font-style:normal;font-size:calc(var(--ui)*.86);
   color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* O PLACAR ENTRE-MÃOS NUNCA TEVE VARIANTE COMPACTA — e é essa a causa da rolagem.
+   ══ O QUE FOI MEDIDO ══
+   O conteúdo custa ~328px de altura, em QUALQUER fase. A caixa recebe a tela menos ~32px do
+   recheio da tela cheia. Resultado, medido:
+       800×360  caixa 328 / conteúdo 328  → cabe com ZERO de folga
+       852×393  caixa 329 / conteúdo 329  → cabe com ZERO de folga
+       800×340  caixa 320 / conteúdo 328  → rola
+       852×330  caixa 310 / conteúdo 328  → rola
+   Não é a mão positiva. Entre negativa e positiva o custo sobe UM pixel (328→329): o terceiro
+   chip do trunfo entra na mesma linha dos outros dois e o botão social desce 1px. A hipótese de
+   que o social empurrava o conteúdo foi medida e não se confirma.
+   O que existe é ausência de folga: a Mesa tem um ramo `max-height:360px` que reaperta tudo, e o
+   Placar não tinha nenhum. Ele gastava o mesmo em 852×393 e em 800×304.
+   ══ ONDE A ALTURA ESTAVA ══
+   `.pl-detail` ("4 vazas", "escapou") é `display:block` e custa uma linha inteira POR JOGADOR —
+   quatro linhas de texto miúdo num placar de quatro. Em tela baixa ela passa a caber ao lado do
+   nome. A informação continua na tela, na mesma ordem, apenas deixa de exigir um andar próprio.
+   Nada é escondido, e `overflow:auto` continua onde está: ele é a rede de segurança, não a
+   solução. O que muda é o conteúdo passar a caber antes de a rede ser acionada. */
+@media (max-height:420px){
+  .pl-detail{display:inline;margin-left:.5em;}
+  .pl-detail::before{content:"· ";color:var(--faint);}
+  .pl-row{padding:clamp(3px,.8vh,6px) clamp(8px,1.4vw,12px);}
+  .pl-rows{gap:clamp(3px,.7vh,5px);}
+  .placar{gap:clamp(4px,.9vh,8px);}
+}
+/* SEGUNDO ANDAR DE APERTO, para a faixa em que o navegador ainda desenha a própria barra por cima
+   de uma tela já baixa — medido a 800×304, que é este aparelho com a barra do Chrome.
+   Aqui quem cede é a TIPOGRAFIA do cabeçalho, não a informação: o título da mão e a sobrancelha
+   encolhem, e tudo continua escrito. Encolher texto de cabeçalho é diferente de esconder dado —
+   o que não pode sumir é quem fez quantas vazas e quanto cada um somou, e esses não são tocados. */
+@media (max-height:340px){
+  .pl-title{font-size:calc(var(--ui)*1.35);margin:1px 0 clamp(3px,.8vh,5px);}
+  .pl-eyebrow{font-size:calc(var(--ui)*.7);}
+  .pl-tag{font-size:calc(var(--ui)*.78);}
+  .pl-next{line-height:1.2;}
+  /* E o recheio do véu cede o resto. Ele é moldura, não conteúdo: numa tela de 304px, 20px
+     gastos em respiro nas bordas são 20px que faltam para o placar caber. Os recortes do
+     aparelho (`--st`/`--sb`) continuam inteiros — o que encolhe é só o `--pad` decorativo. */
+  .placarov{padding-top:var(--st);padding-bottom:var(--sb);}
+}
 .pl-delta,.pl-total{font-family:var(--disp);font-weight:800;text-align:right;font-variant-numeric:tabular-nums;}
 .pl-delta{font-size:calc(var(--ui)*1.28);} .pl-delta.neg{color:#ff7aa8;} .pl-delta.pos{color:var(--turq);} .pl-delta.zero{color:var(--faint);}
 .pl-total{font-size:calc(var(--ui)*1.06);color:#fff;}
@@ -1327,8 +1373,15 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 }
 @media (max-height:360px){
   .sl-mesa-lb,.sl-mesa-nota{display:none;}
-  .sl-mesa-op span{display:none;}
-  .sl-mesa-op{min-height:34px;padding:.2em .4em;}
+  /* O NOME DA MESA FICA. Havia aqui um `.sl-mesa-op span{display:none}`, e ele estava numa
+     consulta de ALTURA escondendo algo que custa LARGURA — o nome fica ao lado do quadradinho,
+     na mesma linha, e sumir com ele não devolve um pixel vertical.
+     O preço apareceu num Android de 360px exatos: o anfitrião via dois quadrados, um verde e um
+     roxo, sem nome nenhum, enquanto o iPhone de 390 via "Noite Imperial" e "Verde de Cartas".
+     Escolher a mesa da sala virou adivinhação de cor. O que cede é o respiro do botão, que é
+     decoração, não informação. */
+  .sl-mesa-op{min-height:34px;padding:.2em .5em;font-size:calc(var(--ui)*.82);}
+  .sl-mesa-op i{width:calc(var(--ui)*.95);height:calc(var(--ui)*.95);}
 }
 /* Gap e respiro enxutos para os QUATRO lugares caberem sem rolagem interna. O que encolhe é
    o espaço vertical do card, nunca um botão: `+ Bot` e `Remover` mantêm o próprio padding. */
@@ -1894,7 +1947,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
     min-height:calc(var(--hudAlt)*.54);
     padding:calc(var(--ui)*.22) calc(var(--ui)*.5);}
   .trumpslot .who{flex:1 1 auto;min-width:0;text-align:left;}
-  .trumpslot .sym{font-size:calc(var(--ui)*1.6);margin-top:0;}
+  /* O SÍMBOLO CRESCE DENTRO DA CAIXA QUE JÁ EXISTE.
+     Era `1.6` — 20px num aparelho de 800×360 —, contra 36px da variante alta. Um teste físico
+     leu a diferença como "card desformatado", e não é: a variante compacta é a correta para uma
+     tela de 360px de altura, e forçar a alta ali foi medido a colidir com o card do adversário
+     da esquerda. O que estava errado era o desperdício: a caixa tem 49px de altura e o glifo
+     usava 20. Sobe para `2.15` (~27px) sem a caixa mudar de tamanho — o naipe é a informação
+     consultada o tempo todo durante a mão, e era a que estava menor. */
+  .trumpslot .sym{font-size:calc(var(--ui)*2.15);margin-top:0;}
   .trumpslot .who{margin-top:0;}
   /* DEITADO, "SEM TRUNFO" NÃO CABE COM A ETIQUETA JUNTO — e quem pagava a conta era o nome.
      A linha é `TRUNFO · <escolha> · <quem escolheu>` numa caixa de largura fixa. Um naipe é um
