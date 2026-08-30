@@ -12,7 +12,8 @@
   "dependencies": {
     "@colyseus/schema": "^4.0.31",
     "@king/engine": "*",
-    "colyseus": "^0.17.10"
+    "colyseus": "^0.17.10",
+    "jose": "^6.2.10"
   },
   "devDependencies": {
     "@colyseus/testing": "^0.17.11",
