@@ -39,13 +39,25 @@
   .alerta td:last-child{color:#ff7aa8;}
   button{position:relative;z-index:1;margin:10px 0;padding:10px 16px;font:700 14px system-ui;
     background:#f4c542;color:#231206;border:0;border-radius:999px;}
+
+  /* AVISO DE RETRATO — a primeira versão desta página mediu uma vez, no carregamento, e não dizia
+     nada quando o número envelhecia. Resultado: uma medição foi tirada em retrato, girada, copiada,
+     e chegou idêntica à anterior sem ninguém perceber. Um instrumento que reporta dado velho em
+     silêncio é pior que instrumento nenhum. */
+  #girar{display:none;position:fixed;inset:0;z-index:99;background:#7a0b28;
+    align-items:center;justify-content:center;text-align:center;padding:24px;
+    font:800 20px/1.5 system-ui;color:#fff;}
+  body.retrato #girar{display:flex;}
+  #carimbo{position:relative;z-index:1;color:#2dd4bf;font-size:11px;margin-bottom:4px;}
   textarea{position:relative;z-index:1;width:100%;height:120px;background:#1c1038;color:#f4eeff;
     border:1px solid rgba(180,150,255,.3);border-radius:8px;padding:6px;font:11px ui-monospace,monospace;}
 </style>
 </head>
 <body>
 <div id="regua"></div>
+<div id="girar">GIRE O APARELHO<br />PARA A HORIZONTAL<br /><span style="font-size:14px;font-weight:400">o KING só roda deitado — em pé a medição não vale</span></div>
 <h1>KING — diagnóstico de geometria</h1>
+<div id="carimbo"></div>
 <table id="t"></table>
 <button onclick="copiar()">COPIAR TUDO</button>
 <textarea id="saida" readonly></textarea>
@@ -60,13 +72,13 @@
  *
  * Ela não importa nada do jogo de propósito: se dependesse do bundle, mediria o bundle junto.
  */
-const linhas = [];
+let linhas = [];
 const px = (v) => Math.round(v * 100) / 100;
+let medicoes = 0;
 
-/** Quanto vale, em px, uma expressão CSS de comprimento — resolvida pelo próprio navegador. */
 function medirCSS(expr) {
   const d = document.createElement("div");
-  d.style.cssText = `position:fixed;visibility:hidden;height:${expr};`;
+  d.style.cssText = "position:fixed;visibility:hidden;height:" + expr + ";";
   document.body.appendChild(d);
   const v = d.getBoundingClientRect().height;
   d.remove();
@@ -76,92 +88,119 @@ function medirCSS(expr) {
 function sec(t) { linhas.push({ sec: t }); }
 function add(k, v, alerta) { linhas.push({ k, v: String(v), alerta: !!alerta }); }
 
-sec("CONTEXTO");
-add("userAgent", navigator.userAgent.slice(0, 72));
-add("é WebView do Capacitor?", /wv\)|; wv/.test(navigator.userAgent) ? "SIM (Android WebView)" : "não parece");
-add("origem", location.origin);
-add("devicePixelRatio", window.devicePixelRatio);
-add("orientação", (screen.orientation && screen.orientation.type) || "?");
+const ehWebView = /wv\)|; wv/.test(navigator.userAgent);
 
-sec("VIEWPORT");
-add("window.innerWidth × innerHeight", `${window.innerWidth} × ${window.innerHeight}`);
-add("documentElement.clientW × clientH",
-  `${document.documentElement.clientWidth} × ${document.documentElement.clientHeight}`);
-if (window.visualViewport) {
-  const v = window.visualViewport;
-  add("visualViewport.w × h", `${px(v.width)} × ${px(v.height)}`);
-  add("visualViewport.offsetTop / scale", `${px(v.offsetTop)} / ${px(v.scale)}`);
-} else add("visualViewport", "AUSENTE", true);
-add("screen.width × height", `${screen.width} × ${screen.height}`);
-add("screen.availW × availH", `${screen.availWidth} × ${screen.availHeight}`);
+function medir() {
+  linhas = [];
+  medicoes++;
 
-sec("UNIDADES DE ALTURA");
-const vh100 = medirCSS("100vh");
-const dvh100 = medirCSS("100dvh");
-const svh100 = medirCSS("100svh");
-const lvh100 = medirCSS("100lvh");
-add("100vh", vh100);
-add("100dvh", dvh100, dvh100 !== vh100);
-add("100svh", svh100);
-add("100lvh", lvh100);
-add("--alturaUtil (o que o jogo usa)", medirCSS("var(--alturaUtil)"));
-add("--ui (escala base)", medirCSS("var(--ui)"));
+  sec("CONTEXTO");
+  add("userAgent", navigator.userAgent.slice(0, 72));
+  add("é WebView do Capacitor?", ehWebView ? "SIM (Android WebView)" : "não parece");
+  add("origem", location.origin);
+  add("devicePixelRatio", window.devicePixelRatio);
+  const ori = (screen.orientation && screen.orientation.type) || "?";
+  add("orientação", ori, !/landscape/.test(ori));
 
-sec("RECORTES DO APARELHO (env safe-area)");
-const insets = { topo: "--st", base: "--sb", esq: "--sl", dir: "--sr" };
-let somaInsets = 0;
-for (const [rot, tok] of Object.entries(insets)) {
-  const v = medirCSS(`var(${tok})`);
-  somaInsets += v;
-  add(`safe-area ${rot}`, v);
-}
-add("soma dos recortes", somaInsets,
-  somaInsets === 0 && /wv\)|; wv/.test(navigator.userAgent));
+  sec("VIEWPORT");
+  add("window.innerWidth × innerHeight", window.innerWidth + " × " + window.innerHeight);
+  add("documentElement.clientW × clientH",
+    document.documentElement.clientWidth + " × " + document.documentElement.clientHeight);
+  if (window.visualViewport) {
+    const v = window.visualViewport;
+    add("visualViewport.w × h", px(v.width) + " × " + px(v.height));
+    add("visualViewport.offsetTop / scale", px(v.offsetTop) + " / " + px(v.scale));
+  } else add("visualViewport", "AUSENTE", true);
+  add("screen.width × height", screen.width + " × " + screen.height);
+  add("screen.availW × availH", screen.availWidth + " × " + screen.availHeight);
 
-sec("QUANTO O CONTAINER ESTÁ COMENDO");
-// A diferença entre a tela física (em px CSS) e o que o documento recebe é o que as barras do
-// sistema ocupam. É este número que o CSS não enxerga quando os recortes vêm zerados.
-const telaCSSw = px(screen.width);
-const telaCSSh = px(screen.height);
-add("tela (CSS px)", `${telaCSSw} × ${telaCSSh}`);
-add("documento recebe", `${document.documentElement.clientWidth} × ${document.documentElement.clientHeight}`);
-const comidoH = px(telaCSSh - document.documentElement.clientHeight);
-const comidoW = px(telaCSSw - document.documentElement.clientWidth);
-add("diferença vertical", comidoH);
-add("diferença horizontal", comidoW);
+  sec("UNIDADES DE ALTURA");
+  const vh100 = medirCSS("100vh");
+  const dvh100 = medirCSS("100dvh");
+  add("100vh", vh100);
+  add("100dvh", dvh100, dvh100 !== vh100);
+  add("100svh", medirCSS("100svh"));
+  add("100lvh", medirCSS("100lvh"));
+  add("--alturaUtil (o que o jogo usa)", medirCSS("var(--alturaUtil)"));
+  add("--ui (escala base)", medirCSS("var(--ui)"));
 
-sec("MEDIA QUERIES ATIVAS");
-for (const q of [
-  "(max-width:800px)", "(max-width:700px)", "(min-height:520px)",
-  "(max-height:360px)", "(min-height:361px)", "(max-height:400px)",
-  "(orientation:landscape)", "(pointer:coarse)", "(prefers-reduced-motion:reduce)",
-  "(display-mode:standalone)",
-]) add(q, matchMedia(q).matches ? "ATIVA" : "—");
-
-sec("SE A MESA COUBER, CABE AQUI");
-// A Mesa promete caber em `--alturaUtil`. Se `--alturaUtil` for maior que o que se vê, o jogo
-// desenha para fora da tela sem saber. Este é o teste visual: a régua turquesa tem de estar
-// inteira na tela, com as duas legendas visíveis.
-add("régua turquesa inteira na tela?", "confira com o olho: as DUAS legendas aparecem?");
-
-const t = document.getElementById("t");
-for (const l of linhas) {
-  const tr = document.createElement("tr");
-  if (l.sec) { tr.className = "sec"; tr.innerHTML = `<td colspan="2">${l.sec}</td>`; }
-  else {
-    if (l.alerta) tr.className = "alerta";
-    tr.innerHTML = `<td>${l.k}</td><td>${l.v}</td>`;
+  sec("RECORTES DO APARELHO (env safe-area)");
+  let soma = 0;
+  for (const [rot, tok] of [["topo","--st"],["base","--sb"],["esq","--sl"],["dir","--sr"]]) {
+    const v = medirCSS("var(" + tok + ")");
+    soma += v;
+    add("safe-area " + rot, v);
   }
-  t.appendChild(tr);
+  add("soma dos recortes", soma, soma === 0 && ehWebView);
+
+  sec("QUANTO O CONTAINER ESTA COMENDO");
+  add("tela (CSS px)", screen.width + " × " + screen.height);
+  add("documento recebe",
+    document.documentElement.clientWidth + " × " + document.documentElement.clientHeight);
+  add("diferença vertical", px(screen.height - document.documentElement.clientHeight));
+  add("diferença horizontal", px(screen.width - document.documentElement.clientWidth));
+
+  sec("O QUE ISSO DECIDE NO JOGO");
+  const larg = document.documentElement.clientWidth;
+  const alt = document.documentElement.clientHeight;
+  add("rótulo da Última vaza", larg > 800 ? "VISÍVEL" : "ESCONDIDO (largura <= 800)", larg <= 800);
+  add("placar entre-mãos precisa de 325px", alt >= 360 ? "cabe" : "VAI ROLAR", alt < 360);
+
+  sec("MEDIA QUERIES ATIVAS");
+  for (const q of [
+    "(max-width:800px)", "(max-width:700px)", "(min-height:520px)",
+    "(max-height:360px)", "(min-height:361px)", "(max-height:400px)",
+    "(orientation:landscape)", "(pointer:coarse)", "(prefers-reduced-motion:reduce)",
+    "(display-mode:standalone)",
+  ]) add(q, matchMedia(q).matches ? "ATIVA" : "—");
+
+  document.body.classList.toggle("retrato", !matchMedia("(orientation:landscape)").matches);
+
+  const t = document.getElementById("t");
+  t.innerHTML = "";
+  for (const l of linhas) {
+    const tr = document.createElement("tr");
+    if (l.sec) { tr.className = "sec"; tr.innerHTML = '<td colspan="2">' + l.sec + "</td>"; }
+    else {
+      if (l.alerta) tr.className = "alerta";
+      tr.innerHTML = "<td>" + l.k + "</td><td>" + l.v + "</td>";
+    }
+    t.appendChild(tr);
+  }
+
+  const texto = linhas.map((l) => (l.sec ? "\n== " + l.sec + " ==" : l.k + ": " + l.v)).join("\n");
+  document.getElementById("saida").value = texto;
+  document.getElementById("carimbo").textContent =
+    "medição #" + medicoes + " — recalcula sozinho ao girar; copie DEPOIS de deitar o aparelho";
+  window.__texto = texto;
 }
 
-const texto = linhas.map((l) => (l.sec ? `\n== ${l.sec} ==` : `${l.k}: ${l.v}`)).join("\n");
-document.getElementById("saida").value = texto;
+// RECALCULA SOZINHO. Girar o aparelho não recarrega a página, e a primeira versão desta ferramenta
+// não ouvia nada: os números continuavam os do carregamento e ninguém era avisado. Uma medição foi
+// tirada em retrato, girada, copiada, e chegou idêntica à anterior — a falha era do instrumento.
+medir();
+addEventListener("resize", medir);
+addEventListener("orientationchange", () => setTimeout(medir, 250));
+if (window.visualViewport) window.visualViewport.addEventListener("resize", medir);
+
+// E UM RELÓGIO POR CIMA DOS EVENTOS, porque evento é promessa e aqui não dá para depender de
+// promessa: num painel emulado o `resize` não chegou a disparar, e num aparelho de verdade a
+// barra do sistema pode aparecer e sumir sem avisar ninguém. Comparar a geometria a cada meio
+// segundo custa nada e não depende de o navegador se lembrar de avisar.
+let ultima = "";
+setInterval(() => {
+  const agora = [
+    document.documentElement.clientWidth, document.documentElement.clientHeight,
+    innerWidth, innerHeight,
+  ].join("x");
+  if (agora !== ultima) { ultima = agora; medir(); }
+}, 500);
+
 function copiar() {
   const s = document.getElementById("saida");
   s.select();
-  try { navigator.clipboard.writeText(texto); } catch { document.execCommand("copy"); }
-  event.target.textContent = "COPIADO ✓";
+  try { navigator.clipboard.writeText(window.__texto); } catch (e) { document.execCommand("copy"); }
+  document.querySelector("button").textContent = "COPIADO ✓";
 }
 </script>
 </body>
