@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<!-- O MESMO viewport do jogo. Trocar uma vírgula aqui invalida a medição: é justamente o
+     `viewport-fit=cover` que faz o navegador entregar (ou não) os recortes do aparelho. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>KING — diagnóstico de geometria</title>
+<style>
+  /* Os mesmos tokens do jogo, isolados. O que se quer descobrir é quanto cada um VALE em cada
+     contexto — não como eles ficam bonitos. */
+  :root{
+    --sl:env(safe-area-inset-left,0px);--sr:env(safe-area-inset-right,0px);
+    --st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px);
+    --ui:clamp(12.5px,min(1.6vw,3.2vh),19px);
+    --alturaUtil:100vh;
+  }
+  @supports (height:100dvh){ :root{--alturaUtil:100dvh;} }
+
+  *{box-sizing:border-box;margin:0;}
+  html,body{background:#140a24;color:#f4eeff;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;}
+  body{padding:calc(8px + var(--st)) calc(8px + var(--sr)) calc(8px + var(--sb)) calc(8px + var(--sl));}
+
+  /* CAIXA DE REFERÊNCIA: ocupa exatamente a "altura útil" que o jogo acredita ter. Se ela
+     desaparecer debaixo de uma barra do sistema, o problema está VISÍVEL, e não só nos números. */
+  #regua{position:fixed;left:0;right:0;top:0;height:var(--alturaUtil);
+    border:2px solid #2dd4bf;pointer-events:none;z-index:0;}
+  #regua::after{content:"⇧ topo de --alturaUtil";position:absolute;top:2px;left:6px;
+    color:#2dd4bf;font-size:11px;}
+  #regua::before{content:"⇩ base de --alturaUtil";position:absolute;bottom:2px;left:6px;
+    color:#2dd4bf;font-size:11px;}
+
+  h1{font-size:15px;color:#f4c542;margin-bottom:6px;position:relative;z-index:1;}
+  table{border-collapse:collapse;width:100%;position:relative;z-index:1;}
+  td{padding:2px 6px;border-bottom:1px solid rgba(180,150,255,.18);vertical-align:top;}
+  td:first-child{color:#c3b6de;white-space:nowrap;}
+  td:last-child{color:#fff;font-weight:700;text-align:right;}
+  .sec td{color:#ff7ac0;font-weight:700;border-bottom:2px solid rgba(255,122,192,.4);padding-top:8px;}
+  .alerta td:last-child{color:#ff7aa8;}
+  button{position:relative;z-index:1;margin:10px 0;padding:10px 16px;font:700 14px system-ui;
+    background:#f4c542;color:#231206;border:0;border-radius:999px;}
+  textarea{position:relative;z-index:1;width:100%;height:120px;background:#1c1038;color:#f4eeff;
+    border:1px solid rgba(180,150,255,.3);border-radius:8px;padding:6px;font:11px ui-monospace,monospace;}
+</style>
+</head>
+<body>
+<div id="regua"></div>
+<h1>KING — diagnóstico de geometria</h1>
+<table id="t"></table>
+<button onclick="copiar()">COPIAR TUDO</button>
+<textarea id="saida" readonly></textarea>
+
+<script>
+/**
+ * MEDE, NÃO ADIVINHA.
+ *
+ * Os quatro defeitos do APK não aparecem no Chrome do mesmo Android. Isso exclui o CSS responsivo
+ * e aponta para a geometria que o container entrega. Esta página existe para descobrir QUAL número
+ * difere — e não para confirmar um palpite.
+ *
+ * Ela não importa nada do jogo de propósito: se dependesse do bundle, mediria o bundle junto.
+ */
+const linhas = [];
+const px = (v) => Math.round(v * 100) / 100;
+
+/** Quanto vale, em px, uma expressão CSS de comprimento — resolvida pelo próprio navegador. */
+function medirCSS(expr) {
+  const d = document.createElement("div");
+  d.style.cssText = `position:fixed;visibility:hidden;height:${expr};`;
+  document.body.appendChild(d);
+  const v = d.getBoundingClientRect().height;
+  d.remove();
+  return px(v);
+}
+
+function sec(t) { linhas.push({ sec: t }); }
+function add(k, v, alerta) { linhas.push({ k, v: String(v), alerta: !!alerta }); }
+
+sec("CONTEXTO");
+add("userAgent", navigator.userAgent.slice(0, 72));
+add("é WebView do Capacitor?", /wv\)|; wv/.test(navigator.userAgent) ? "SIM (Android WebView)" : "não parece");
+add("origem", location.origin);
+add("devicePixelRatio", window.devicePixelRatio);
+add("orientação", (screen.orientation && screen.orientation.type) || "?");
+
+sec("VIEWPORT");
+add("window.innerWidth × innerHeight", `${window.innerWidth} × ${window.innerHeight}`);
+add("documentElement.clientW × clientH",
+  `${document.documentElement.clientWidth} × ${document.documentElement.clientHeight}`);
+if (window.visualViewport) {
+  const v = window.visualViewport;
+  add("visualViewport.w × h", `${px(v.width)} × ${px(v.height)}`);
+  add("visualViewport.offsetTop / scale", `${px(v.offsetTop)} / ${px(v.scale)}`);
+} else add("visualViewport", "AUSENTE", true);
+add("screen.width × height", `${screen.width} × ${screen.height}`);
+add("screen.availW × availH", `${screen.availWidth} × ${screen.availHeight}`);
+
+sec("UNIDADES DE ALTURA");
+const vh100 = medirCSS("100vh");
+const dvh100 = medirCSS("100dvh");
+const svh100 = medirCSS("100svh");
+const lvh100 = medirCSS("100lvh");
+add("100vh", vh100);
+add("100dvh", dvh100, dvh100 !== vh100);
+add("100svh", svh100);
+add("100lvh", lvh100);
+add("--alturaUtil (o que o jogo usa)", medirCSS("var(--alturaUtil)"));
+add("--ui (escala base)", medirCSS("var(--ui)"));
+
+sec("RECORTES DO APARELHO (env safe-area)");
+const insets = { topo: "--st", base: "--sb", esq: "--sl", dir: "--sr" };
+let somaInsets = 0;
+for (const [rot, tok] of Object.entries(insets)) {
+  const v = medirCSS(`var(${tok})`);
+  somaInsets += v;
+  add(`safe-area ${rot}`, v);
+}
+add("soma dos recortes", somaInsets,
+  somaInsets === 0 && /wv\)|; wv/.test(navigator.userAgent));
+
+sec("QUANTO O CONTAINER ESTÁ COMENDO");
+// A diferença entre a tela física (em px CSS) e o que o documento recebe é o que as barras do
+// sistema ocupam. É este número que o CSS não enxerga quando os recortes vêm zerados.
+const telaCSSw = px(screen.width);
+const telaCSSh = px(screen.height);
+add("tela (CSS px)", `${telaCSSw} × ${telaCSSh}`);
+add("documento recebe", `${document.documentElement.clientWidth} × ${document.documentElement.clientHeight}`);
+const comidoH = px(telaCSSh - document.documentElement.clientHeight);
+const comidoW = px(telaCSSw - document.documentElement.clientWidth);
+add("diferença vertical", comidoH);
+add("diferença horizontal", comidoW);
+
+sec("MEDIA QUERIES ATIVAS");
+for (const q of [
+  "(max-width:800px)", "(max-width:700px)", "(min-height:520px)",
+  "(max-height:360px)", "(min-height:361px)", "(max-height:400px)",
+  "(orientation:landscape)", "(pointer:coarse)", "(prefers-reduced-motion:reduce)",
+  "(display-mode:standalone)",
+]) add(q, matchMedia(q).matches ? "ATIVA" : "—");
+
+sec("SE A MESA COUBER, CABE AQUI");
+// A Mesa promete caber em `--alturaUtil`. Se `--alturaUtil` for maior que o que se vê, o jogo
+// desenha para fora da tela sem saber. Este é o teste visual: a régua turquesa tem de estar
+// inteira na tela, com as duas legendas visíveis.
+add("régua turquesa inteira na tela?", "confira com o olho: as DUAS legendas aparecem?");
+
+const t = document.getElementById("t");
+for (const l of linhas) {
+  const tr = document.createElement("tr");
+  if (l.sec) { tr.className = "sec"; tr.innerHTML = `<td colspan="2">${l.sec}</td>`; }
+  else {
+    if (l.alerta) tr.className = "alerta";
+    tr.innerHTML = `<td>${l.k}</td><td>${l.v}</td>`;
+  }
+  t.appendChild(tr);
+}
+
+const texto = linhas.map((l) => (l.sec ? `\n== ${l.sec} ==` : `${l.k}: ${l.v}`)).join("\n");
+document.getElementById("saida").value = texto;
+function copiar() {
+  const s = document.getElementById("saida");
+  s.select();
+  try { navigator.clipboard.writeText(texto); } catch { document.execCommand("copy"); }
+  event.target.textContent = "COPIADO ✓";
+}
+</script>
+</body>
+</html>
