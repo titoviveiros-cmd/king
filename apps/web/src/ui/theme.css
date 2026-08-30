@@ -962,11 +962,25 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
    Aqui quem cede é a TIPOGRAFIA do cabeçalho, não a informação: o título da mão e a sobrancelha
    encolhem, e tudo continua escrito. Encolher texto de cabeçalho é diferente de esconder dado —
    o que não pode sumir é quem fez quantas vazas e quanto cada um somou, e esses não são tocados. */
+/* OS CHIPS NÃO PODEM QUEBRAR DE LINHA — é o degrau que derruba tudo.
+   A mão positiva traz um chip a mais (`Trunfo ♦ · Nome`). Enquanto os três couberem numa linha,
+   ela custa UM pixel a mais que a negativa, e isso foi medido. Quando o nome de quem escolheu é
+   longo e o terceiro chip não cabe, a linha quebra e o placar ganha 26px de uma vez — passando de
+   "cabe raspando" para "rola". É exatamente o relato: rola nas positivas, e nem em todas.
+   Em tela baixa os chips deixam de quebrar e cedem no corpo da letra, que é gradual. Um degrau de
+   26px não tem como ser absorvido; meio ponto de fonte tem. */
+@media (max-height:400px){
+  .pl-meta{flex-wrap:nowrap;justify-content:center;min-width:0;}
+  .pl-tag{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+}
 @media (max-height:340px){
   .pl-title{font-size:calc(var(--ui)*1.35);margin:1px 0 clamp(3px,.8vh,5px);}
   .pl-eyebrow{font-size:calc(var(--ui)*.7);}
   .pl-tag{font-size:calc(var(--ui)*.78);}
   .pl-next{line-height:1.2;}
+  /* E as linhas do ranking cedem um pouco: com quatro delas, cada pixel vale quatro. */
+  .pl-row{padding:clamp(2px,.5vh,4px) clamp(8px,1.4vw,12px);}
+  .pl-av{width:calc(var(--ui)*1.9);height:calc(var(--ui)*1.9);}
   /* E o recheio do véu cede o resto. Ele é moldura, não conteúdo: numa tela de 304px, 20px
      gastos em respiro nas bordas são 20px que faltam para o placar caber. Os recortes do
      aparelho (`--st`/`--sb`) continuam inteiros — o que encolhe é só o `--pad` decorativo. */
@@ -1594,8 +1608,19 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   width:max(44px,calc(var(--ui)*2.2));height:max(44px,calc(var(--ui)*2.2));
   font-size:calc(var(--ui)*1);}
 .fimacoes{position:relative;}
-.socpanel-fim{position:absolute;right:auto;left:50%;transform:translateX(-50%);
-  bottom:calc(100% + 12px);width:min(86vw,420px);
+/* O PAINEL ABRE ANCORADO NA TELA, NÃO NO BOTÃO.
+   Ele estava `position:absolute` dentro de `.fimacoes`, centrado no botão com `left:50%` e
+   `translateX(-50%)`. Só que `.fimacoes` mora na coluna HERÓICA, que ocupa 40% da largura e fica
+   à esquerda — um painel de até 420px centrado ali nasce para fora da tela pela esquerda.
+   Medido num Android de 800px: o título aparecia como "AIS MENSAGENS", com o "M" cortado pela
+   borda, e a coluna esquerda de frases junto.
+   `position:fixed` tira a âncora do botão e devolve à tela: centrado no viewport, com o teto de
+   largura respeitando os recortes do aparelho. Continua abrindo por cima do placar final, como
+   antes — o que muda é em relação a QUEM ele se centra. */
+.socpanel-fim{position:fixed;right:auto;
+  left:50%;transform:translateX(-50%);
+  top:auto;bottom:calc(var(--pad) + var(--sb) + max(44px,var(--ui)*2.2) + 16px);
+  width:min(86vw,420px);
   max-height:calc(var(--alturaUtil) - var(--pad)*2 - var(--st) - var(--sb) - 110px);}
 /* O BALÃO ANCORA NA LINHA — E A LINHA JÁ ERA UM ANCORADOURO.
    Aqui havia um `.fimlinha{position:relative}`, escrito para dar à linha um bloco de contenção
