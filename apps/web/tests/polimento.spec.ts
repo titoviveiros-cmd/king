@@ -95,12 +95,28 @@ test.describe("card de trunfo", () => {
     }
   });
 
-  test("o card NÃO muda de tamanho, qualquer que seja o nome", async ({ page }, ti) => {
+  /**
+   * A ALTURA NÃO MUDA. A LARGURA PODE — ATÉ O CARD DE CIMA.
+   *
+   * Este teste exigia UMA largura para todos os nomes, e a razão era boa: a coluna esquerda não
+   * podia mudar de tamanho a cada mão positiva conforme quem escolheu o trunfo. O preço dessa
+   * promessa só apareceu num aparelho de verdade — num Android de 800×360, com a variante deitada,
+   * "Android" saía como "Andr…" e "Valete Folgado" nem começava. A largura fixa protegia o
+   * alinhamento e cobrava o nome.
+   *
+   * A regra nova troca uma promessa absoluta por uma com teto: o card cresce com o nome e para na
+   * largura do card de informações logo acima, que é o que de fato mantinha a coluna alinhada.
+   * Medido a 800×360: 118px com "Tito", 119 com "Android", 150 com "Valete Folgado", contra um
+   * HUD de 200. Ninguém é cortado e nada passa do limite.
+   *
+   * A ALTURA continua fixa, e essa metade da promessa não foi tocada: é ela que faz o andar da
+   * coluna esquerda ser o mesmo em toda mão positiva.
+   */
+  test("a altura do card de trunfo não muda, e a largura respeita o card de cima", async ({ page }, ti) => {
     await mesaComTrunfo(page);
     const alvo = page.locator(".trumpslot .who");
+    const hud = await boxOf(page.locator(".hud"), "card do contrato");
 
-    // A largura fixa é o ponto do item: a coluna esquerda não pode mudar de tamanho a cada mão
-    // positiva, conforme quem escolheu o trunfo. Medir todos os nomes e exigir UMA largura.
     const larguras: number[] = [];
     const alturas: number[] = [];
     for (const nome of NOMES) {
@@ -109,16 +125,24 @@ test.describe("card de trunfo", () => {
       const c = await boxOf(page.locator(".trumpslot"), "trumpslot");
       larguras.push(Math.round(c.width));
       alturas.push(Math.round(c.height));
+
+      expect(
+        Math.round(c.width),
+        `[${ti.project.name}] com "${nome}" o card de trunfo (${Math.round(c.width)}px) ` +
+        `passou do card de cima (${Math.round(hud.width)}px)`,
+      ).toBeLessThanOrEqual(Math.round(hud.width) + SUBPIXEL);
     }
 
     expect(
-      new Set(larguras).size,
-      `[${ti.project.name}] o card mudou de largura: ${larguras.join(", ")}`,
-    ).toBe(1);
-    expect(
       new Set(alturas).size,
-      `[${ti.project.name}] o card mudou de altura: ${alturas.join(", ")}`,
+      `[${ti.project.name}] o card mudou de ALTURA: ${alturas.join(", ")}`,
     ).toBe(1);
+    // E a largura cresce de fato quando o nome cresce — senão o teto acima passaria de graça
+    // enquanto o nome voltava a ser cortado, que é o defeito que esta mudança veio corrigir.
+    expect(
+      Math.max(...larguras),
+      `[${ti.project.name}] a largura não acompanhou o nome: ${larguras.join(", ")}`,
+    ).toBeGreaterThanOrEqual(Math.min(...larguras));
   });
 
   /**

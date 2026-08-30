@@ -1608,18 +1608,24 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   width:max(44px,calc(var(--ui)*2.2));height:max(44px,calc(var(--ui)*2.2));
   font-size:calc(var(--ui)*1);}
 .fimacoes{position:relative;}
-/* O PAINEL ABRE ANCORADO NA TELA, NÃO NO BOTÃO.
-   Ele estava `position:absolute` dentro de `.fimacoes`, centrado no botão com `left:50%` e
-   `translateX(-50%)`. Só que `.fimacoes` mora na coluna HERÓICA, que ocupa 40% da largura e fica
-   à esquerda — um painel de até 420px centrado ali nasce para fora da tela pela esquerda.
-   Medido num Android de 800px: o título aparecia como "AIS MENSAGENS", com o "M" cortado pela
-   borda, e a coluna esquerda de frases junto.
-   `position:fixed` tira a âncora do botão e devolve à tela: centrado no viewport, com o teto de
-   largura respeitando os recortes do aparelho. Continua abrindo por cima do placar final, como
-   antes — o que muda é em relação a QUEM ele se centra. */
-.socpanel-fim{position:fixed;right:auto;
-  left:50%;transform:translateX(-50%);
-  top:auto;bottom:calc(var(--pad) + var(--sb) + max(44px,var(--ui)*2.2) + 16px);
+/* O PAINEL ABRE PARA DENTRO, A PARTIR DA BORDA ESQUERDA DA FILEIRA.
+   ══ DUAS TENTATIVAS, E O QUE CADA UMA ENSINOU ══
+   Original: `absolute` dentro de `.fimacoes`, centrado no botão com `left:50%` +
+   `translateX(-50%)`. Mas `.fimacoes` mora na coluna heroica, que ocupa 40% da largura à
+   esquerda; o centro dela fica por volta de x=165, e um painel de 340px centrado ali começa em
+   -5. Medido num Android de 800px: o título aparecia como "AIS MENSAGENS", com o "M" comido.
+   Segunda tentativa: `position:fixed`, para ancorar na tela em vez do botão. NÃO FUNCIONOU, e a
+   tripwire mediu exatamente o mesmo `x:-4.6`. A razão é sutil e vale ficar escrita: `.fimacoes`
+   tem `animation:riseIn ... both`, e um elemento com `transform` — mesmo vindo de animação com
+   preenchimento — vira bloco de contenção para descendentes `fixed`. O `fixed` continuou preso ao
+   botão. Foi a correção que eu mandei sem verificar, e voltou do aparelho ainda cortada.
+   Terceira, e esta é medida: ancorar à ESQUERDA da fileira e crescer para dentro. `.fimacoes`
+   começa na margem da coluna heroica, então o painel nasce dentro da tela por construção, e o
+   teto de largura garante que ele não alcance a borda direita. Não depende de bloco de contenção
+   nenhum. */
+.socpanel-fim{position:absolute;right:auto;
+  left:0;transform:none;
+  bottom:calc(100% + 12px);
   width:min(86vw,420px);
   max-height:calc(var(--alturaUtil) - var(--pad)*2 - var(--st) - var(--sb) - 110px);}
 /* O BALÃO ANCORA NA LINHA — E A LINHA JÁ ERA UM ANCORADOURO.
@@ -1965,7 +1971,16 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
      nome, e ela não pode valer só nas telas altas. Aqui a caixa é mais larga porque o conteúdo
      está em linha, e o apelido continua sendo quem cede dentro dela. */
   .trumpslot{flex-direction:row;align-items:center;gap:calc(var(--ui)*.42);
-    width:calc(var(--ui)*9.4);justify-content:flex-start;
+    /* LARGURA ELÁSTICA, COM TETO NO CARD DE CIMA.
+       Era `--ui*9.4` fixo, e o apelido era sempre quem cedia: num aparelho real "Android" saía
+       como "Andr…", e "Valete Folgado" nem começava. A largura fixa foi escolhida para o card não
+       mudar de tamanho conforme o nome — a promessa continua valendo para o NOME, mas ela não
+       precisava valer contra o espaço disponível.
+       O piso é o de antes, então nenhum trunfo curto encolhe. O teto é a largura do HUD, que é o
+       card logo acima na mesma coluna: alargar além dele desalinharia a coluna esquerda inteira,
+       que é a única coisa que a largura fixa protegia de verdade. `56vw` é o `max-width` do HUD —
+       o mesmo número, escrito no mesmo lugar. */
+    width:auto;min-width:calc(var(--ui)*9.4);max-width:56vw;justify-content:flex-start;
     /* O piso sobe de `.5` para `.54` porque "Sem Trunfo", agora legível, passava dele por 1px —
        e um card que muda de altura conforme a escolha é o defeito que esta rodada veio corrigir.
        Continua "cerca de metade" do card de cima, que é o que o pedido dizia. */

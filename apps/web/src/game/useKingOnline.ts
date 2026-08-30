@@ -129,12 +129,28 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       // da Mesa. A fila NÃO é descartada — ela REPRESA. O que o servidor mandar durante o anúncio
       // é apresentado depois dele, na ordem, em vez de acontecer atrás do véu.
       if (emPausa()) { bump(); return; }
-      const passo = proximoPasso(fila.current, LIMITE_DA_FILA);
-      if (!passo.proxima) return;
-      fila.current = passo.resto;
-      // Atrasou demais (aba em segundo plano, rede engasgada): vai direto para o presente.
-      if (passo.colapsou) limpar();
-      aplicar(passo.proxima);
+
+      // O RITMO É PARA QUEM ESTÁ EM DIA, NÃO PARA QUEM ESTÁ ATRASADO.
+      //
+      // A cadência de `botPasso` existe para a mesa ter andamento legível — sem ela, as jogadas
+      // dos bots apareceriam todas no mesmo quadro. Só que ela era aplicada igual em duas
+      // situações diferentes: com a fila vazia (onde é ritmo) e com a fila cheia (onde vira
+      // atraso). Depois de cada pausa de leitura da vaza a fila represa um ou dois passos, e eles
+      // escoavam a 520ms cada — foi o segundo de diferença que um teste com dois aparelhos
+      // encontrou, com o mais lento sempre atrás.
+      //
+      // Estando atrasado, consome DOIS por tique. O andamento normal não muda em nada, porque com
+      // a fila em um item só o comportamento é idêntico ao de antes; o que muda é a recuperação,
+      // que deixa de ser tão lenta quanto o ritmo que ela precisa alcançar.
+      const quantos = fila.current.length > 1 ? 2 : 1;
+      for (let i = 0; i < quantos; i++) {
+        const passo = proximoPasso(fila.current, LIMITE_DA_FILA);
+        if (!passo.proxima) break;
+        fila.current = passo.resto;
+        // Atrasou demais (aba em segundo plano, rede engasgada): vai direto para o presente.
+        if (passo.colapsou) limpar();
+        aplicar(passo.proxima);
+      }
     }, TEMPOS.botPasso);
     return () => clearInterval(id);
   }, [screen, aplicar, bump, emPausa, limpar, relogio]);
