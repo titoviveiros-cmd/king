@@ -16,3 +16,6 @@ playwright/.cache/
 # mobile (Capacitor) — geradas depois
 android/
 ios/
+
+# Binários gerados (APK/AAB e afins). Nunca vão para o repositório.
+artifacts/
