@@ -28,6 +28,7 @@ import { ArraySchema, schema } from "@colyseus/schema";
 import { TOTAL_HANDS, type Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import { TEMPOS } from "../match/tempos.js";
+import { IdentidadeRecusada, verificadorEmUso, type IdentidadeVerificada } from "../auth/identidade.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
   type Causa, type DefinirAvatar, type DefinirPronto, type DefinirTemaDaMesa, type EnviarMensagemSocial,
@@ -117,9 +118,31 @@ export interface DadosDaConexao {
   playerId: string;
   sessionToken: string;
   seat: Seat;
+  /**
+   * O `playerId` acima veio de uma credencial verificada, ou foi sorteado para esta sala?
+   *
+   * Os dois são identificadores válidos e o jogo trata os dois igual — a diferença é o que
+   * SOBREVIVE. O permanente é o mesmo em outra sala, outro dia, outro aparelho; o sorteado morre
+   * com a sala. Guardar a distinção aqui é o que vai permitir, quando o progresso existir, saber
+   * de quem gravar e de quem não há o que gravar.
+   */
+  identidadePermanente: boolean;
 }
 
 type ClienteDoKing = Client<{ userData: DadosDaConexao }>;
+
+/**
+ * Lê `client.auth` como identidade — ou como ausência dela.
+ *
+ * `onAuth` devolve `true` quando aprova sem saber de quem se trata, e um objeto quando sabe. Ler
+ * pela FORMA (tem `playerId`?), e não pela verdade do valor, é o que impede o `true` de virar
+ * uma identidade vazia com `playerId` indefinido.
+ */
+function identidadeDe(auth: unknown): IdentidadeVerificada | null {
+  if (!auth || typeof auth !== "object") return null;
+  const c = auth as Partial<IdentidadeVerificada>;
+  return typeof c.playerId === "string" && c.playerId !== "" ? (c as IdentidadeVerificada) : null;
+}
 
 const ASSENTO_VAZIO = "";
 /**
@@ -755,6 +778,62 @@ export class KingRoom extends Room<{
    * sala vazia produzem 0, 1, 2, 3 — sem sorteio, sem duplicidade, e reprodutível em teste.
    * Quando alguém sai, o assento volta a ser o menor livre e é reaproveitado.
    */
+  /**
+   * A CREDENCIAL É CONFERIDA ANTES DE ALGUÉM SENTAR.
+   *
+   * Vive aqui, e não no `onJoin`, por uma razão concreta: verificar assinatura exige buscar a
+   * chave pública do emissor, que é assíncrono, e `onJoin` é síncrono. `onAuth` é o único ponto do
+   * ciclo em que dá para recusar alguém ANTES de existir assento, estado ou difusão.
+   *
+   * DOIS MODOS, E O AMBIENTE DECIDE QUAL — não o cliente.
+   *
+   *   MODO A — sem `SUPABASE_URL`: `true` para todo mundo. É o KING publicado hoje, com
+   *            identidade sorteada por sala. Token enviado por um cliente novo é IGNORADO, e
+   *            não recusado: não há com o que conferi-lo, e recusar por precaução trancaria a
+   *            porta durante a janela em que o servidor novo já está no ar e o provedor ainda
+   *            não foi configurado.
+   *
+   *   MODO B — com `SUPABASE_URL`: credencial válida é OBRIGATÓRIA para humano. Sem token
+   *            (4005) e token que não confere (4003) são as duas recusas, com códigos
+   *            separados porque pedem frases diferentes ao jogador.
+   *
+   * POR QUE O MODO B NÃO ADMITE MEIO-TERMO. A primeira versão desta fase deixava entrar sem
+   * credencial mesmo com provedor configurado. Parecia gentileza e era um buraco: bastava não
+   * mandar token para jogar como ninguém num servidor que anuncia identidade permanente, e
+   * duas classes de jogador conviveriam na mesma mesa sem nada no protocolo dizendo isso.
+   * Degradar em silêncio é pior que recusar: quem mandou credencial adulterada entraria assim
+   * mesmo, como outra pessoa, sem nunca saber — nem o dono da conta saberia que alguém tentou.
+   *
+   * `true`, E NÃO `null`, NO MODO A. No Colyseus, `onAuth` que devolve valor falsy REPROVA a
+   * entrada. A primeira versão devolvia `null` e derrubou 129 testes de sala de uma vez, todos
+   * falando de prazos e vazas e nenhum dizendo "a porta está trancada". O valor de retorno
+   * significa "pode entrar", não "quem é".
+   *
+   * A RECONEXÃO NÃO PASSA POR AQUI. Em `@colyseus/core`, o ramo de retorno por `recoveryToken`
+   * é anterior à chamada de `onAuth` (ver `Room.ts`, `_onJoin`). É o que faz o MODO B não
+   * quebrar quem caiu — e é também o que obriga a tratar o `recoveryToken` pelo que ele é: uma
+   * credencial ao portador com alcance de UMA sala, que não prova identidade fora dela.
+   */
+  async onAuth(
+    _client: ClienteDoKing, options?: Partial<OpcoesDeEntrada>,
+  ): Promise<IdentidadeVerificada | true> {
+    const verificador = verificadorEmUso();
+    if (!verificador) return true;
+    try {
+      // `verificar(undefined)` já recusa com o motivo `sem-token`: a ausência de credencial é
+      // uma recusa como outra qualquer, e não um caso especial tratado antes da verificação.
+      return await verificador.verificar(options?.accessToken);
+    } catch (e) {
+      const motivo = e instanceof IdentidadeRecusada ? e.motivo : "assinatura-invalida";
+      // O MOTIVO VAI, O TOKEN NÃO. Registrar a credencial inteira num log a transformaria numa
+      // chave em texto claro dentro de um arquivo que muita gente lê.
+      throw new ServerError(
+        motivo === "sem-token" ? CODIGO.CREDENCIAL_AUSENTE : CODIGO.IDENTIDADE_RECUSADA,
+        `Identidade recusada: ${motivo}`,
+      );
+    }
+  }
+
   onJoin(client: ClienteDoKing, options?: Partial<OpcoesDeEntrada>): void {
     const versao = options?.protocolVersion ?? PROTOCOL_VERSION;
     if (versao !== PROTOCOL_VERSION) {
@@ -764,16 +843,44 @@ export class KingRoom extends Room<{
       );
     }
 
+    const identidade = identidadeDe(client.auth);
+
+    /**
+     * UMA IDENTIDADE PERMANENTE, UM ASSENTO POR MESA.
+     *
+     * A trava vale só para identidade verificada, e isso não é uma exceção: para quem entra sem
+     * credencial o `playerId` é sorteado e a colisão é impossível, então a verificação seria um
+     * `if` que nunca dá verdadeiro. Guardar na identidade permanente deixa escrito que o risco
+     * nasceu com ela.
+     */
+    if (identidade && this.#conexaoAtiva.has(identidade.playerId)) {
+      throw new ServerError(
+        CODIGO.JA_ESTA_NA_MESA,
+        "Esta conta já está nesta mesa — para continuar noutro aparelho, reconecte.",
+      );
+    }
+
     const seat = this.primeiroAssentoLivre();
     if (seat === null) {
       // Rede de segurança: o `maxClients` já barra o 5º antes de chegar aqui.
       throw new ServerError(CODIGO.SALA_CHEIA, "A sala já tem quatro jogadores");
     }
 
+    /**
+     * O `playerId` VEM DO CLAIM VERIFICADO, ou é sorteado.
+     *
+     * `client.auth` é o que o `onAuth` acima devolveu — já conferido contra a chave pública do
+     * emissor. Nunca é algo que o cliente escreveu: a única coisa que ele envia é o token, e um
+     * token adulterado nem chega aqui.
+     *
+     * Sem identidade verificada, cai no comportamento de sempre: um identificador aleatório que
+     * vale enquanto a sala existir. É o KING que está no ar hoje, e ele continua funcionando.
+     */
     const dados: DadosDaConexao = {
-      playerId: generateId(),
+      playerId: identidade?.playerId ?? generateId(),
       sessionToken: generateId(),
       seat,
+      identidadePermanente: identidade !== null,
     };
     client.userData = dados;
     this.#sessoes.set(client.sessionId, dados);
@@ -816,6 +923,7 @@ export class KingRoom extends Room<{
         sessionToken: dados.sessionToken,
         seat,
         recoveryToken: this.#credencial(client),
+        identidadePermanente: dados.identidadePermanente,
       },
     });
     difundir(this, "PLAYER_JOINED", { seat, playerId: dados.playerId, nick }, { except: client });

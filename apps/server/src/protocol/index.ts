@@ -53,6 +53,43 @@ export const PROTOCOL_VERSION = 3;
 export const CODIGO = {
   PROTOCOLO_INCOMPATIVEL: 4001,
   SALA_CHEIA: 4002,
+  /**
+   * A credencial apresentada não passou na verificação.
+   *
+   * RECUSAR EM VOZ ALTA, e não cair em identidade efêmera. Degradar em silêncio pareceria
+   * gentileza e seria o contrário: quem mandou um token adulterado entraria assim mesmo, só que
+   * como outra pessoa, e nunca saberia que a identidade dele não foi aceita — nem o dono da conta
+   * saberia que alguém tentou. Entrar SEM token continua permitido; entrar com um token que não
+   * confere, não.
+   */
+  IDENTIDADE_RECUSADA: 4003,
+  /**
+   * A MESMA identidade permanente já está sentada nesta mesa.
+   *
+   * Modo de falha que só passou a existir com identidade estável: enquanto o `playerId` era
+   * sorteado por conexão, duas conexões jamais colidiam. Com o `sub` fixo, a mesma conta abrindo
+   * o jogo em dois aparelhos ocuparia DOIS assentos com um `playerId` só — e o servidor guarda
+   * uma conexão ativa por identidade, então o primeiro assento viraria fantasma: ocupado no
+   * estado, sem socket que o libere ao sair.
+   *
+   * Quem quer continuar noutro aparelho tem o caminho certo, que já existe: o `recoveryToken`
+   * reabre a MESMA sessão e restaura o MESMO assento. Isto aqui recusa a segunda entrada
+   * simultânea, que seria uma pessoa jogando contra si mesma.
+   */
+  JA_ESTA_NA_MESA: 4004,
+  /**
+   * O servidor exige credencial e o cliente não apresentou nenhuma.
+   *
+   * SEPARADO de `IDENTIDADE_RECUSADA` porque as duas pedem frases diferentes. Token que não
+   * confere é problema da credencial — "entre de novo" resolve. Token AUSENTE, num servidor que
+   * exige, é quase sempre um aplicativo anterior a esta fase, e mandar essa pessoa entrar de
+   * novo seria mandá-la repetir um gesto que nunca vai funcionar.
+   *
+   * Este código só existe no MODO B (servidor com provedor configurado). Enquanto o servidor
+   * roda sem `SUPABASE_URL`, entrar sem credencial continua sendo o caminho normal e ninguém
+   * jamais vê 4005.
+   */
+  CREDENCIAL_AUSENTE: 4005,
 } as const;
 export type Codigo = (typeof CODIGO)[keyof typeof CODIGO];
 
@@ -68,6 +105,18 @@ export interface OpcoesDeEntrada {
    * padrão. Ver rooms/identidade.ts.
    */
   avatar?: string;
+  /**
+   * CREDENCIAL DE IDENTIDADE — opcional, e é isso que torna a fase aditiva.
+   *
+   * Um `access_token` emitido pelo provedor de identidade. O servidor VERIFICA a assinatura
+   * contra o JWKS do emissor e deriva o `playerId` do claim `sub`; ele nunca acredita num
+   * `playerId` que o cliente tenha declarado.
+   *
+   * Ausente, o KING se comporta exatamente como antes: identidade efêmera, sorteada na entrada e
+   * morta com a sala. É o que permite um cliente antigo continuar entrando num servidor novo, e
+   * um cliente novo continuar jogando quando o provedor está fora do ar.
+   */
+  accessToken?: string;
 }
 
 export interface DefinirPronto {
@@ -144,6 +193,19 @@ export interface BoasVindas {
      * estado sincronizado. Quem a tem, é o jogador.
      */
     recoveryToken: string;
+    /**
+     * A identidade deste jogador SOBREVIVE a esta sala?
+     *
+     * Vai no fio porque o cliente não consegue descobrir sozinho. Ele sabe se MANDOU credencial;
+     * não sabe se o servidor a ACEITOU — um servidor ainda sem provedor configurado ignora o
+     * token e segue com identidade efêmera, sem erro nenhum. Sem este campo, o cliente acharia
+     * que está permanente enquanto o servidor o trata como convidado de uma sala só, e a
+     * divergência só apareceria quando houvesse progresso para perder.
+     *
+     * Campo NOVO em mensagem servidor→cliente: um cliente antigo simplesmente o ignora, então
+     * não é quebra de protocolo e `PROTOCOL_VERSION` não sobe por causa dele.
+     */
+    identidadePermanente: boolean;
   };
 }
 
