@@ -6,6 +6,7 @@
 //
 // O que este módulo NÃO faz: não decide regra, não guarda estado de jogo, não interpreta a
 // `PlayerView`. Ele transporta.
+import type { ProvedorDeIdentidade } from "../auth/identidade.js";
 import { Client, type Room } from "@colyseus/sdk";
 import { PROTOCOL_VERSION } from "./protocolo.js";
 import type {
@@ -146,19 +147,54 @@ function vazio(): EstadoDaSalaLido {
 }
 
 /**
+ * A CREDENCIAL, SE HOUVER — e nunca uma exceção.
+ *
+ * O adaptador do provedor já engole os próprios erros, mas a garantia não pode depender de quem
+ * implementa a porta: `ProvedorDeIdentidade` é uma interface, e um provedor futuro pode lançar.
+ * Falha de identidade que virasse falha de ENTRAR NA SALA seria a fase aditiva se tornando um
+ * ponto único de falha para o multiplayer inteiro, e o KING jogava sem ela até ontem.
+ */
+export async function credencialPara(
+  identidade?: ProvedorDeIdentidade | null,
+): Promise<string | undefined> {
+  try {
+    return (await identidade?.token()) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * As opções do `join`. Pura, porque é o que dá para testar sem servidor — e é exatamente o
+ * ponto em que um engano some sem deixar rastro: um `accessToken: undefined` explícito viaja
+ * como campo presente e vazio, e o que se quer é o campo AUSENTE.
+ */
+export function opcoesDeEntrada(
+  pedido: { nick: string; avatar: string }, accessToken?: string,
+) {
+  return {
+    protocolVersion: PROTOCOL_VERSION, nick: pedido.nick, avatar: pedido.avatar,
+    ...(accessToken ? { accessToken } : {}),
+  };
+}
+
+/**
  * Fabrica o abridor real, ligado a uma URL. É aqui — e só aqui — que `@colyseus/sdk` é usado.
  *
  * Reconexão automática de queda transitória é do PRÓPRIO SDK (habilitada por padrão, com
  * backoff): a sessão só precisa expor `aoCair`/`aoVoltar` para a UI contar a história. O
  * `recoveryToken` cobre o outro caso — recarregar a página ou esgotar as tentativas.
  */
-export function abridorColyseus(url: string): AbridorDeSessao {
+export function abridorColyseus(url: string, identidade?: ProvedorDeIdentidade | null): AbridorDeSessao {
   const client = new Client(url);
   return async (pedido) => {
     if (pedido.tipo === "voltar") {
+      // A VOLTA NÃO REAPRESENTA CREDENCIAL, e não é esquecimento: `recoveryToken` reabre a
+      // sessão que o servidor já guardava, com o `playerId` que ela já tinha. Mandar token aqui
+      // abriria a porta para a identidade MUDAR no meio de uma partida.
       return envolverSala(await client.reconnect(pedido.recoveryToken));
     }
-    const opcoes = { protocolVersion: PROTOCOL_VERSION, nick: pedido.nick, avatar: pedido.avatar };
+    const opcoes = opcoesDeEntrada(pedido, await credencialPara(identidade));
     const sala = pedido.tipo === "criar"
       ? await client.create(SALA_KING, opcoes)
       : await client.joinById(pedido.codigo, opcoes);

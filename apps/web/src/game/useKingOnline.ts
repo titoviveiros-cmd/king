@@ -29,6 +29,7 @@ import { agoraMonotonico } from "./monotonico.js";
 import { audio } from "../audio/engine.js";
 import { sfxSocial, sfxTap, sfxTrump } from "../audio/sounds.js";
 import { analytics } from "../analytics/analytics.js";
+import { provedorConfigurado } from "../auth/identidade.js";
 import { abridorColyseus, type AbridorDeSessao, type EstadoDaSalaLido, type SessaoKing } from "../net/clienteKing.js";
 import { servidorConfigurado } from "../net/servidor.js";
 import { esquecerRecuperacao, guardarRecuperacao, lerRecuperacao } from "../net/recuperacao.js";
@@ -83,9 +84,17 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
   const [mensagens, setMensagens] = useState<Partial<Record<Seat, { id: string; nonce: number }>>>({});
 
   const servidor = useMemo(() => servidorConfigurado(), []);
+  /**
+   * O provedor de identidade — `null` quando esta publicação não tem um configurado.
+   *
+   * Resolvido UMA vez e passado ao abridor, e não consultado a cada entrada: o custo de decidir
+   * se há provedor é de arranque, e o de conseguir o token é de cada entrada (dentro do próprio
+   * abridor, que já é assíncrono).
+   */
+  const identidade = useMemo(() => provedorConfigurado(), []);
   const abrir = useMemo<AbridorDeSessao | null>(
-    () => abridor ?? (servidor.ok ? abridorColyseus(servidor.url) : null),
-    [abridor, servidor],
+    () => abridor ?? (servidor.ok ? abridorColyseus(servidor.url, identidade) : null),
+    [abridor, servidor, identidade],
   );
 
   // ─────────────────────────── aplicação do estado autoritativo ───────────────────────────
@@ -419,7 +428,11 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
   };
 }
 
-function mensagemDeFalha(e: unknown): string {
+/**
+ * A frase que o jogador lê quando a entrada falha. Exportada para poder ser testada: é a única
+ * parte da falha que ele vê, e uma frase errada é um defeito tão real quanto um estado errado.
+ */
+export function mensagemDeFalha(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
   if (/not found|does not exist|404/i.test(m)) return "Sala não encontrada. Confira o código.";
   if (/full|4002/i.test(m)) return "Essa sala já tem quatro jogadores.";
@@ -429,6 +442,23 @@ function mensagemDeFalha(e: unknown): string {
   // dizer que ainda não dá.
   if (/4001|protocol/i.test(m)) {
     return "Esta versão do jogo e o servidor não são compatíveis. Tente de novo mais tarde.";
+  }
+  // Servidor com identidade obrigatória, aplicativo que não sabe mandar credencial. Quase
+  // sempre é uma versão anterior à fase de identidade — dizer "entre de novo" mandaria a
+  // pessoa repetir um gesto que nunca vai funcionar. O que resolve é atualizar.
+  if (/4005/.test(m)) {
+    return "Atualize o jogo para continuar jogando online. Esta versão não consegue entrar neste servidor.";
+  }
+    // A mesma conta já está nesta mesa noutro aparelho. É a única falha desta lista em que o
+  // jogador tem um gesto claro a fazer, então a frase diz qual é — cair no genérico aqui
+  // deixaria alguém tentando de novo o que nunca vai dar certo.
+  if (/4004/.test(m)) {
+    return "Você já está nesta mesa em outro aparelho. Feche o jogo lá ou use Voltar para a partida.";
+  }
+  // Credencial recusada. NÃO se diz o motivo técnico: o jogador não pode fazer nada com
+  // "assinatura inválida", e o detalhe só ajudaria quem estivesse testando forjar token.
+  if (/4003/.test(m)) {
+    return "Não foi possível confirmar sua identidade. Entre novamente para continuar.";
   }
   return "Não foi possível conectar ao servidor.";
 }
