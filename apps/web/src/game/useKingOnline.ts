@@ -22,7 +22,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Card, Seat, Trump } from "@king/engine";
 import { PartidaRemota } from "./partidaRemota.js";
 import { useApresentacao } from "./useApresentacao.js";
-import { ehSalto, proximoPasso } from "./filaDeApresentacao.js";
+import {
+  ehCadenciada, ehSalto, LIMITE_DA_FILA, proximoPasso, quantosPorTique,
+} from "./filaDeApresentacao.js";
 import { useSonsDeTransicao } from "./useSonsDeTransicao.js";
 import { TEMPOS } from "./timings.js";
 import { agoraMonotonico } from "./monotonico.js";
@@ -35,8 +37,6 @@ import { servidorConfigurado } from "../net/servidor.js";
 import { esquecerRecuperacao, guardarRecuperacao, lerRecuperacao } from "../net/recuperacao.js";
 import type { AcaoAutomatica, AtualizacaoDeEstado, RelogioDaDecisao } from "../net/protocolo.js";
 
-/** Quantas atualizações podem ficar represadas antes de a fila colapsar para a mais recente. */
-const LIMITE_DA_FILA = 2;
 
 export type EstadoDaConexao =
   | "ocioso"        // nem tentou
@@ -151,7 +151,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       // Estando atrasado, consome DOIS por tique. O andamento normal não muda em nada, porque com
       // a fila em um item só o comportamento é idêntico ao de antes; o que muda é a recuperação,
       // que deixa de ser tão lenta quanto o ritmo que ela precisa alcançar.
-      const quantos = fila.current.length > 1 ? 2 : 1;
+      const quantos = quantosPorTique(fila.current, (u) => ehCadenciada(u.cause));
       for (let i = 0; i < quantos; i++) {
         const passo = proximoPasso(fila.current, LIMITE_DA_FILA);
         if (!passo.proxima) break;
