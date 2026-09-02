@@ -28,6 +28,7 @@ import { ArraySchema, schema } from "@colyseus/schema";
 import { TOTAL_HANDS, type Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import { TEMPOS } from "../match/tempos.js";
+import { pausaDaLeitura, respiroDaLeitura } from "../match/pausaDaVaza.js";
 import { IdentidadeRecusada, verificadorEmUso, type IdentidadeVerificada } from "../auth/identidade.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
@@ -202,6 +203,26 @@ export class KingRoom extends Room<{
   #decisaoSeq = 0;
   /** Quando a mão corrente terminou — origem dos prazos de auto-ready. */
   #maoTerminouEm = 0;
+
+  /**
+   * ══ A APRESENTAÇÃO DA VAZA QUE FECHOU ══
+   *
+   * Quando uma vaza fecha, a mesa PARA para todo mundo ler o que aconteceu — 1150ms numa vaza
+   * comum, 3400ms no Rei de Copas. O servidor não para junto, e é isso que estava certo: parar
+   * somaria espera sobre uma espera que o jogador já vê.
+   *
+   * O que estava errado era COBRAR esse tempo do próximo jogador. O prazo dele começava com a
+   * mesa parada, e ele recebia 23s de um prazo de 25s sem ter feito nada.
+   *
+   * Estes três campos são a memória do que a apresentação ainda deve: quando a vaza fechou,
+   * quanto tempo a mesa fica parada, e quantos passos o servidor produziu DURANTE a parada —
+   * cada um deles ainda vai entrar na mesa um de cada vez, ao ritmo da cadência.
+   */
+  #vazaFechouEm: number | null = null;
+  #pausaDaVazaMs = 0;
+  #represados = 0;
+  /** Quantas vazas o motor já fechou nesta mão. A SUBIDA é o gatilho. */
+  #vazasFechadas = 0;
   /** Quando a mão corrente COMEÇOU, e qual é ela — origem do respiro da última mão. */
   #maoComecouEm = 0;
   #maoEmCurso = 0;
@@ -569,9 +590,17 @@ export class KingRoom extends Room<{
     if (this.#assistido(seat)) return { tipo: "PLAY", seat, prazo: TEMPOS.cortesiaDoBot + respiro };
     // primeira jogada da mão: 13 cartas novas e um contrato novo para ler
     const primeira = h.completedTricks.length === 0 && h.currentTrick.length === 0;
+    /**
+     * O RESPIRO DA LEITURA É SÓ PARA HUMANO, e isso não é exceção: o bot não olha para a mesa.
+     * Dar respiro a ele apenas atrasaria a próxima carta, deixando o jogo mais lento sem
+     * devolver tempo a ninguém.
+     */
+    const leitura = respiroDaLeitura(
+      Date.now(), this.#vazaFechouEm, this.#pausaDaVazaMs, this.#represados,
+    );
     return {
       tipo: "PLAY", seat,
-      prazo: TEMPOS.turno + (primeira ? TEMPOS.primeiraJogadaExtra : 0) + respiro,
+      prazo: TEMPOS.turno + (primeira ? TEMPOS.primeiraJogadaExtra : 0) + respiro + leitura,
     };
   }
 
@@ -751,6 +780,28 @@ export class KingRoom extends Room<{
     if (m?.hand && m.hand.handNumber !== this.#maoEmCurso) {
       this.#maoEmCurso = m.hand.handNumber;
       this.#maoComecouEm = Date.now();
+    }
+    // A VAZA QUE FECHOU: origem do respiro de leitura. O gatilho é a SUBIDA do número de vazas
+    // completas — não a causa da publicação, que se repete para os quatro clientes.
+    const fechadas = m?.hand?.completedTricks.length ?? 0;
+    if (fechadas > this.#vazasFechadas) {
+      this.#vazasFechadas = fechadas;
+      this.#vazaFechouEm = Date.now();
+      this.#pausaDaVazaMs = pausaDaLeitura(m);
+      // A carta que FECHOU a vaza é apresentada antes da pausa: ela não está represada.
+      this.#represados = 0;
+    } else if (fechadas < this.#vazasFechadas) {
+      // Mão nova: não há dívida herdada da mão anterior.
+      this.#vazasFechadas = fechadas;
+      this.#vazaFechouEm = null;
+      this.#pausaDaVazaMs = 0;
+      this.#represados = 0;
+    } else if (
+      this.#vazaFechouEm !== null && (causa === "CARD_PLAYED" || causa === "TRUMP_SELECTED")
+      && Date.now() < this.#vazaFechouEm + this.#pausaDaVazaMs
+    ) {
+      // Produzido ENQUANTO a mesa estava parada: ainda vai precisar do seu instante para entrar.
+      this.#represados++;
     }
     for (const c of this.clients) this.#publicarPara(c as ClienteDoKing, causa);
     this.#reagendar();

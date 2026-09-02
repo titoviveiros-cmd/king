@@ -47,6 +47,29 @@ export interface Tempos {
    * arbitrária: é exatamente a presença do anúncio, e o teste de contrato compara os dois.
    */
   aberturaDaUltimaMao: number;
+  /**
+   * ══ OS TEMPOS DA APRESENTAÇÃO QUE O SERVIDOR PRECISA CONHECER ══
+   *
+   * Estes cinco NÃO são prazos de decisão: são a cópia autoritativa de tempos que existem no
+   * cliente. O servidor não os usa para esperar nem para animar nada — usa para saber QUANTO
+   * TEMPO o jogador passou impedido de agir, e não cobrar esse tempo do prazo dele.
+   *
+   * É o mesmo desenho de `aberturaDaUltimaMao`, que já vive aqui pelo mesmo motivo: quando a
+   * apresentação legitimamente impede alguém de jogar, o prazo autoritativo tem de saber disso,
+   * senão o jogador perde tempo por um motivo que não é dele. Um teste de contrato compara cada
+   * um destes com `apps/web/src/game/timings.ts` e reprova se os dois lados se separarem.
+   */
+  /** Pausa de leitura de uma vaza comum. */
+  leituraDaVaza: number;
+  /** Vaza que levou bucha: a mesa para mais tempo para todos verem quem se deu mal. */
+  leituraDaVazaCastigo: number;
+  /** O K de Copas é o castigo máximo: pausa ainda maior. */
+  leituraDaVazaKing: number;
+  /** Última vaza da mão — o Placar só entra depois dela. */
+  fimDeMao: number;
+  /** Intervalo com que o cliente apresenta um passo represado. */
+  passoDaApresentacao: number;
+
   /** No LOBBY, o assento de quem cai fica reservado por este tempo. Depois é liberado. */
   lobbyReservaAposQueda: number;
   /** Sala sem nenhuma conexão viva morre depois disto. Evita sala órfã eterna. */
@@ -65,6 +88,11 @@ export const TEMPOS_PADRAO: Readonly<Tempos> = Object.freeze({
   autoReadyConectado: 45_000,
   cortesiaDoBot: 900,
   aberturaDaUltimaMao: 3_720,
+  leituraDaVaza: 1_150,
+  leituraDaVazaCastigo: 2_700,
+  leituraDaVazaKing: 3_400,
+  fimDeMao: 1_800,
+  passoDaApresentacao: 520,
   lobbyReservaAposQueda: 60_000,
   salaOrfa: 120_000,
 });
