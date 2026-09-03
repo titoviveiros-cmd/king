@@ -17,7 +17,15 @@
 // emissor forjado, token vencido, token sem dono.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
-import { exportJWK, generateKeyPair, SignJWT, type JWK, type KeyLike } from "jose";
+import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
+/**
+ * A CHAVE, TIPADA A PARTIR DA PRÓPRIA BIBLIOTECA.
+ *
+ * `jose` deixou de exportar `Chave`, e o `import` dele quebrava o BUILD sem quebrar nada
+ * que eu estivesse rodando — os testes passavam porque o vitest não typecheca. Derivar o tipo
+ * do retorno de `generateKeyPair` não depende do nome que a biblioteca dá a ele hoje.
+ */
+type Chave = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
 import {
   IdentidadeRecusada, VerificadorDeIdentidade, provedorDe, verificadorDoAmbiente,
 } from "./identidade.js";
@@ -25,17 +33,17 @@ import {
 const EMISSOR = "http://127.0.0.1:PORTA/auth/v1";
 const PLATEIA = "authenticated";
 
-let privada: KeyLike;
+let privada: Chave;
 let publica: JWK;
 /** Um segundo par, para forjar tokens que NÃO estão no JWKS. */
-let privadaIntrusa: KeyLike;
+let privadaIntrusa: Chave;
 let servidor: Server;
 let issuer: string;
 let verificador: VerificadorDeIdentidade;
 
 /** Assina um token com a chave legítima, salvo quando se pede o contrário. */
 async function assinar(claims: Record<string, unknown>, opcoes: {
-  chave?: KeyLike; iss?: string; aud?: string; exp?: string | number; alg?: string; kid?: string;
+  chave?: Chave; iss?: string; aud?: string; exp?: string | number; alg?: string; kid?: string;
 } = {}): Promise<string> {
   const j = new SignJWT(claims)
     .setProtectedHeader({ alg: opcoes.alg ?? "ES256", kid: opcoes.kid ?? publica.kid })
@@ -47,9 +55,9 @@ async function assinar(claims: Record<string, unknown>, opcoes: {
 
 beforeAll(async () => {
   const par = await generateKeyPair("ES256");
-  privada = par.privateKey as KeyLike;
+  privada = par.privateKey as Chave;
   publica = { ...(await exportJWK(par.publicKey)), kid: "chave-de-teste", alg: "ES256", use: "sig" };
-  privadaIntrusa = (await generateKeyPair("ES256")).privateKey as KeyLike;
+  privadaIntrusa = (await generateKeyPair("ES256")).privateKey as Chave;
 
   const corpo = JSON.stringify({ keys: [publica] });
   servidor = createServer((_req, res) => {

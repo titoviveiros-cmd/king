@@ -22,7 +22,15 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
 import { boot, type ColyseusTestServer } from "@colyseus/testing";
-import { exportJWK, generateKeyPair, SignJWT, type JWK, type KeyLike } from "jose";
+import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
+/**
+ * A CHAVE, TIPADA A PARTIR DA PRÓPRIA BIBLIOTECA.
+ *
+ * `jose` deixou de exportar `Chave`, e o `import` dele quebrava o BUILD sem quebrar nada
+ * que eu estivesse rodando — os testes passavam porque o vitest não typecheca. Derivar o tipo
+ * do retorno de `generateKeyPair` não depende do nome que a biblioteca dá a ele hoje.
+ */
+type Chave = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
 import { configurarVerificador, restaurarVerificador, VerificadorDeIdentidade } from "../auth/identidade.js";
 import { SALA_KING, servidor } from "../app.js";
 import { AVATARES } from "./identidade.js";
@@ -30,14 +38,14 @@ import { PROTOCOL_VERSION, type BoasVindas } from "../protocol/index.js";
 
 const PLATEIA = "authenticated";
 
-let privada: KeyLike;
+let privada: Chave;
 let publica: JWK;
-let privadaIntrusa: KeyLike;
+let privadaIntrusa: Chave;
 let jwksServer: Server;
 let issuer: string;
 let colyseus: ColyseusTestServer;
 
-async function tokenDe(sub: string, opcoes: { chave?: KeyLike; anonimo?: boolean } = {}) {
+async function tokenDe(sub: string, opcoes: { chave?: Chave; anonimo?: boolean } = {}) {
   return await new SignJWT(
     opcoes.anonimo ? { sub, is_anonymous: true } : { sub, app_metadata: { provider: "google" } },
   )
@@ -48,9 +56,9 @@ async function tokenDe(sub: string, opcoes: { chave?: KeyLike; anonimo?: boolean
 
 beforeAll(async () => {
   const par = await generateKeyPair("ES256");
-  privada = par.privateKey as KeyLike;
+  privada = par.privateKey as Chave;
   publica = { ...(await exportJWK(par.publicKey)), kid: "k1", alg: "ES256", use: "sig" };
-  privadaIntrusa = (await generateKeyPair("ES256")).privateKey as KeyLike;
+  privadaIntrusa = (await generateKeyPair("ES256")).privateKey as Chave;
 
   const corpo = JSON.stringify({ keys: [publica] });
   jwksServer = createServer((_q, res) => {

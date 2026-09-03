@@ -152,8 +152,6 @@ async function resolverTrunfo(room: KingRoom, clientes: Sintetico[]): Promise<vo
     10_000, "trunfo escolhido");
 }
 
-/** O último relógio que o servidor anunciou, com o instante em que chegou. */
-const ultimo = (c: Sintetico) => c.relogios[c.relogios.length - 1];
 
 /**
  * ESPERA O RELÓGIO NOVO, e não "algum" relógio.
