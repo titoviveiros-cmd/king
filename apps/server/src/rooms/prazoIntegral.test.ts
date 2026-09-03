@@ -53,15 +53,21 @@ beforeAll(async () => {
   configurarTempos({
     pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
     turno: TURNO, trunfo: 3_600_000, primeiraJogadaExtra: 0, aberturaDaUltimaMao: 0,
-    // PAUSA LARGA E BOT LENTO, de propósito. Com a pausa de produção (1150ms) e a cortesia
-    // mínima (5ms), as jogadas dos bots caíam a poucos milissegundos da borda da janela — e sob
-    // a carga da suíte inteira o teste ficava INTERMITENTE, contando ora duas cartas represadas,
-    // ora nenhuma. Afrouxar a margem esconderia a corrida; alargar a janela a remove sem tocar
-    // em uma única asserção. O que se mede continua sendo exatamente o mesmo.
-    leituraDaVaza: 3_000,
-    leituraDaVazaCastigo: 3_000,
-    leituraDaVazaKing: 3_000,
-    fimDeMao: 3_000,
+    // ══ A JANELA É ENORME DE PROPÓSITO: É ASSIM QUE A CORRIDA MORRE ══
+    //
+    // O teste conta as cartas represadas pelo instante em que OBSERVA a autoridade mudar; o
+    // servidor conta pelo instante em que publica. A autoridade muda um pouco ANTES da
+    // publicação, então na borda da janela os dois discordam por milissegundos — e sob a carga
+    // da suíte inteira, com timers escorregando, a borda era alcançada. O teste falhava em
+    // cerca de uma execução em cinco.
+    //
+    // Com 15s de pausa e bots de 200ms, as jogadas caem a ~14,6s da borda: nenhum escorregão
+    // plausível chega perto. A corrida não é tolerada, é removida — e nenhuma asserção foi
+    // afrouxada para isso. O que se mede continua sendo exatamente o mesmo.
+    leituraDaVaza: 15_000,
+    leituraDaVazaCastigo: 15_000,
+    leituraDaVazaKing: 15_000,
+    fimDeMao: 15_000,
     cortesiaDoBot: 200,
   });
   colyseus = await boot(servidor);
@@ -256,98 +262,68 @@ describe("a regra da pausa espelha a do cliente", () => {
 /**
  * A SEGUNDA PARCELA DA DÍVIDA: O QUE FICOU REPRESADO.
  *
- * Com bots na mesa, a pausa de leitura não é a única coisa entre o servidor abrir o turno e o
- * jogador poder agir. O servidor continua produzindo DURANTE a pausa, e cada carta produzida ali
- * ainda vai entrar na mesa uma de cada vez — é a cadência corrigida em 3018e97, e ela custa tempo
- * exatamente porque cada carta agora é perceptível.
+ * A pausa de leitura não é a única coisa entre o servidor abrir o turno e o jogador poder agir.
+ * O que for jogado DURANTE a pausa ainda vai entrar na mesa uma carta de cada vez — é a cadência
+ * corrigida em 3018e97, e ela custa tempo justamente porque cada carta agora é perceptível.
  *
- * Sem esta parcela o respiro cobriria a pausa e deixaria a diferença de fora, que é o cenário do
- * relato original: humano jogando depois de dois bots consecutivos.
+ * ══ POR QUE SEM BOTS ══
+ *
+ * A primeira versão deste teste montava 2 humanos + 2 bots e procurava uma vaza em que um bot
+ * vencesse, para que a seguinte começasse por ele. Dependia do baralho e do relógio: reprovava em
+ * cerca de uma execução em quinze, ora por "nada foi medido", ora sob a carga da suíte inteira.
+ * Fixar a semente reduziu, mas não eliminou.
+ *
+ * Um teste intermitente não é um teste: ele treina quem o lê a ignorar vermelho. E o represamento
+ * não precisa de bot nenhum para existir — precisa de uma jogada acontecendo enquanto a mesa está
+ * parada. Aqui QUEM JOGA É O TESTE, no instante que ele escolhe, dentro de uma janela de 15s.
+ * Zero sorteio, zero corrida, e o que se mede é exatamente o mesmo.
  */
-describe("com bots na mesa, o represamento também é descontado", () => {
-  /**
-   * A SEGUNDA PARCELA DA DÍVIDA: O QUE FICOU REPRESADO.
-   *
-   * Com bots na mesa, a pausa de leitura não é a única coisa entre o servidor abrir o turno e o
-   * jogador poder agir. O servidor continua produzindo DURANTE a pausa, e cada carta produzida
-   * ali ainda vai entrar na mesa uma de cada vez — é a cadência corrigida em 3018e97, e ela custa
-   * tempo justamente porque cada carta agora é perceptível.
-   *
-   * O CENÁRIO NÃO SE ENCOMENDA: ele exige que um BOT vença a vaza, para que a seguinte comece
-   * por ele. Quem decide isso é o baralho. Por isso o teste PROCURA a situação ao longo da mão em
-   * vez de supor que ela cai na primeira vaza — e reprova explicitamente se não a encontrar, para
-   * nunca passar por não ter medido nada.
-   */
-  it("o humano depois de bots recebe o prazo cheio a partir de quando pode agir", async () => {
-    const room = await colyseus.createRoom<KingRoom>(SALA_KING);
-    const humanos: Sintetico[] = [];
-    for (const seat of [0, 1] as Seat[]) {
-      const sdk = await colyseus.connectTo(room, {
-        protocolVersion: PROTOCOL_VERSION, nick: `H${seat}`, avatar: AVATARES[seat],
-      });
-      const c: Sintetico = { seat, sdk: sdk as never, view: null, relogios: [] };
-      sdk.onMessage("STATE_UPDATE", (m: AtualizacaoDeEstado) => { c.view = m.view; });
-      sdk.onMessage("TURN_CLOCK", (m: RelogioDaDecisao) => c.relogios.push({ m, em: Date.now() }));
-      humanos.push(c);
-    }
-    // Dois bots completam a mesa nos assentos 2 e 3 — CONSECUTIVOS, que é o cenário do relato.
-    humanos[0].sdk.send("CLIENT_ADD_BOT", { seat: 2 });
-    humanos[0].sdk.send("CLIENT_ADD_BOT", { seat: 3 });
-    await ate(() => room.state.seats.filter((a) => a.bot).length === 2, 15_000, "dois bots");
+describe("o que foi jogado durante a pausa também é descontado", () => {
+  it("com uma carta represada, o humano seguinte ainda recebe o prazo cheio", async () => {
+    const { room, clientes } = await salaCom4();
+    await resolverTrunfo(room, clientes);
+    for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
+    const fechouEm = Date.now();
+    const pausa = pausaDaLeitura(room.autoridadeDaPartida().estadoAutoritativo()!);
+    expect(pausa, "sem pausa não há dívida a medir").toBeGreaterThan(0);
 
-    for (const c of humanos) c.sdk.send("CLIENT_SET_READY", { ready: true });
-    await ate(() => humanos.every((c) => c.view !== null), 15_000, "início da partida");
-    await resolverTrunfo(room, humanos);
+    // UMA carta da vaza nova, ainda DENTRO da pausa. Para a mesa ela está represada: só vai
+    // entrar quando a leitura terminar, e só então o próximo pode agir.
+    await jogarUma(room, clientes);
+    expect(Date.now(), "a jogada saiu da janela da pausa — o cenário não é o que se quer medir")
+      .toBeLessThan(fechouEm + pausa);
 
-    const mao = () => room.autoridadeDaPartida().estadoAutoritativo()?.hand;
-    const ehHumano = () => {
-      const c = daVezNaAutoridade(room, humanos);
-      return !!c && humanos.includes(c);
-    };
+    await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o turno seguinte abrir");
+    const proximo = daVezNaAutoridade(room, clientes)!;
+    const r = await relogioDepoisDe(proximo, fechouEm, proximo.seat);
 
-    let medido = false;
-    for (let vaza = 0; vaza < 12 && !medido; vaza++) {
-      if ((mao()?.handScores ?? null) !== null) break;
-      const alvo = (mao()?.completedTricks.length ?? 0) + 1;
+    // A liberação real: a pausa MAIS uma cadência pela carta represada.
+    const util = prazoUtil(r, fechouEm, pausa + TEMPOS.passoDaApresentacao);
+    expect(
+      util,
+      `com 1 carta represada o jogador recebeu ${util}ms úteis de um prazo de ${TURNO}ms`,
+    ).toBeGreaterThanOrEqual(TURNO - MARGEM);
+  }, 60_000);
 
-      // Fecha mais uma vaza: o humano joga quando é dele, o servidor age pelos bots.
-      const limite = Date.now() + 30_000;
-      while ((mao()?.completedTricks.length ?? 0) < alvo) {
-        if (Date.now() > limite) throw new Error("a vaza não fechou");
-        if (ehHumano()) await jogarUma(room, humanos);
-        else await new Promise((r) => setTimeout(r, 5));
-      }
-      const fechouEm = Date.now();
-      const pausa = pausaDaLeitura(room.autoridadeDaPartida().estadoAutoritativo()!);
-      const fimDaPausa = fechouEm + pausa;
+  it("duas cartas represadas custam duas cadências, e o prazo continua inteiro", async () => {
+    const { room, clientes } = await salaCom4();
+    await resolverTrunfo(room, clientes);
+    for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
+    const fechouEm = Date.now();
+    const pausa = pausaDaLeitura(room.autoridadeDaPartida().estadoAutoritativo()!);
 
-      // Observa a vaza nova nascendo e marca quantas cartas caíram DENTRO da pausa: são essas que
-      // ainda vão precisar do seu instante para entrar na mesa.
-      let represados = 0;
-      let vistas = 0;
-      await ate(() => {
-        const agora = mao()?.currentTrick.length ?? 0;
-        if (agora > vistas) {
-          if (Date.now() < fimDaPausa) represados += agora - vistas;
-          vistas = agora;
-        }
-        return ehHumano() || (mao()?.handScores ?? null) !== null;
-      }, 20_000, "a vez voltar a um humano");
+    await jogarUma(room, clientes);
+    await jogarUma(room, clientes);
+    expect(Date.now()).toBeLessThan(fechouEm + pausa);
 
-      if ((mao()?.handScores ?? null) !== null) break; // a mão acabou: não há turno para medir
-      if (represados === 0) continue;                  // vaza sem bot antes do humano: procura outra
+    await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o turno seguinte abrir");
+    const proximo = daVezNaAutoridade(room, clientes)!;
+    const r = await relogioDepoisDe(proximo, fechouEm, proximo.seat);
 
-      const proximo = daVezNaAutoridade(room, humanos)!;
-      const r = await relogioDepoisDe(proximo, fechouEm, proximo.seat);
-      // A LIBERAÇÃO REAL inclui a drenagem: a pausa mais uma cadência por carta represada.
-      const util = prazoUtil(r, fechouEm, pausa + represados * TEMPOS.passoDaApresentacao);
-      expect(
-        util,
-        `humano depois de ${represados} carta(s) represada(s) recebeu ${util}ms úteis de ${TURNO}ms`,
-      ).toBeGreaterThanOrEqual(TURNO - MARGEM);
-      medido = true;
-    }
-
-    expect(medido, "o cenário bot-antes-de-humano não apareceu — nada foi medido").toBe(true);
-  }, 90_000);
+    const util = prazoUtil(r, fechouEm, pausa + 2 * TEMPOS.passoDaApresentacao);
+    expect(
+      util,
+      `com 2 cartas represadas o jogador recebeu ${util}ms úteis de um prazo de ${TURNO}ms`,
+    ).toBeGreaterThanOrEqual(TURNO - MARGEM);
+  }, 60_000);
 });
