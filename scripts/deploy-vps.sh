@@ -144,6 +144,31 @@ conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
   "aberturaDaUltimaMao" "prazo da decisao consulta a constante" || ART="$ART consulta"
 conferir_artefato "apps/server/dist/protocol/index.js" \
   "PROTOCOL_VERSION = 3" "PROTOCOL_VERSION = 3 no artefato" || ART="$ART protocolo"
+
+# ── A CORRECAO DE CADENCIA E PRAZO (rodada de 03/09) ──
+#
+# O portao acima nasceu para a ultima mao e continua valendo. Estas linhas existem porque um
+# portao que so confere a correcao ANTERIOR aprova, sem perceber, uma implantacao que perdeu a
+# nova. Continua sendo conferencia de ARTEFATO: responde "o binario certo esta no ar", nao
+# "o jogo se comporta certo" — essa a suite do CI ja respondeu.
+conferir_artefato "apps/server/dist/match/pausaDaVaza.js" \
+  "respiroDaLeitura" "respiro da leitura da vaza compilado" || ART="$ART respiro"
+conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
+  "respiroDaLeitura" "respiro integrado a KingRoom" || ART="$ART respiro-integrado"
+# A parcela do represamento: sem ela o respiro cobre a pausa e deixa a drenagem de fora.
+conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
+  "represados" "parcela do represamento presente" || ART="$ART represamento"
+# O prazo NOMINAL do jogador. Um valor de instrumentacao aqui seria a falha mais silenciosa
+# possivel: o jogo funcionaria, so que com menos tempo para jogar.
+conferir_artefato "apps/server/dist/match/tempos.js" \
+  "turno: 25_?000" "prazo do turno = 25000ms" || ART="$ART prazo"
+# Nenhum atraso novo no gameplay: a cortesia do bot continua a de producao.
+conferir_artefato "apps/server/dist/match/tempos.js" \
+  "cortesiaDoBot: 900" "cortesia do bot inalterada = 900ms" || ART="$ART cortesia"
+# IDENTIDADE DORMENTE: o artefato traz o verificador, e ele so acorda com SUPABASE_URL.
+# Esta linha confere que o binario nao chegou com o provedor embutido de outra forma.
+conferir_artefato "apps/server/dist/auth/identidade.js" \
+  "SUPABASE_URL" "identidade le o ambiente (dormente sem SUPABASE_URL)" || ART="$ART identidade"
 [ -z "$ART" ] || abortar "artefato nao carrega a correcao aprovada:$ART"
 
 echo "=== SMOKE EM PORTA SEPARADA (2599) ==="
