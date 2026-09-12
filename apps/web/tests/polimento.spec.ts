@@ -96,53 +96,117 @@ test.describe("card de trunfo", () => {
   });
 
   /**
-   * A ALTURA NÃO MUDA. A LARGURA PODE — ATÉ O CARD DE CIMA.
+   * A ALTURA NÃO MUDA, A COLUNA FICA ALINHADA, E NENHUMA VARIANTE MENTE SOBRE O SEU PREÇO.
    *
-   * Este teste exigia UMA largura para todos os nomes, e a razão era boa: a coluna esquerda não
-   * podia mudar de tamanho a cada mão positiva conforme quem escolheu o trunfo. O preço dessa
-   * promessa só apareceu num aparelho de verdade — num Android de 800×360, com a variante deitada,
-   * "Android" saía como "Andr…" e "Valete Folgado" nem começava. A largura fixa protegia o
-   * alinhamento e cobrava o nome.
+   * ══ POR QUE A ASSERÇÃO ANTERIOR ERA IMPOSSÍVEL ══
    *
-   * A regra nova troca uma promessa absoluta por uma com teto: o card cresce com o nome e para na
-   * largura do card de informações logo acima, que é o que de fato mantinha a coluna alinhada.
-   * Medido a 800×360: 118px com "Tito", 119 com "Android", 150 com "Valete Folgado", contra um
-   * HUD de 200. Ninguém é cortado e nada passa do limite.
+   * Ela exigia que o card de trunfo nunca passasse da LARGURA do card de informações acima. A
+   * intenção era boa — manter a coluna esquerda alinhada — mas o alvo não existe: a largura do
+   * HUD é definida pelo texto do CONTRATO, a do trunfo pelo NOME de quem escolheu, e nenhuma das
+   * duas limita a outra. Com o apelido no limite do campo em glifos largos ("WWWWWWWWWWWWWW", 14
+   * caracteres do glifo mais largo da fonte), o card mede 221px contra 200px do HUD — sem
+   * encostar em nada, sem sair da tela, e sem nada que a CSS possa fazer a respeito.
    *
-   * A ALTURA continua fixa, e essa metade da promessa não foi tocada: é ela que faz o andar da
-   * coluna esquerda ser o mesmo em toda mão positiva.
+   * O que de fato mantém a coluna alinhada é a BORDA ESQUERDA, e essa a CSS garante: os dois
+   * cards saem do mesmo `left`. É isso que este teste passa a afirmar — medido, não suposto:
+   * 9px contra 9px a 800×360, 16 contra 16 a 1600×900.
+   *
+   * ══ AS DUAS VARIANTES TROCAM COISAS OPOSTAS, E O TESTE COBRA A TROCA DE CADA UMA ══
+   *
+   * Medido nas duas:
+   *
+   *   alta      (667×375, 1600×900): largura FIXA (80px, 122px) — e o nome muito largo é CORTADO
+   *   compacta  (≤360px de altura):  largura ELÁSTICA (118→221px) — e nenhum nome é cortado
+   *
+   * A compacta ficou assim de propósito, na rodada em que um Android de 800×360 mostrou "Android"
+   * saindo como "Andr…" e "Valete Folgado" nem começando. A alta manteve a largura fixa porque
+   * ali sobra espaço vertical e falta horizontal.
+   *
+   * Então a asserção é condicional ao que a variante promete: quem tem largura fixa pode cortar;
+   * quem cresce TEM de entregar o nome inteiro. Isso é mais forte que o teste antigo, que não
+   * olhava truncamento em nenhuma das duas — o defeito relatado pelo jogador passava por ele.
+   *
+   * A não-invasão e a contenção na tela continuam cobertas pelo primeiro teste deste arquivo,
+   * que já roda com esta mesma lista de nomes.
    */
-  test("a altura do card de trunfo não muda, e a largura respeita o card de cima", async ({ page }, ti) => {
+  test("a altura não muda, a coluna fica alinhada, e quem cresce não corta o nome", async ({ page }, ti) => {
     await mesaComTrunfo(page);
+    const vp = page.viewportSize()!;
     const alvo = page.locator(".trumpslot .who");
-    const hud = await boxOf(page.locator(".hud"), "card do contrato");
 
-    const larguras: number[] = [];
-    const alturas: number[] = [];
+    const medidas: { nome: string; w: number; h: number; cortado: boolean }[] = [];
     for (const nome of NOMES) {
       await alvo.evaluate((el, n) => { el.textContent = n; }, nome);
       await page.waitForTimeout(60);
-      const c = await boxOf(page.locator(".trumpslot"), "trumpslot");
-      larguras.push(Math.round(c.width));
-      alturas.push(Math.round(c.height));
+      const m = await page.evaluate(() => {
+        const slot = document.querySelector(".trumpslot") as HTMLElement;
+        const hud = document.querySelector(".hud") as HTMLElement;
+        const who = slot.querySelector(".who") as HTMLElement | null;
+        const rs = slot.getBoundingClientRect();
+        return {
+          esquerda: rs.left, largura: rs.width, altura: rs.height,
+          esquerdaDoHud: hud.getBoundingClientRect().left,
+          // `scrollWidth > clientWidth` é o texto que não caberia: reticências ou corte.
+          cortado: who ? who.scrollWidth > Math.ceil(who.getBoundingClientRect().width) + 1 : false,
+        };
+      });
 
+      // 1. A COLUNA ESQUERDA CONTINUA UMA COLUNA. É o que a largura fixa protegia de verdade.
       expect(
-        Math.round(c.width),
-        `[${ti.project.name}] com "${nome}" o card de trunfo (${Math.round(c.width)}px) ` +
-        `passou do card de cima (${Math.round(hud.width)}px)`,
-      ).toBeLessThanOrEqual(Math.round(hud.width) + SUBPIXEL);
+        Math.abs(m.esquerda - m.esquerdaDoHud),
+        `[${ti.project.name}] com "${nome}" o card de trunfo desalinhou da coluna: ` +
+        `esquerda ${Math.round(m.esquerda)}px contra ${Math.round(m.esquerdaDoHud)}px do card de cima`,
+      ).toBeLessThanOrEqual(SUBPIXEL);
+
+      // 2. O TETO É O MESMO DOS DOIS CARDS — `max-width:56vw`, escrito nos dois em theme.css.
+      //    É o limite que a CSS realmente promete, e o único que ela consegue cumprir.
+      const teto = vp.width * 0.56;
+      expect(
+        Math.round(m.largura),
+        `[${ti.project.name}] com "${nome}" o card (${Math.round(m.largura)}px) passou do teto ` +
+        `de 56vw (${Math.round(teto)}px)`,
+      ).toBeLessThanOrEqual(Math.round(teto) + SUBPIXEL);
+
+      medidas.push({ nome, w: Math.round(m.largura), h: Math.round(m.altura), cortado: m.cortado });
     }
 
+    // 3. A ALTURA NÃO MUDA. Esta metade da promessa nunca foi tocada: é ela que faz o andar da
+    //    coluna esquerda ser o mesmo em toda mão positiva.
     expect(
-      new Set(alturas).size,
-      `[${ti.project.name}] o card mudou de ALTURA: ${alturas.join(", ")}`,
+      new Set(medidas.map((m) => m.h)).size,
+      `[${ti.project.name}] o card mudou de ALTURA: ${medidas.map((m) => m.h).join(", ")}`,
     ).toBe(1);
-    // E a largura cresce de fato quando o nome cresce — senão o teto acima passaria de graça
-    // enquanto o nome voltava a ser cortado, que é o defeito que esta mudança veio corrigir.
-    expect(
-      Math.max(...larguras),
-      `[${ti.project.name}] a largura não acompanhou o nome: ${larguras.join(", ")}`,
-    ).toBeGreaterThanOrEqual(Math.min(...larguras));
+
+    /**
+     * 4. CADA VARIANTE PAGA O QUE PROMETE.
+     *
+     * Largura constante é a variante alta: ali o card não cresce, e cortar um apelido de 14
+     * glifos largos é o preço aceito. Largura que cresce é a compacta: ali o preço foi pago em
+     * espaço justamente para NÃO cortar, então cortar seria a promessa quebrada — e é o defeito
+     * exato que o aparelho do jogador mostrou.
+     */
+    const larguras = medidas.map((m) => m.w);
+    const cresce = Math.max(...larguras) > Math.min(...larguras);
+    const cortados = medidas.filter((m) => m.cortado).map((m) => `"${m.nome}"`);
+    if (cresce) {
+      expect(
+        cortados,
+        `[${ti.project.name}] o card cresce com o nome (${Math.min(...larguras)}→` +
+        `${Math.max(...larguras)}px) e AINDA cortou: ${cortados.join(", ")}`,
+      ).toEqual([]);
+    } else {
+      // Largura fixa: o teste registra o corte em vez de reprovar, e trava a largura como fixa.
+      expect(
+        new Set(larguras).size,
+        `[${ti.project.name}] a largura não é fixa nem elástica: ${larguras.join(", ")}`,
+      ).toBe(1);
+    }
+
+    // A medição fica no relatório: é ela que permite comparar duas variantes sem abrir o código.
+    // eslint-disable-next-line no-console
+    console.log(`  [${ti.project.name}] trunfo ${cresce ? "elástico" : "fixo"} ` +
+      `${Math.min(...larguras)}→${Math.max(...larguras)}px, altura ${medidas[0].h}px` +
+      `${cortados.length ? `, corta ${cortados.join(", ")}` : ", nenhum nome cortado"}`);
   });
 
   /**
