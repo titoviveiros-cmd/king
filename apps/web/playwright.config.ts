@@ -48,7 +48,30 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: CI,
   retries: CI ? 1 : 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  /**
+   * O RELATOR HTML NÃO RODA EM CI — e a razão é que ele DERRUBAVA a CI com a suíte verde.
+   *
+   * Com 1612 testes em 13 viewports, o relator html termina de montar o relatório e estoura:
+   * `RangeError: Invalid string length`. Ele monta o relatório inteiro como UMA string e passa
+   * do limite do V8. O Playwright então sai com código 1 mesmo sem nenhum teste vermelho.
+   *
+   * Aconteceu em duas execuções seguidas, e nas duas ficou escondido: antes havia falhas reais
+   * de teste, que já justificavam o vermelho. Quando a última falha foi corrigida, a CI fechou
+   * assim — `1389 passed`, `223 skipped`, nenhuma falha, e vermelha:
+   *
+   *     223 skipped
+   *     1389 passed (4.7h)
+   *     RangeError: Invalid string length
+   *     npm error code 1
+   *
+   * Em CI o diagnóstico continua existindo por `test-results/` — captura de tela na falha e
+   * trace na primeira repetição —, que é o que se abre de fato quando algo quebra. O workflow já
+   * sobe essa pasta, e o relatório html some sem quebrar o passo (`if-no-files-found: ignore`).
+   *
+   * Localmente o html continua ligado: é onde vale navegar 1600 testes, e a máquina de quem
+   * roda tem memória para montá-lo.
+   */
+  reporter: CI ? [["list"]] : [["list"], ["html", { open: "never" }]],
   outputDir: "test-results",
 
   use: {
