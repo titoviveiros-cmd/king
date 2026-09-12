@@ -88,7 +88,13 @@ interface Sintetico {
   seat: Seat;
   sdk: { send: (t: string, m?: unknown) => void; onMessage: (t: string, cb: (...a: never[]) => void) => void };
   view: PlayerView | null;
-  relogios: { m: RelogioDaDecisao; em: number }[];
+  /** Última versão autoritativa que este cliente aplicou. */
+  versao: number;
+  /**
+   * Os relógios recebidos, cada um com a VERSÃO que o cliente já tinha aplicado quando ele
+   * chegou. É esse par que permite dizer a QUAL decisão o relógio pertence.
+   */
+  relogios: { m: RelogioDaDecisao; versao: number }[];
 }
 
 async function salaCom4(): Promise<{ room: KingRoom; clientes: Sintetico[] }> {
@@ -98,11 +104,15 @@ async function salaCom4(): Promise<{ room: KingRoom; clientes: Sintetico[] }> {
     const sdk = await colyseus.connectTo(room, {
       protocolVersion: PROTOCOL_VERSION, nick: `P${seat}`, avatar: AVATARES[seat % AVATARES.length],
     });
-    const c: Sintetico = { seat, sdk: sdk as never, view: null, relogios: [] };
-    sdk.onMessage("STATE_UPDATE", (m: AtualizacaoDeEstado) => { c.view = m.view; });
-    // O INSTANTE DA CHEGADA importa tanto quanto o valor: `restanteMs` só significa alguma coisa
-    // junto com o momento em que foi lido.
-    sdk.onMessage("TURN_CLOCK", (m: RelogioDaDecisao) => c.relogios.push({ m, em: Date.now() }));
+    const c: Sintetico = { seat, sdk: sdk as never, view: null, versao: 0, relogios: [] };
+    sdk.onMessage("STATE_UPDATE", (m: AtualizacaoDeEstado) => {
+      c.view = m.view; c.versao = m.stateVersion;
+    });
+    // A VERSÃO VIGENTE VAI JUNTO. O servidor difunde o estado ANTES do relógio, no mesmo bloco
+    // (`#publicar` faz o fan-out e só então `#reagendar` anuncia), e o transporte preserva a
+    // ordem por cliente. Então a versão registrada aqui é a da decisão a que este relógio
+    // pertence — e é por ela que se identifica o relógio, nunca pelo instante.
+    sdk.onMessage("TURN_CLOCK", (m: RelogioDaDecisao) => c.relogios.push({ m, versao: c.versao }));
     clientes.push(c);
   }
   for (const c of clientes) c.sdk.send("CLIENT_SET_READY", { ready: true });
@@ -154,18 +164,45 @@ async function resolverTrunfo(room: KingRoom, clientes: Sintetico[]): Promise<vo
 
 
 /**
- * ESPERA O RELÓGIO NOVO, e não "algum" relógio.
+ * O RELÓGIO DE UMA DECISÃO — identificado pela VERSÃO autoritativa, nunca pelo instante.
+ *
+ * ══ TRÊS ENGANOS, E CADA UM ENSINOU O SEGUINTE ══
  *
  * A primeira versão esperava `ultimo(c)` ser não-nulo — e ele já era, desde a primeira jogada da
- * partida. O teste lia um relógio VELHO e reprovava com o número certo pelo motivo errado: teria
- * continuado vermelho mesmo com a correção aplicada, que é a pior espécie de teste.
+ * partida. O teste lia um relógio VELHO e reprovava com o número certo pelo motivo errado.
+ *
+ * A segunda usou um corte por RELÓGIO DE PAREDE: `r.em >= marco`, com `marco = Date.now()`
+ * tirado depois de a jogada ser aceita. Parecia seguro e não era. Quando a carta que fecha a vaza
+ * chega, o servidor aplica a mutação E anuncia o relógio no MESMO bloco síncrono; o transporte do
+ * `@colyseus/testing` é em processo, então o cliente pode registrar o relógio ANTES de o laço de
+ * espera do teste (1ms) perceber a mudança de estado e tirar o `marco`. Nesse caso `r.em < marco`
+ * e o ÚNICO relógio que servia era descartado — 10s de espera e "tempo esgotado".
+ *
+ * Localmente a ordem caía sempre do lado bom (22 execuções verdes); na CI, não. Não é
+ * intermitência: é critério de identidade errado. Tempo não identifica um evento que é
+ * causalmente simultâneo à observação.
+ *
+ * Provado antes de corrigir: com o laço de espera atrasado para 60ms, o erro da CI reproduz
+ * localmente, palavra por palavra.
+ *
+ * A terceira usou a POSIÇÃO na fila de mensagens. Também errada, e pelo mesmo tipo de motivo:
+ * numa vaza o mesmo assento pode receber DOIS relógios de `PLAY` — o da vez dele antes de jogar
+ * (prazo 20000) e o da vez dele na vaza seguinte, depois do fechamento (prazo 20000 + respiro).
+ * Quem ganha a própria vaza lidera a seguinte, e é o caso comum. A posição não distingue os dois
+ * quando a entrega do primeiro atravessa o marco: o teste pegava o relógio ANTIGO e media
+ * `4998ms` de prazo útil — o número do defeito, com o código correto.
+ *
+ * O critério certo não é tempo nem posição: é CAUSALIDADE. Cada relógio é registrado com a
+ * versão autoritativa que o cliente já havia aplicado quando ele chegou, e a decisão que
+ * interessa é a primeira com versão >= a versão de DEPOIS do fechamento da vaza. Um relógio
+ * emitido antes do fechamento carrega, necessariamente, uma versão menor.
  */
-async function relogioDepoisDe(c: Sintetico, marco: number, seat: Seat) {
-  await ate(
-    () => c.relogios.some((r) => r.em >= marco && r.m.seat === seat && r.m.tipo === "PLAY"),
-    10_000, "o relógio do turno seguinte",
+async function relogioDaDecisao(c: Sintetico, versaoMinima: number, seat: Seat) {
+  const achar = () => c.relogios.find(
+    (r) => r.versao >= versaoMinima && r.m.seat === seat && r.m.tipo === "PLAY",
   );
-  return c.relogios.filter((r) => r.em >= marco && r.m.seat === seat && r.m.tipo === "PLAY")[0]!;
+  await ate(() => !!achar(), 10_000, "o relógio da decisão desta versão");
+  return achar()!;
 }
 
 /**
@@ -174,8 +211,10 @@ async function relogioDepoisDe(c: Sintetico, marco: number, seat: Seat) {
  * `libera` é quando a apresentação termina — a pausa de leitura contada a partir do fechamento da
  * vaza. `fim` é quando o prazo autoritativo expira. A diferença é o que ele pode usar.
  */
-function prazoUtil(r: { m: RelogioDaDecisao; em: number }, fechouEm: number, pausa: number): number {
-  const fim = r.em + r.m.restanteMs;
+function prazoUtil(r: { m: RelogioDaDecisao }, fechouEm: number, pausa: number): number {
+  // O relógio é lido assim que chega, e o fechamento da vaza é o zero da conta: os dois estão a
+  // milissegundos um do outro, e a margem de agendamento cobre a diferença com folga.
+  const fim = fechouEm + r.m.restanteMs;
   const libera = fechouEm + pausa;
   return fim - libera;
 }
@@ -188,6 +227,8 @@ describe("depois que uma vaza fecha, o prazo do próximo humano chega inteiro", 
     // Uma vaza inteira: quatro cartas.
     for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
     const fechouEm = Date.now();
+    // A versão DEPOIS do fechamento: o relógio que interessa é o primeiro a partir dela.
+    const versao = room.autoridadeDaPartida().stateVersion;
 
     const m = room.autoridadeDaPartida().estadoAutoritativo()!;
     expect(m.hand!.completedTricks.length, "a vaza não fechou").toBe(1);
@@ -197,7 +238,7 @@ describe("depois que uma vaza fecha, o prazo do próximo humano chega inteiro", 
 
     await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o próximo turno abrir");
     const proximo = daVezNaAutoridade(room, clientes)!;
-    const r = await relogioDepoisDe(proximo, fechouEm, proximo.seat);
+    const r = await relogioDaDecisao(proximo, versao, proximo.seat);
 
     const util = prazoUtil(r, fechouEm, pausa);
     expect(
@@ -212,16 +253,17 @@ describe("depois que uma vaza fecha, o prazo do próximo humano chega inteiro", 
     await resolverTrunfo(room, clientes);
     for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
     const fechouEm = Date.now();
+    const versao = room.autoridadeDaPartida().stateVersion;
     const pausa = pausaDaLeitura(room.autoridadeDaPartida().estadoAutoritativo()!);
 
     await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o próximo turno abrir");
     const proximo = daVezNaAutoridade(room, clientes)!;
-    const r = await relogioDepoisDe(proximo, fechouEm, proximo.seat);
+    const r = await relogioDaDecisao(proximo, versao, proximo.seat);
 
     // Passada a pausa, o que resta tem de ser o prazo cheio — nem mais, nem menos. Um respiro
     // que não decaísse apareceria aqui como um relógio maior que o prazo, e o jogador veria
     // "23s" virar "26s" sem explicação.
-    const restanteAoLiberar = r.em + r.m.restanteMs - (fechouEm + pausa);
+    const restanteAoLiberar = prazoUtil(r, fechouEm, pausa);
     expect(restanteAoLiberar).toBeLessThanOrEqual(TURNO + MARGEM);
   }, 60_000);
 });
@@ -288,12 +330,13 @@ describe("o que foi jogado durante a pausa também é descontado", () => {
     // UMA carta da vaza nova, ainda DENTRO da pausa. Para a mesa ela está represada: só vai
     // entrar quando a leitura terminar, e só então o próximo pode agir.
     await jogarUma(room, clientes);
+    const versao = room.autoridadeDaPartida().stateVersion;
     expect(Date.now(), "a jogada saiu da janela da pausa — o cenário não é o que se quer medir")
       .toBeLessThan(fechouEm + pausa);
 
     await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o turno seguinte abrir");
     const proximo = daVezNaAutoridade(room, clientes)!;
-    const r = await relogioDepoisDe(proximo, fechouEm, proximo.seat);
+    const r = await relogioDaDecisao(proximo, versao, proximo.seat);
 
     // A liberação real: a pausa MAIS uma cadência pela carta represada.
     const util = prazoUtil(r, fechouEm, pausa + TEMPOS.passoDaApresentacao);
@@ -312,11 +355,12 @@ describe("o que foi jogado durante a pausa também é descontado", () => {
 
     await jogarUma(room, clientes);
     await jogarUma(room, clientes);
+    const versao = room.autoridadeDaPartida().stateVersion;
     expect(Date.now()).toBeLessThan(fechouEm + pausa);
 
     await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o turno seguinte abrir");
     const proximo = daVezNaAutoridade(room, clientes)!;
-    const r = await relogioDepoisDe(proximo, fechouEm, proximo.seat);
+    const r = await relogioDaDecisao(proximo, versao, proximo.seat);
 
     const util = prazoUtil(r, fechouEm, pausa + 2 * TEMPOS.passoDaApresentacao);
     expect(
