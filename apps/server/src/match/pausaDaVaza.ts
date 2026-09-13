@@ -22,11 +22,13 @@
 // espera sobre uma espera que o jogador já vê. Estender o prazo não atrasa nada — só deixa de
 // cobrar do jogador um tempo em que ele estava impedido de jogar.
 //
-// ══ POR QUE O RESPIRO NÃO APARECE COMO "28s" NA TELA ══
+// ══ O RESPIRO SÓ EXISTE ENQUANTO O JOGADOR NÃO PODE AGIR ══
 //
-// Porque ele DECAI. O prazo é calculado no instante do agendamento e o `TURN_CLOCK` carrega o
-// restante; quando a pausa termina e o jogador finalmente pode agir, o respiro já foi consumido
-// por ela e o que sobra é o prazo cheio. É a mesma mecânica do respiro da última mão.
+// Ele DECAI: o prazo é calculado no instante do agendamento e o `TURN_CLOCK` carrega o restante.
+// Isso só dá o prazo cheio no instante clicável se o jogador estava mesmo impedido durante todo
+// o respiro. A primeira versão supôs que ninguém joga durante a pausa — e para o LÍDER da vaza
+// seguinte isso é falso: a Mesa habilita as cartas dele durante a pausa. O respiro inflava o
+// relógio de quem já podia jogar (medido no navegador real: 25,6s e 27,2s). Ver `respiroDaLeitura`.
 import { handBreakdown, type MatchState } from "@king/engine";
 import { TEMPOS } from "./tempos.js";
 
@@ -73,15 +75,21 @@ export function pausaDaLeitura(m: MatchState | null): number {
 /**
  * Quanto ainda falta, agora, para o cliente poder mostrar este turno ao jogador.
  *
- * Duas parcelas, e as duas são tempo em que ele está impedido de agir:
+ * ══ SEM NADA REPRESADO, NÃO HÁ O QUE PROTEGER ══
  *
- *   1. o resto da PAUSA de leitura — a mesa está parada mostrando a vaza que fechou;
- *   2. `represados × passoDaApresentacao` — o que o servidor produziu DURANTE a pausa ainda
- *      precisa entrar na mesa, uma carta por vez. É a cadência corrigida em 3018e97, e ela custa
- *      tempo justamente porque cada carta agora é perceptível.
+ * Sem nenhuma carta represada, a decisão é do LÍDER da vaza seguinte — e ele já pode jogar: a
+ * Mesa habilita as cartas dele durante a pausa de leitura, de propósito. Somar a pausa ali dava a
+ * quem já podia agir um relógio de 25,6s (vaza comum) a 27,9s (Rei de Copas). Respiro zero.
  *
- * Decai sozinho: é uma diferença contra `agora`. Quando a apresentação termina, vale 0, e o prazo
- * volta a ser exatamente o prazo.
+ * ══ COM CARTAS REPRESADAS, O TEMPO NÃO É DO JOGADOR ══
+ *
+ * O que o servidor produziu DURANTE a pausa ainda precisa entrar na mesa, uma carta por vez,
+ * depois dela — e o humano só pode agir quando a última entrar. Duas parcelas:
+ *
+ *   1. o resto da PAUSA de leitura;
+ *   2. `represados × passoDaApresentacao`, a cadência corrigida em 3018e97.
+ *
+ * Decai sozinho: é uma diferença contra `agora`. Quando a apresentação termina, vale 0.
  */
 export function respiroDaLeitura(
   agora: number,
@@ -89,7 +97,8 @@ export function respiroDaLeitura(
   pausa: number,
   represados: number,
 ): number {
-  if (fechouEm === null) return 0;
+  // Nada represado: quem decide é o líder, que já pode jogar durante a pausa.
+  if (fechouEm === null || represados === 0) return 0;
   const liberaEm = fechouEm + pausa + represados * TEMPOS.passoDaApresentacao;
   return Math.max(0, liberaEm - agora);
 }

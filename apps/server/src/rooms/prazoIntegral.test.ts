@@ -7,9 +7,11 @@
 // produziu durante ela. Entre um instante e o outro o relógio corre contra alguém que ainda não
 // pode agir.
 //
-// Medido antes desta correção: até 1980ms de 25000ms num caso de bots consecutivos, e a pausa de
-// leitura INTEIRA (até 3400ms) quando o próprio humano lidera a vaza seguinte — que é o caso pior
-// e o que passou despercebido na primeira medição.
+// Medido antes da primeira correção: até 1980ms de 25000ms num caso de bots consecutivos.
+//
+// Esta suíte já exigiu, também, que quem LIDERA a vaza seguinte recebesse a pausa de leitura
+// inteira. Era premissa errada — o líder pode jogar durante a pausa — e ela inflava o relógio de
+// quem já podia agir. Ver o primeiro bloco, e tests/prazoJogavel.spec.ts no navegador real.
 //
 // ══ POR QUE O TESTE MEDE "PRAZO ÚTIL", E NÃO "PRAZO" ══
 //
@@ -20,9 +22,8 @@
 //
 // ══ POR QUE 4 HUMANOS E NENHUM BOT ══
 //
-// É o cenário determinístico: sem bot, nada é produzido durante a pausa, então a dívida é
-// exatamente a pausa de leitura. Sem sorteio, sem depender de qual vaza saiu bucha. Os bots
-// entram no segundo bloco, onde o que se mede é a parcela de represamento.
+// É o cenário determinístico: quem joga é o próprio teste, no instante que escolhe. Sem sorteio,
+// sem depender de qual vaza saiu bucha, sem bot decidindo a hora de uma jogada.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import { cardId, legalCardsFor, type PlayerView, type Seat } from "@king/engine";
@@ -219,52 +220,56 @@ function prazoUtil(r: { m: RelogioDaDecisao }, fechouEm: number, pausa: number):
   return fim - libera;
 }
 
-describe("depois que uma vaza fecha, o prazo do próximo humano chega inteiro", () => {
-  it("quem joga a primeira carta da vaza seguinte não paga a pausa de leitura", async () => {
+/**
+ * ══ A PREMISSA QUE ESTE BLOCO JÁ EXIGIU, E QUE A MESA REAL DESMENTIU ══
+ *
+ * A versão anterior deste bloco exigia que quem LIDERA a vaza seguinte recebesse a pausa de
+ * leitura inteira somada ao prazo, sob a premissa de que "ninguém joga durante a pausa". Para o
+ * líder, ela é falsa: a Mesa habilita as cartas dele DURANTE a pausa, de propósito (`Mesa.tsx`:
+ * "jogar enquanto o chip está na tela continua possível"). Medido no navegador real
+ * (tests/prazoJogavel.spec.ts), o líder ficava clicável com 25,6s depois de uma vaza comum e com
+ * 27,2s depois de uma bucha — o respiro inflava o relógio de quem já podia agir.
+ *
+ * O contrato agora: sem nada represado, o líder recebe o prazo NOMINAL. O respiro de leitura só
+ * existe enquanto uma apresentação ainda bloqueia a ação — ver o bloco das represadas.
+ */
+describe("quem lidera a vaza seguinte já pode agir: recebe o prazo nominal", () => {
+  it("o líder da vaza seguinte não recebe a pausa de leitura somada ao prazo", async () => {
     const { room, clientes } = await salaCom4();
     await resolverTrunfo(room, clientes);
-
-    // Uma vaza inteira: quatro cartas.
     for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
-    const fechouEm = Date.now();
-    // A versão DEPOIS do fechamento: o relógio que interessa é o primeiro a partir dela.
     const versao = room.autoridadeDaPartida().stateVersion;
-
     const m = room.autoridadeDaPartida().estadoAutoritativo()!;
     expect(m.hand!.completedTricks.length, "a vaza não fechou").toBe(1);
     const pausa = pausaDaLeitura(m);
-    expect(pausa, "pausa de leitura nula — o cenário não é o que se quer medir")
-      .toBeGreaterThan(0);
+    expect(pausa, "pausa de leitura nula — o cenário não é o que se quer medir").toBeGreaterThan(0);
 
     await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o próximo turno abrir");
-    const proximo = daVezNaAutoridade(room, clientes)!;
-    const r = await relogioDaDecisao(proximo, versao, proximo.seat);
+    const lider = daVezNaAutoridade(room, clientes)!;
+    const r = await relogioDaDecisao(lider, versao, lider.seat);
 
-    const util = prazoUtil(r, fechouEm, pausa);
     expect(
-      util,
-      `o jogador recebeu ${util}ms úteis de um prazo de ${TURNO}ms — ` +
-      `a pausa de leitura de ${pausa}ms foi cobrada dele`,
-    ).toBeGreaterThanOrEqual(TURNO - MARGEM);
+      r.m.restanteMs,
+      `o líder nasceu com ${r.m.restanteMs}ms de um prazo de ${TURNO}ms — ` +
+      `a pausa de ${pausa}ms foi somada a quem já podia jogar`,
+    ).toBeLessThanOrEqual(TURNO + MARGEM);
+    expect(r.m.restanteMs, `o líder nasceu com ${r.m.restanteMs}ms — abaixo do nominal`)
+      .toBeGreaterThanOrEqual(TURNO - MARGEM);
   }, 60_000);
 
-  it("o prazo anunciado continua sendo o prazo — o respiro DECAI, não infla o relógio", async () => {
+  it("em duas vazas seguidas, nenhum líder nasce acima do nominal", async () => {
     const { room, clientes } = await salaCom4();
     await resolverTrunfo(room, clientes);
-    for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
-    const fechouEm = Date.now();
-    const versao = room.autoridadeDaPartida().stateVersion;
-    const pausa = pausaDaLeitura(room.autoridadeDaPartida().estadoAutoritativo()!);
-
-    await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o próximo turno abrir");
-    const proximo = daVezNaAutoridade(room, clientes)!;
-    const r = await relogioDaDecisao(proximo, versao, proximo.seat);
-
-    // Passada a pausa, o que resta tem de ser o prazo cheio — nem mais, nem menos. Um respiro
-    // que não decaísse apareceria aqui como um relógio maior que o prazo, e o jogador veria
-    // "23s" virar "26s" sem explicação.
-    const restanteAoLiberar = prazoUtil(r, fechouEm, pausa);
-    expect(restanteAoLiberar).toBeLessThanOrEqual(TURNO + MARGEM);
+    for (let vaza = 1; vaza <= 2; vaza++) {
+      for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
+      const versao = room.autoridadeDaPartida().stateVersion;
+      expect(room.autoridadeDaPartida().estadoAutoritativo()!.hand!.completedTricks.length).toBe(vaza);
+      await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o próximo turno abrir");
+      const lider = daVezNaAutoridade(room, clientes)!;
+      const r = await relogioDaDecisao(lider, versao, lider.seat);
+      expect(r.m.restanteMs, `vaza ${vaza}: o líder nasceu com ${r.m.restanteMs}ms`)
+        .toBeLessThanOrEqual(TURNO + MARGEM);
+    }
   }, 60_000);
 });
 
