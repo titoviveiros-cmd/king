@@ -21,6 +21,14 @@
 // Qualquer mecanismo assim seria alcançável em produção por quem falasse o protocolo, e o preço
 // de um teste rápido não paga uma porta dessas. Então se joga a partida inteira, como um jogador.
 //
+// ══ O QUE ESTE VERIFICADOR NÃO PROVA ══
+//
+// Ele fala o protocolo, não desenha Mesa. Tudo o que afirma é sobre valores que o SERVIDOR
+// ANUNCIA (TURN_CLOCK.restanteMs) e sobre a ordem autoritativa. Ele NÃO prova o instante em que
+// a carta fica CLICÁVEL, nem quanto do prazo resta nesse instante: isso depende da fila de
+// apresentação do cliente, e é propriedade do navegador real — apps/web/tests/prazoJogavel.spec.ts
+// (Playwright), que mede teto e piso no DOM.
+//
 // ══ CÓDIGOS DE SAÍDA ══
 //
 //   0  aprovado
@@ -58,11 +66,35 @@ async function ate(cond, ms) {
   return true;
 }
 
+/**
+ * Quanto um valor ANUNCIADO pode se afastar do esperado. O `restanteMs` é calculado pelo servidor
+ * no mesmo tique em que agenda o prazo (`deadlineEm - Date.now()`); o único ruído que sobra é o do
+ * respiro da abertura, estimado aqui por dois instantes de CHEGADA.
+ */
+const MARGEM_ANUNCIADO = 150;
+const PASSO_DA_APRESENTACAO = 520;
+
 function escutar(sala) {
-  const c = { sala, boasVindas: null, view: null, versao: 0, relogios: [], recusas: [] };
+  const c = {
+    sala, boasVindas: null, view: null, versao: 0, relogios: [], recusas: [], historico: [],
+  };
   sala.onMessage("SERVER_WELCOME", (m) => { c.boasVindas = m; });
-  sala.onMessage("STATE_UPDATE", (m) => { c.view = m?.view ?? null; c.versao = m?.stateVersion ?? c.versao; });
-  sala.onMessage("TURN_CLOCK", (m) => c.relogios.push(m));
+  sala.onMessage("STATE_UPDATE", (m) => {
+    c.view = m?.view ?? null;
+    c.versao = m?.stateVersion ?? c.versao;
+    const h = c.view?.hand;
+    // Resumo por VERSÃO: é a identidade de cada decisão. O relógio não carrega versão, mas chega
+    // depois do estado que abriu a decisão — as mensagens de uma sala são entregues em ordem.
+    if (h) {
+      c.historico.push({
+        versao: c.versao, t: Date.now(), causa: m.cause, mao: h.handNumber, vez: h.turn,
+        trunfoDe: h.awaitingTrumpFrom, naMesa: h.currentTrick?.length ?? 0,
+        fechadas: h.completedTricks?.length ?? 0, encerrada: h.handScores !== null,
+      });
+    }
+  });
+  // Cada relógio leva a versão que este cliente já tinha aplicado quando ele chegou.
+  sala.onMessage("TURN_CLOCK", (m) => c.relogios.push({ m, versao: c.versao, t: Date.now() }));
   sala.onMessage("ACTION_REJECTED", (m) => c.recusas.push(m));
   for (const t of ["PLAYER_JOINED", "PLAYER_LEFT", "PLAYER_CONNECTION", "SERVER_ERROR",
     "READY_STATE", "SOCIAL_MESSAGE", "AUTO_ACTION"]) sala.onMessage(t, () => {});
@@ -172,10 +204,10 @@ try {
     const ehBot = escolhedor !== null && !HUMANOS.includes(escolhedor);
 
     // 1 · A PRIMEIRA DECISÃO NASCE COM O RESPIRO SOMADO.
-    if (!(await ate(() => a.relogios.at(-1)?.tipo === "TRUMP", 20_000))) {
+    if (!(await ate(() => a.relogios.at(-1)?.m.tipo === "TRUMP", 20_000))) {
       falhar("a mão 10 abriu sem relógio de escolha de trunfo");
     } else {
-      const r = a.relogios.at(-1);
+      const r = a.relogios.at(-1).m;
       const base = ehBot ? CORTESIA_DO_BOT : TEMPO_DE_TRUNFO();
       const piso = base + RESPIRO * 0.5; // metade do respiro basta para distinguir "tem" de "não tem"
       if (r.restanteMs < piso) {
@@ -202,15 +234,57 @@ try {
     } else {
       ok(`trunfo da mão 10 escolhido ${Date.now() - t0}ms depois da abertura`);
 
-      // 4 · A PRIMEIRA JOGADA HUMANA RECEBE O PRAZO INTEGRAL — ninguém pagou a animação.
-      const humano = () => a.relogios.filter((x) => x.tipo === "PLAY" && HUMANOS.includes(x.seat)).at(-1);
-      if (!(await ate(() => humano() !== undefined, 60_000))) {
+      // 4 · A PRIMEIRA JOGADA HUMANA RECEBE O PRAZO NOMINAL — nem erodido, nem inflado.
+      //
+      // ══ IDENTIDADE PELA VERSÃO, NÃO PELO ÚLTIMO RELÓGIO ══
+      //
+      // A versão anterior pegava o ÚLTIMO relógio humano de PLAY existente. Na primeira passada
+      // ele podia ser da MÃO 9 — foi assim que surgiram os 26279ms, um respiro de leitura da mão
+      // anterior atribuído à abertura da décima. Agora a decisão é identificada no histórico
+      // autoritativo: o primeiro estado da mão 10, já com trunfo, em que a vez é de um humano.
+      // O relógio dela é o PRIMEIRO que chegou com essa versão (os seguintes são avisos de
+      // WARNING/CRITICAL da mesma decisão, com menos tempo).
+      const decisao = () => {
+        const i = a.historico.findIndex((x) => x.mao === TOTAL_HANDS && !x.encerrada
+          && x.trunfoDe === null && HUMANOS.includes(x.vez));
+        if (i < 0) return null;
+        const d = a.historico[i];
+        const relogio = a.relogios.find((x) => x.versao === d.versao && x.m.tipo === "PLAY" && x.m.seat === d.vez);
+        return relogio ? { d, anterior: a.historico[i - 1] ?? null, relogio } : null;
+      };
+      if (!(await ate(() => decisao() !== null, 60_000))) {
         inconclusivo = inconclusivo ?? "nenhuma decisão humana de jogada observada na mão 10";
       } else {
-        const r = humano();
-        if (r.restanteMs < TURNO * 0.9) {
-          falhar(`primeira jogada humana da mão 10 com ${r.restanteMs}ms — prazo erodido pela transição`);
-        } else ok(`primeira jogada humana da mão 10 com prazo integral: ${r.restanteMs}ms`);
+        const { d, anterior, relogio } = decisao();
+        const r = relogio.m;
+        const primeira = d.fechadas === 0 && d.naMesa === 0;
+        const nominal = TURNO + (primeira ? 15_000 : 0);
+        const rotulo = `primeira jogada humana da mão 10 (assento ${d.vez}, versão ${d.versao}` +
+          `${primeira ? ", abre a mão" : ""})`;
+
+        // PISO — vale sempre: o respiro nunca é negativo, então o anunciado não fica abaixo do nominal.
+        if (r.restanteMs < nominal - MARGEM_ANUNCIADO) {
+          falhar(`${rotulo} anunciada com ${r.restanteMs}ms — abaixo do nominal ${nominal}ms`);
+        } else ok(`${rotulo}: piso respeitado (${r.restanteMs}ms ≥ ${nominal}ms − ${MARGEM_ANUNCIADO}ms)`);
+
+        // TETO — só onde o script sabe o que o servidor deveria somar. Na mão 10 ainda não fechou
+        // vaza nenhuma, então não há respiro de leitura; resta o da abertura, que decai desde o
+        // início da mão e é estimado aqui pelos instantes de chegada. Se a decisão foi aberta
+        // menos de um passo de apresentação depois do estado anterior, o servidor pode somar a
+        // cadência do cliente — isso o script não reconstrói, então não afirma teto.
+        const inicio = a.historico.find((x) => x.mao === TOTAL_HANDS);
+        const folgaDaCadencia = anterior ? d.t - anterior.t : Infinity;
+        if (d.fechadas !== 0 || folgaDaCadencia < PASSO_DA_APRESENTACAO + MARGEM_ANUNCIADO) {
+          console.log(`  · teto não afirmado: a decisão veio ${folgaDaCadencia}ms depois do estado ` +
+            "anterior — a cadência do cliente pode entrar no prazo, e só o navegador mede isso");
+        } else {
+          const abertura = Math.max(0, RESPIRO - (relogio.t - inicio.t));
+          const teto = nominal + abertura + MARGEM_ANUNCIADO;
+          if (r.restanteMs > teto) {
+            falhar(`${rotulo} anunciada com ${r.restanteMs}ms — acima do teto ${teto}ms ` +
+              `(nominal ${nominal} + abertura restante ${abertura} + margem ${MARGEM_ANUNCIADO})`);
+          } else ok(`${rotulo}: teto respeitado (${r.restanteMs}ms ≤ ${teto}ms)`);
+        }
       }
     }
   }

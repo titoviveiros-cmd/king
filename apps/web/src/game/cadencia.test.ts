@@ -28,7 +28,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  ehCadenciada, LIMITE_DA_FILA, proximoPasso, quantosPorTique,
+  ehCadenciada, instanteDaProximaApresentacao, LIMITE_DA_FILA, proximoPasso, quantosPorTique,
 } from "./filaDeApresentacao.js";
 import { TEMPOS } from "./timings.js";
 import type { Causa } from "../net/protocolo.js";
@@ -55,26 +55,39 @@ interface Apresentada { causa: Causa; em: number }
 /**
  * Roda o relógio do cliente sobre uma sequência de chegadas do servidor.
  *
- * Reproduz o laço do hook: um tique a cada `botPasso`; durante uma pausa de apresentação a fila
- * REPRESA (não é descartada); fora dela, escoa segundo a política.
+ * Reproduz o dreno do hook, orientado a instantes: cada atualização entra no instante que
+ * `instanteDaProximaApresentacao` — a POLÍTICA DE VERDADE, importada — permite, e o simulador só
+ * avança o tempo até o próximo evento (uma chegada ou esse instante). Durante uma pausa a fila
+ * REPRESA (não é descartada). Uma pausa nasce de uma carta que acabou de entrar na mesa: por isso
+ * o início dela conta como a apresentação anterior.
  */
 function simular(chegadas: Chegada[], pausas: { de: number; ate: number }[] = []): Apresentada[] {
-  const fim = Math.max(...chegadas.map((c) => c.t), ...pausas.map((p) => p.ate)) + 6_000;
   const pendentes = [...chegadas].sort((a, b) => a.t - b.t);
   let fila: Chegada[] = [];
   const vistas: Apresentada[] = [];
+  let ultimaEm: number | null = pausas.length > 0 ? Math.min(...pausas.map((p) => p.de)) : null;
+  const pausaAte = (t: number) =>
+    pausas.filter((p) => t >= p.de && t < p.ate).reduce((m, p) => Math.max(m, p.ate), 0);
+  let agora = pendentes.length > 0 ? pendentes[0].t : 0;
 
-  for (let t = 0; t <= fim; t += TEMPOS.botPasso) {
-    while (pendentes.length > 0 && pendentes[0].t <= t) fila.push(pendentes.shift()!);
-    if (pausas.some((p) => t >= p.de && t < p.ate)) continue;
-
+  while (pendentes.length > 0 || fila.length > 0) {
+    while (pendentes.length > 0 && pendentes[0].t <= agora) fila.push(pendentes.shift()!);
+    if (fila.length === 0) { agora = pendentes[0].t; continue; }
+    const quando = instanteDaProximaApresentacao({
+      agora, ultimaEm, pausaAte: pausaAte(agora), passo: TEMPOS.botPasso,
+    });
+    if (quando > agora) {
+      agora = pendentes.length > 0 ? Math.min(quando, pendentes[0].t) : quando;
+      continue;
+    }
     const quantos = quantosPorTique(fila, (c) => ehCadenciada(c.causa));
     for (let i = 0; i < quantos; i++) {
       const passo = proximoPasso(fila, LIMITE_DA_FILA);
       if (!passo.proxima) break;
       fila = passo.resto;
-      vistas.push({ causa: passo.proxima.causa, em: t });
+      vistas.push({ causa: passo.proxima.causa, em: agora });
     }
+    ultimaEm = agora;
   }
   return vistas;
 }
@@ -278,5 +291,37 @@ describe("a dívida de apresentação contra o prazo do humano", () => {
       TEMPOS.leituraDaVazaKing, TEMPOS.fimDeMao]) {
       expect(divida(pausa, 3)).toBeLessThanOrEqual(TEMPOS.botPasso * 2 * 3);
     }
+  });
+});
+
+/**
+ * A FILA APRESENTA NO INSTANTE EM QUE PODE — nem antes, nem um tique depois.
+ *
+ * O laço anterior era um `setInterval(botPasso)` re-armado a cada TURN_CLOCK: toda atualização
+ * esperava o tique seguinte, e o turno do humano aparecia ~520ms depois de o prazo começar a
+ * correr. Medido na Mesa real: carta clicável com 24,47s de 25s em toda decisão.
+ */
+describe("a fila apresenta no instante em que pode", () => {
+  it("ociosa e fora de pausa, a atualização entra no instante em que chega", () => {
+    const vistas = simular([{ t: 0, causa: "CARD_PLAYED" }, { t: 3000, causa: "CARD_PLAYED" }]);
+    expect(vistas.map((v) => v.em)).toEqual([0, 3000]);
+  });
+
+  it("chegando menos de um passo depois da anterior, espera só o que falta do passo", () => {
+    const vistas = simular([{ t: 0, causa: "CARD_PLAYED" }, { t: 100, causa: "CARD_PLAYED" }]);
+    expect(vistas.map((v) => v.em)).toEqual([0, TEMPOS.botPasso]);
+  });
+
+  it("represadas na pausa: a primeira entra no fim exato dela, as seguintes a cada passo", () => {
+    const vistas = simular(bots(3, 0), [{ de: 0, ate: TEMPOS.leituraDaVazaKing }]);
+    const k = TEMPOS.leituraDaVazaKing;
+    expect(vistas.map((v) => v.em)).toEqual([k, k + TEMPOS.botPasso, k + 2 * TEMPOS.botPasso]);
+  });
+
+  it("a política: o mais tardio entre chegada, cadência e pausa", () => {
+    const passo = TEMPOS.botPasso;
+    expect(instanteDaProximaApresentacao({ agora: 1000, ultimaEm: null, pausaAte: 0, passo })).toBe(1000);
+    expect(instanteDaProximaApresentacao({ agora: 1000, ultimaEm: 900, pausaAte: 0, passo })).toBe(900 + passo);
+    expect(instanteDaProximaApresentacao({ agora: 1000, ultimaEm: 900, pausaAte: 5000, passo })).toBe(5000);
   });
 });

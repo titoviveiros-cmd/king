@@ -28,7 +28,9 @@ import { ArraySchema, schema } from "@colyseus/schema";
 import { TOTAL_HANDS, type Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import { TEMPOS } from "../match/tempos.js";
-import { pausaDaLeitura, respiroDaLeitura } from "../match/pausaDaVaza.js";
+import {
+  espelhoVazio, pausaDaLeitura, publicarNoEspelho, respiroDaLeitura, saltarEspelho, type EspelhoDaFila,
+} from "../match/pausaDaVaza.js";
 import { IdentidadeRecusada, verificadorEmUso, type IdentidadeVerificada } from "../auth/identidade.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
@@ -214,13 +216,17 @@ export class KingRoom extends Room<{
    * O que estava errado era COBRAR esse tempo do próximo jogador. O prazo dele começava com a
    * mesa parada, e ele recebia 23s de um prazo de 25s sem ter feito nada.
    *
-   * Estes três campos são a memória do que a apresentação ainda deve: quando a vaza fechou,
-   * quanto tempo a mesa fica parada, e quantos passos o servidor produziu DURANTE a parada —
-   * cada um deles ainda vai entrar na mesa um de cada vez, ao ritmo da cadência.
+   * Estes campos são o ESPELHO da fila do cliente (`publicarNoEspelho`): o que ainda está
+   * represado, quando a última atualização entrou na mesa e até quando a mesa fica parada lendo a
+   * vaza que fechou — com o colapso incluído. A decisão aberta por uma publicação só fica visível
+   * quando ela entra; é esse instante, e não o do servidor, que o prazo do humano precisa respeitar.
+   *
+   * Substituem a conta "fechamento + pausa + represadas × passo", reprovada pela medição no
+   * navegador real: inflava até +523ms e deixava o líder erodir até −329ms.
    */
-  #vazaFechouEm: number | null = null;
-  #pausaDaVazaMs = 0;
-  #represados = 0;
+  #espelhoDaFila: EspelhoDaFila = espelhoVazio();
+  /** Quando a última publicação fica visível nos clientes. */
+  #visivelEm: number | null = null;
   /** Quantas vazas o motor já fechou nesta mão. A SUBIDA é o gatilho. */
   #vazasFechadas = 0;
   /** Quando a mão corrente COMEÇOU, e qual é ela — origem do respiro da última mão. */
@@ -595,9 +601,7 @@ export class KingRoom extends Room<{
      * Dar respiro a ele apenas atrasaria a próxima carta, deixando o jogo mais lento sem
      * devolver tempo a ninguém.
      */
-    const leitura = respiroDaLeitura(
-      Date.now(), this.#vazaFechouEm, this.#pausaDaVazaMs, this.#represados,
-    );
+    const leitura = respiroDaLeitura(Date.now(), this.#visivelEm);
     return {
       tipo: "PLAY", seat,
       prazo: TEMPOS.turno + (primeira ? TEMPOS.primeiraJogadaExtra : 0) + respiro + leitura,
@@ -781,28 +785,26 @@ export class KingRoom extends Room<{
       this.#maoEmCurso = m.hand.handNumber;
       this.#maoComecouEm = Date.now();
     }
-    // A VAZA QUE FECHOU: origem do respiro de leitura. O gatilho é a SUBIDA do número de vazas
-    // completas — não a causa da publicação, que se repete para os quatro clientes.
+    // A FILA DO CLIENTE, ESPELHADA: quando esta publicação vai entrar na mesa.
+    const agora = Date.now();
     const fechadas = m?.hand?.completedTricks.length ?? 0;
-    if (fechadas > this.#vazasFechadas) {
-      this.#vazasFechadas = fechadas;
-      this.#vazaFechouEm = Date.now();
-      this.#pausaDaVazaMs = pausaDaLeitura(m);
-      // A carta que FECHOU a vaza é apresentada antes da pausa: ela não está represada.
-      this.#represados = 0;
-    } else if (fechadas < this.#vazasFechadas) {
-      // Mão nova: não há dívida herdada da mão anterior.
-      this.#vazasFechadas = fechadas;
-      this.#vazaFechouEm = null;
-      this.#pausaDaVazaMs = 0;
-      this.#represados = 0;
-    } else if (
-      this.#vazaFechouEm !== null && (causa === "CARD_PLAYED" || causa === "TRUMP_SELECTED")
-      && Date.now() < this.#vazaFechouEm + this.#pausaDaVazaMs
-    ) {
-      // Produzido ENQUANTO a mesa estava parada: ainda vai precisar do seu instante para entrar.
-      this.#represados++;
+    if (causa === "MATCH_STARTED" || causa === "RESYNC" || causa === "RECONNECTED") {
+      // Salto: o cliente mostra na hora, sem fila e sem pausa.
+      this.#espelhoDaFila = saltarEspelho(agora);
+      this.#visivelEm = agora;
+    } else {
+      // A carta que FECHA a vaza abre a pausa a partir da PRÓPRIA apresentação. O gatilho é a
+      // SUBIDA do número de vazas completas — não a causa, que se repete para os quatro clientes.
+      const fechou = causa === "CARD_PLAYED" && fechadas > this.#vazasFechadas;
+      const r = publicarNoEspelho(this.#espelhoDaFila, {
+        chegada: agora,
+        pausa: fechou ? pausaDaLeitura(m) : 0,
+        viraMao: causa === "HAND_ADVANCED",
+      }, TEMPOS.passoDaApresentacao);
+      this.#espelhoDaFila = r.espelho;
+      this.#visivelEm = r.visivelEm;
     }
+    this.#vazasFechadas = fechadas;
     for (const c of this.clients) this.#publicarPara(c as ClienteDoKing, causa);
     this.#reagendar();
     // A mão pode ter acabado agora: os bots entram no consenso na hora, sem esperar prazo.

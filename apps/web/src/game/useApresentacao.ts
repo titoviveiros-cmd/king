@@ -79,11 +79,22 @@ export function useApresentacao() {
   /** A mesa está parada por QUALQUER motivo de apresentação — leitura da vaza ou anúncio. */
   const emPausa = useCallback(() => suspenso.current || Date.now() < reviewUntil.current, []);
 
+  /**
+   * ATÉ QUANDO a mesa fica parada. `Infinity` enquanto uma tela a cobre: o fim do anúncio da
+   * última mão não tem hora marcada — quem avisa é `suspender(false)`.
+   *
+   * Existe para a fila online apresentar no instante exato em que a pausa acaba, em vez de
+   * descobrir isso no tique seguinte de um intervalo.
+   */
+  const pausaAte = useCallback(() => (suspenso.current ? Infinity : reviewUntil.current), []);
+
   /** Corta a pausa e limpa o selo — usado ao virar a mão e ao ressincronizar. */
   const limpar = useCallback(() => {
     reviewUntil.current = 0;
     setCastigo(null);
   }, []);
 
-  return { castigo, shake, bump, announceTrick, afterPlay, emLeitura, emPausa, suspender, limpar };
+  return {
+    castigo, shake, bump, announceTrick, afterPlay, emLeitura, emPausa, pausaAte, suspender, limpar,
+  };
 }

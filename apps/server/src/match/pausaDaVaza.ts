@@ -73,32 +73,133 @@ export function pausaDaLeitura(m: MatchState | null): number {
 }
 
 /**
- * Quanto ainda falta, agora, para o cliente poder mostrar este turno ao jogador.
+ * QUANDO O CLIENTE VAI APRESENTAR UMA ATUALIZAÇÃO — o espelho, no servidor, da fila do cliente.
  *
- * ══ SEM NADA REPRESADO, NÃO HÁ O QUE PROTEGER ══
+ * ESPELHA `instanteDaProximaApresentacao` (apps/web/src/game/filaDeApresentacao.ts), e a
+ * equivalência é travada por teste do lado web, que importa as duas. A regra: a atualização entra
+ * no mais tardio entre a chegada, a cadência desde a anterior e o fim da pausa visual.
  *
- * Sem nenhuma carta represada, a decisão é do LÍDER da vaza seguinte — e ele já pode jogar: a
- * Mesa habilita as cartas dele durante a pausa de leitura, de propósito. Somar a pausa ali dava a
- * quem já podia agir um relógio de 25,6s (vaza comum) a 27,9s (Rei de Copas). Respiro zero.
+ * ══ POR QUE UMA RECORRÊNCIA, E NÃO UMA CONTA DE CARTAS ══
  *
- * ══ COM CARTAS REPRESADAS, O TEMPO NÃO É DO JOGADOR ══
+ * Medido no navegador real (176 decisões, 2 humanos + 2 bots): nenhuma fórmula fixa explica o
+ * instante clicável. `represadas × passo` inflava até +523ms; `(represadas − 1) × passo` erodia
+ * até −758ms; e mesmo sem represada nenhuma o líder perdia até −329ms quando a carta que fecha a
+ * vaza chegava menos de um passo depois da anterior. A recorrência explicou o DOM com mediana de
+ * 2–5ms em todos os grupos.
+ */
+export function instanteDaApresentacao(p: {
+  agora: number;
+  ultimaEm: number | null;
+  pausaAte: number;
+  passo: number;
+}): number {
+  const cadencia = p.ultimaEm === null ? p.agora : p.ultimaEm + p.passo;
+  return Math.max(p.agora, cadencia, p.pausaAte);
+}
+
+/**
+ * Quantas atualizações represadas o cliente encena antes de COLAPSAR para a mais recente.
+ * ESPELHA `LIMITE_DA_FILA` (apps/web/src/game/filaDeApresentacao.ts); igualdade travada por teste.
+ */
+export const LIMITE_DA_FILA_DO_CLIENTE = 5;
+
+/** Uma publicação, do ponto de vista da fila do cliente. */
+export interface ItemDaFila {
+  /** Quando ela chega. */
+  chegada: number;
+  /** A pausa de leitura que ela abre ao entrar (a carta que FECHA a vaza); 0 se não abre. */
+  pausa: number;
+  /** Virar a mão limpa a pausa no cliente (`limpar()`). */
+  viraMao: boolean;
+}
+
+/** O que a fila do cliente carrega entre uma publicação e outra. */
+export interface EspelhoDaFila {
+  fila: readonly ItemDaFila[];
+  ultimaEm: number | null;
+  pausaAte: number;
+}
+
+export const espelhoVazio = (): EspelhoDaFila => ({ fila: [], ultimaEm: null, pausaAte: 0 });
+
+/** Salto (início, ressincronização): o cliente descarta a fila e a pausa e mostra na hora. */
+export const saltarEspelho = (agora: number): EspelhoDaFila => ({ fila: [], ultimaEm: agora, pausaAte: 0 });
+
+interface FilaMutavel { fila: ItemDaFila[]; ultimaEm: number | null; pausaAte: number }
+
+/**
+ * UM passo do dreno do cliente, se a cabeça da fila entra ANTES de `ate`.
  *
- * O que o servidor produziu DURANTE a pausa ainda precisa entrar na mesa, uma carta por vez,
- * depois dela — e o humano só pode agir quando a última entrar. Duas parcelas:
+ * A cabeça entra no instante da recorrência. Nesse instante, se há mais que `limite` atualizações
+ * já chegadas, a fila COLAPSA: aplica só a mais recente, descarta o resto e limpa a pausa — igual a
+ * `proximoPasso` + `limpar()` no cliente. A atualização aplicada pode abrir pausa (fechou vaza) ou
+ * limpá-la (virou a mão).
+ */
+function drenarUm(e: FilaMutavel, ate: number, passo: number, limite: number): { em: number; aplicado: ItemDaFila } | null {
+  if (e.fila.length === 0) return null;
+  const em = instanteDaApresentacao({ agora: e.fila[0].chegada, ultimaEm: e.ultimaEm, pausaAte: e.pausaAte, passo });
+  if (em >= ate) return null;
+  const chegadas = e.fila.filter((x) => x.chegada <= em).length;
+  const consumidos = chegadas > limite ? chegadas : 1;
+  if (chegadas > limite) e.pausaAte = 0;
+  const aplicado = e.fila[consumidos - 1];
+  e.fila = e.fila.slice(consumidos);
+  if (aplicado.viraMao) e.pausaAte = 0;
+  if (aplicado.pausa > 0) e.pausaAte = em + aplicado.pausa;
+  e.ultimaEm = em;
+  return { em, aplicado };
+}
+
+/**
+ * PUBLICA no espelho: devolve a fila depois desta chegada e QUANDO esta atualização fica visível.
  *
- *   1. o resto da PAUSA de leitura;
- *   2. `represados × passoDaApresentacao`, a cadência corrigida em 3018e97.
+ * Primeiro avança tudo o que o cliente já teria apresentado antes desta chegada; depois empilha a
+ * atualização e simula o dreno para a frente, sem supor chegadas futuras — se outra publicação
+ * vier, ela abre outra decisão e o prazo é recalculado.
+ *
+ * ══ POR QUE O COLAPSO PRECISA ESTAR AQUI ══
+ *
+ * Sem ele, uma mesa que joga depressa acumula um passo por atualização para sempre: a suíte da
+ * última mão, que joga nove mãos em sequência rápida, viu a primeira jogada da décima nascer com
+ * 350.971ms. O cliente real nunca fica tão atrás — colapsa acima de `limite` e salta para o presente.
+ */
+export function publicarNoEspelho(
+  atual: EspelhoDaFila,
+  item: ItemDaFila,
+  passo: number,
+  limite: number = LIMITE_DA_FILA_DO_CLIENTE,
+): { espelho: EspelhoDaFila; visivelEm: number } {
+  const e: FilaMutavel = { fila: [...atual.fila], ultimaEm: atual.ultimaEm, pausaAte: atual.pausaAte };
+  while (drenarUm(e, item.chegada, passo, limite));
+  e.fila.push(item);
+  const espelho: EspelhoDaFila = { fila: [...e.fila], ultimaEm: e.ultimaEm, pausaAte: e.pausaAte };
+  const futuro: FilaMutavel = { fila: [...e.fila], ultimaEm: e.ultimaEm, pausaAte: e.pausaAte };
+  for (;;) {
+    const r = drenarUm(futuro, Infinity, passo, limite)!;
+    if (r.aplicado === item) return { espelho, visivelEm: r.em };
+  }
+}
+
+/**
+ * Quanto ainda falta, agora, para o cliente mostrar ao jogador a decisão que acabou de abrir.
+ *
+ * `visivelEm` é o instante em que a publicação que abriu a decisão entra na mesa — calculado por
+ * `instanteDaApresentacao` sobre a sequência de publicações. O respiro é só a distância até lá.
+ *
+ * ══ O LÍDER NÃO GANHA A PAUSA ══
+ *
+ * A decisão do líder é aberta pela carta que FECHA a vaza, e a pausa começa DEPOIS de ela entrar:
+ * a Mesa habilita as cartas dele durante a leitura. Somar a pausa ali dava a quem já podia agir
+ * 25,6s a 27,9s. Mas se a carta que fechou esperou a cadência, esse tempo é devido.
+ *
+ * ══ O QUE FOI JOGADO DURANTE A PAUSA ══
+ *
+ * Entra depois dela, um passo por carta; a decisão aberta pela última só fica visível quando ela
+ * entra. A recorrência cobre isso sem contar cartas.
  *
  * Decai sozinho: é uma diferença contra `agora`. Quando a apresentação termina, vale 0.
  */
-export function respiroDaLeitura(
-  agora: number,
-  fechouEm: number | null,
-  pausa: number,
-  represados: number,
-): number {
-  // Nada represado: quem decide é o líder, que já pode jogar durante a pausa.
-  if (fechouEm === null || represados === 0) return 0;
-  const liberaEm = fechouEm + pausa + represados * TEMPOS.passoDaApresentacao;
-  return Math.max(0, liberaEm - agora);
+export function respiroDaLeitura(agora: number, visivelEm: number | null): number {
+  if (visivelEm === null) return 0;
+  return Math.max(0, visivelEm - agora);
 }

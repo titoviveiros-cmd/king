@@ -23,7 +23,7 @@ import type { Card, Seat, Trump } from "@king/engine";
 import { PartidaRemota } from "./partidaRemota.js";
 import { useApresentacao } from "./useApresentacao.js";
 import {
-  ehCadenciada, ehSalto, LIMITE_DA_FILA, proximoPasso, quantosPorTique,
+  ehCadenciada, ehSalto, instanteDaProximaApresentacao, LIMITE_DA_FILA, proximoPasso, quantosPorTique,
 } from "./filaDeApresentacao.js";
 import { useSonsDeTransicao } from "./useSonsDeTransicao.js";
 import { TEMPOS } from "./timings.js";
@@ -61,7 +61,8 @@ export interface AutoAcaoRecebida extends AcaoAutomatica {
 
 export function useKingOnline(abridor?: AbridorDeSessao) {
   const ap = useApresentacao();
-  const { bump, afterPlay, emLeitura, emPausa, suspender, limpar } = ap;
+  const { bump, afterPlay, emLeitura, emPausa, pausaAte, limpar } = ap;
+  const suspenderDaMesa = ap.suspender;
 
   const sessao = useRef<SessaoKing | null>(null);
   const partida = useRef<PartidaRemota | null>(null);
@@ -121,48 +122,100 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     bump();
   }, [afterPlay, bump, limpar]);
 
+  /** Quando a última atualização entrou na mesa. É daqui que a cadência conta. */
+  const ultimaApresentacaoEm = useRef<number | null>(null);
+  /** O único dreno agendado. Nunca há dois: cada agendamento cancela o anterior. */
+  const timerDaFila = useRef<number | null>(null);
+  const drenarRef = useRef<() => void>(() => {});
+  const cancelarDreno = useCallback(() => {
+    if (timerDaFila.current !== null) window.clearTimeout(timerDaFila.current);
+    timerDaFila.current = null;
+  }, []);
+
   /** Salto imediato para o estado mais recente — descarta o que estava represado. */
   const saltarPara = useCallback((u: AtualizacaoDeEstado) => {
+    cancelarDreno();
     fila.current = [];
     limpar();
     aplicar(u);
-  }, [aplicar, limpar]);
+    // Um salto também entra na mesa: a carta seguinte respeita a cadência a partir dele.
+    ultimaApresentacaoEm.current = Date.now();
+  }, [aplicar, cancelarDreno, limpar]);
 
-  // Consome a fila no ritmo da apresentação. Mesmo passo do modo local: a mesa tem o mesmo
-  // andamento nos dois modos, e é isso que faz o online "parecer" o KING que já foi validado.
-  useEffect(() => {
-    if (screen !== "mesa") return;
-    const id = setInterval(() => {
-      if (relogio) bump(); // contagem regressiva viva na tela
-      // Pausa de apresentação: a leitura da vaza que fechou, ou o anúncio da última mão por cima
-      // da Mesa. A fila NÃO é descartada — ela REPRESA. O que o servidor mandar durante o anúncio
-      // é apresentado depois dele, na ordem, em vez de acontecer atrás do véu.
-      if (emPausa()) { bump(); return; }
-
-      // O RITMO É PARA QUEM ESTÁ EM DIA, NÃO PARA QUEM ESTÁ ATRASADO.
-      //
-      // A cadência de `botPasso` existe para a mesa ter andamento legível — sem ela, as jogadas
-      // dos bots apareceriam todas no mesmo quadro. Só que ela era aplicada igual em duas
-      // situações diferentes: com a fila vazia (onde é ritmo) e com a fila cheia (onde vira
-      // atraso). Depois de cada pausa de leitura da vaza a fila represa um ou dois passos, e eles
-      // escoavam a 520ms cada — foi o segundo de diferença que um teste com dois aparelhos
-      // encontrou, com o mais lento sempre atrás.
-      //
-      // Estando atrasado, consome DOIS por tique. O andamento normal não muda em nada, porque com
-      // a fila em um item só o comportamento é idêntico ao de antes; o que muda é a recuperação,
-      // que deixa de ser tão lenta quanto o ritmo que ela precisa alcançar.
-      const quantos = quantosPorTique(fila.current, (u) => ehCadenciada(u.cause));
-      for (let i = 0; i < quantos; i++) {
-        const passo = proximoPasso(fila.current, LIMITE_DA_FILA);
-        if (!passo.proxima) break;
-        fila.current = passo.resto;
-        // Atrasou demais (aba em segundo plano, rede engasgada): vai direto para o presente.
-        if (passo.colapsou) limpar();
-        aplicar(passo.proxima);
+  // ─────────── a fila de apresentação: cada atualização no instante em que PODE entrar ───────────
+  //
+  // Mesmo passo do modo local: a mesa tem o mesmo andamento nos dois modos, e é isso que faz o
+  // online "parecer" o KING que já foi validado.
+  //
+  // ══ POR QUE NÃO É MAIS UM `setInterval` ══
+  //
+  // O laço era um intervalo de `botPasso` com `relogio` nas dependências. Renascia a cada
+  // TURN_CLOCK, e toda atualização esperava o tique seguinte; como o relógio chega logo depois do
+  // estado que abre a decisão, o turno do humano aparecia ~520ms depois de o prazo começar a
+  // correr. Medido na Mesa real (tests/prazoJogavel.spec.ts): carta clicável com 24,47s de 25s
+  // em toda decisão, e ~23,95s havendo carta represada.
+  //
+  // Agora cada atualização entra no instante que `instanteDaProximaApresentacao` diz — a chegada,
+  // a cadência desde a anterior e a pausa visual. Nada de lote, nada de descarte, nada de espera
+  // inventada: a política de passos é a mesma de antes, só o relógio que a dispara mudou.
+  const drenar = useCallback(() => {
+    cancelarDreno();
+    if (fila.current.length === 0) return;
+    const agora = Date.now();
+    // Pausa de apresentação: a leitura da vaza que fechou, ou o anúncio da última mão por cima
+    // da Mesa. A fila NÃO é descartada — ela REPRESA. O que o servidor mandar durante o anúncio
+    // é apresentado depois dele, na ordem, em vez de acontecer atrás do véu.
+    if (emPausa()) {
+      const ate = pausaAte();
+      // O anúncio não tem hora para acabar: quem retoma é `suspender(false)`, sem sondagem.
+      if (ate !== Infinity) {
+        timerDaFila.current = window.setTimeout(() => drenarRef.current(), Math.max(1, ate - agora));
       }
-    }, TEMPOS.botPasso);
-    return () => clearInterval(id);
-  }, [screen, aplicar, bump, emPausa, limpar, relogio]);
+      return;
+    }
+    const quando = instanteDaProximaApresentacao({
+      agora, ultimaEm: ultimaApresentacaoEm.current, pausaAte: pausaAte(), passo: TEMPOS.botPasso,
+    });
+    if (quando > agora) {
+      timerDaFila.current = window.setTimeout(() => drenarRef.current(), quando - agora);
+      return;
+    }
+
+    // O RITMO É PARA QUEM ESTÁ EM DIA, NÃO PARA QUEM ESTÁ ATRASADO: só atualizações que não
+    // desenham carta podem sair juntas; carta é sempre uma por passo.
+    const quantos = quantosPorTique(fila.current, (u) => ehCadenciada(u.cause));
+    for (let i = 0; i < quantos; i++) {
+      const passo = proximoPasso(fila.current, LIMITE_DA_FILA);
+      if (!passo.proxima) break;
+      fila.current = passo.resto;
+      // Atrasou demais (aba em segundo plano, rede engasgada): vai direto para o presente.
+      if (passo.colapsou) limpar();
+      aplicar(passo.proxima);
+    }
+    ultimaApresentacaoEm.current = Date.now();
+    // O que sobrou espera o próprio instante — a cadência a partir de agora, e a pausa que a
+    // atualização recém-aplicada pode ter aberto (uma vaza que fechou).
+    if (fila.current.length > 0) drenarRef.current();
+  }, [aplicar, cancelarDreno, emPausa, limpar, pausaAte]);
+  drenarRef.current = drenar;
+
+  useEffect(() => cancelarDreno, [cancelarDreno]);
+
+  /** A Mesa avisa que o anúncio saiu de cima dela: a fila retoma no mesmo instante. */
+  const suspender = useCallback((v: boolean) => {
+    suspenderDaMesa(v);
+    if (!v) drenarRef.current();
+  }, [suspenderDaMesa]);
+
+  // O CHIP DO RELÓGIO TEM O SEU PRÓPRIO COMPASSO. Ele andava de carona no laço da fila
+  // (`if (relogio) bump()`) — e era esse acoplamento que re-armava a fila a cada relógio.
+  // Separado, o chip continua redesenhado a cada `botPasso`, o mesmo ritmo de antes, e a fila
+  // deixa de depender do relógio para andar.
+  useEffect(() => {
+    if (screen !== "mesa" || !relogio) return;
+    const id = window.setInterval(bump, TEMPOS.botPasso);
+    return () => window.clearInterval(id);
+  }, [screen, relogio, bump]);
 
   useSonsDeTransicao(partida.current, screen === "mesa");
 
@@ -192,13 +245,19 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
         partida.current = new PartidaRemota(u, eu, (tipo, payload) => s.enviar(tipo, payload));
         setScreen("mesa");
         // A mesa não pode nascer no meio de uma animação: a primeira visão é sempre um salto.
+        cancelarDreno();
         fila.current = [];
         limpar();
+        ultimaApresentacaoEm.current = Date.now();
         bump();
         return;
       }
       if (ehSalto(u.cause)) saltarPara(u);
-      else fila.current.push(u);
+      else {
+        fila.current.push(u);
+        // Ociosa e fora de pausa, entra agora; senão o dreno encontra o instante dela.
+        drenarRef.current();
+      }
     });
 
     s.ao("ACTION_REJECTED", (r) => {
@@ -244,7 +303,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     s.aoVoltar(() => { setConexao("conectado"); analytics.track("reconnect", { modo: "online" }); });
     s.aoSair(() => { setConexao("encerrada"); sessao.current = null; });
     s.aoErro((_codigo, motivo) => { setErro(motivo ?? "Erro de conexão"); setConexao("erro"); });
-  }, [bump, limpar, saltarPara]);
+  }, [bump, cancelarDreno, limpar, saltarPara]);
 
   // ─────────────────────────── abertura e encerramento da sessão ───────────────────────────
 
@@ -253,13 +312,15 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     sessao.current = null;
     partida.current = null;
     assento.current = null;
+    cancelarDreno();
     fila.current = [];
+    ultimaApresentacaoEm.current = null;
     setSala(null);
     setProntos([]);
     setRelogio(null);
     setAutoAcao(null);
     limpar();
-  }, [limpar]);
+  }, [cancelarDreno, limpar]);
 
   const conectar = useCallback(async (pedido: Parameters<AbridorDeSessao>[0]) => {
     if (!abrir) {

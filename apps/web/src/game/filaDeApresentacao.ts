@@ -117,3 +117,30 @@ export function quantosPorTique<T>(fila: readonly T[], cadenciada: (item: T) => 
   }
   return Math.max(1, n);
 }
+
+/**
+ * QUANDO A PRÓXIMA ATUALIZAÇÃO PODE ENTRAR NA MESA — o relógio da fila, isolado e testável.
+ *
+ * Três limites, e a apresentação acontece no mais tardio deles:
+ *
+ *   1. a CHEGADA — nada é apresentado antes de existir;
+ *   2. a CADÊNCIA — consecutivas ficam a pelo menos `passo` uma da outra (duas cartas nunca no
+ *      mesmo quadro, e cada uma perceptível antes da seguinte);
+ *   3. a PAUSA visual — a leitura da vaza que fechou.
+ *
+ * ══ POR QUE NÃO É MAIS UM TIQUE FIXO ══
+ *
+ * O laço anterior era um `setInterval(botPasso)` que renascia a cada TURN_CLOCK, e toda
+ * atualização esperava o próximo tique. Como o relógio chega logo depois do estado que abre a
+ * decisão, o turno do humano aparecia ~520ms depois de o prazo começar a correr. Com a fila
+ * ociosa e sem pausa não há ritmo nenhum a preservar: a atualização entra na hora.
+ */
+export function instanteDaProximaApresentacao(p: {
+  agora: number;
+  ultimaEm: number | null;
+  pausaAte: number;
+  passo: number;
+}): number {
+  const cadencia = p.ultimaEm === null ? p.agora : p.ultimaEm + p.passo;
+  return Math.max(p.agora, cadencia, p.pausaAte);
+}

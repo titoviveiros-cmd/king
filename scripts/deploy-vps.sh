@@ -155,9 +155,10 @@ conferir_artefato "apps/server/dist/match/pausaDaVaza.js" \
   "respiroDaLeitura" "respiro da leitura da vaza compilado" || ART="$ART respiro"
 conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
   "respiroDaLeitura" "respiro integrado a KingRoom" || ART="$ART respiro-integrado"
-# A parcela do represamento: sem ela o respiro cobre a pausa e deixa a drenagem de fora.
+# O espelho da fila do cliente: sem ele o prazo volta a ser inflado (lider) ou erodido (cadencia).
+# Substitui a antiga "parcela do represamento", que a medicao no navegador reprovou.
 conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
-  "represados" "parcela do represamento presente" || ART="$ART represamento"
+  "publicarNoEspelho" "espelho da fila do cliente presente" || ART="$ART apresentacao"
 # O prazo NOMINAL do jogador. Um valor de instrumentacao aqui seria a falha mais silenciosa
 # possivel: o jogo funcionaria, so que com menos tempo para jogar.
 conferir_artefato "apps/server/dist/match/tempos.js" \

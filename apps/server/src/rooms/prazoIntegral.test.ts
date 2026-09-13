@@ -1,24 +1,32 @@
-// O PRAZO DO HUMANO CHEGA INTEIRO — mesmo quando a apresentação anterior ainda está na tela.
+// O PRAZO DO HUMANO CHEGA INTEIRO — no instante em que a decisão fica visível no cliente.
 //
 // ══ O DEFEITO QUE ESTE ARQUIVO EXISTE PARA IMPEDIR ══
 //
 // O prazo começa quando o SERVIDOR abre o turno. A possibilidade de jogar começa quando o CLIENTE
-// termina de apresentar o que veio antes — a pausa de leitura da vaza, e as cartas que o servidor
-// produziu durante ela. Entre um instante e o outro o relógio corre contra alguém que ainda não
-// pode agir.
+// apresenta a atualização que abriu o turno — e ela entra na mesa no ritmo da fila: a cadência
+// desde a anterior e a pausa de leitura da vaza que fechou. Entre um instante e o outro o relógio
+// corre contra alguém que ainda não pode agir; e, se o servidor somar tempo demais, infla o relógio
+// de quem já pode.
 //
-// Medido antes da primeira correção: até 1980ms de 25000ms num caso de bots consecutivos.
+// ══ O CONTRATO TEM DOIS LADOS ══
 //
-// Esta suíte já exigiu, também, que quem LIDERA a vaza seguinte recebesse a pausa de leitura
-// inteira. Era premissa errada — o líder pode jogar durante a pausa — e ela inflava o relógio de
-// quem já podia agir. Ver o primeiro bloco, e tests/prazoJogavel.spec.ts no navegador real.
+// No instante em que a decisão fica visível resta o prazo NOMINAL: nem menos (erodido), nem mais
+// (inflado). As duas versões anteriores deste arquivo afirmavam só o piso — e cada uma escondeu um
+// defeito do outro lado:
 //
-// ══ POR QUE O TESTE MEDE "PRAZO ÚTIL", E NÃO "PRAZO" ══
+//   1. exigiam que o LÍDER da vaza seguinte recebesse a pausa inteira. Falso: a Mesa habilita as
+//      cartas dele durante a pausa. Medido no navegador: 25,6s e 27,2s no instante clicável;
+//   2. descontavam `represadas × passo` a partir do FECHAMENTO no servidor. Medido no navegador,
+//      com a fila corrigida: até +523ms acima do nominal — e o líder até −329ms abaixo, porque a
+//      carta que fecha a vaza também espera a cadência.
 //
-// O prazo anunciado sempre foi 25s; o defeito nunca esteve nele. O que faltava era descontar o
-// tempo em que a mesa estava legitimamente parada. Por isso a asserção é sobre a diferença entre
-// o instante em que o jogador PODE agir e o instante em que o prazo termina — que é o tempo que
-// ele de fato tem.
+// ══ COMO "VISÍVEL" É CALCULADO AQUI ══
+//
+// Cada cliente sintético registra o instante de CHEGADA de cada estado. Sobre essa linha do tempo
+// roda a recorrência da fila do cliente (`instanteDaApresentacao`, cuja equivalência com a do
+// cliente é travada em apps/web/src/game/espelhoDaApresentacao.test.ts). Ela explicou o DOM real
+// com mediana de 2–5ms em 176 decisões. Quem prova o instante CLICÁVEL de verdade é o navegador:
+// apps/web/tests/prazoJogavel.spec.ts.
 //
 // ══ POR QUE 4 HUMANOS E NENHUM BOT ══
 //
@@ -28,11 +36,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import { cardId, legalCardsFor, type PlayerView, type Seat } from "@king/engine";
 import { configurarTempos, restaurarTempos, TEMPOS, TEMPOS_PADRAO } from "../match/tempos.js";
-import { pausaDaLeitura } from "../match/pausaDaVaza.js";
+import {
+  espelhoVazio, instanteDaApresentacao, pausaDaLeitura, publicarNoEspelho, saltarEspelho,
+} from "../match/pausaDaVaza.js";
 import { SALA_KING, servidor } from "../app.js";
 import { AVATARES } from "./identidade.js";
 import {
-  PROTOCOL_VERSION, type AtualizacaoDeEstado, type RelogioDaDecisao,
+  PROTOCOL_VERSION, type AtualizacaoDeEstado, type Causa, type RelogioDaDecisao,
 } from "../protocol/index.js";
 import type { KingRoom } from "./KingRoom.js";
 
@@ -44,8 +54,8 @@ const TURNO = 20_000;
  *
  * O servidor calcula o prazo em `Date.now()` e o teste mede em `Date.now()`; entre os dois há o
  * caminho do socket, o laço de eventos e a fatia de CPU que o Node resolveu dar. 150ms cobre isso
- * com sobra e está uma ordem de grandeza abaixo da dívida que se quer pegar (1150ms na pausa mais
- * curta). Não é tolerância para "23s valer por 25s" — é ruído de relógio.
+ * com sobra e fica abaixo do menor desvio que cada defeito produz aqui (a cadência de 520ms).
+ * Não é tolerância para "23s valer por 25s" — é ruído de relógio.
  */
 const MARGEM = 150;
 
@@ -56,15 +66,9 @@ beforeAll(async () => {
     turno: TURNO, trunfo: 3_600_000, primeiraJogadaExtra: 0, aberturaDaUltimaMao: 0,
     // ══ A JANELA É ENORME DE PROPÓSITO: É ASSIM QUE A CORRIDA MORRE ══
     //
-    // O teste conta as cartas represadas pelo instante em que OBSERVA a autoridade mudar; o
-    // servidor conta pelo instante em que publica. A autoridade muda um pouco ANTES da
-    // publicação, então na borda da janela os dois discordam por milissegundos — e sob a carga
-    // da suíte inteira, com timers escorregando, a borda era alcançada. O teste falhava em
-    // cerca de uma execução em cinco.
-    //
-    // Com 15s de pausa e bots de 200ms, as jogadas caem a ~14,6s da borda: nenhum escorregão
-    // plausível chega perto. A corrida não é tolerada, é removida — e nenhuma asserção foi
-    // afrouxada para isso. O que se mede continua sendo exatamente o mesmo.
+    // As jogadas "durante a pausa" precisam cair DENTRO dela sem depender de escorregão de timer
+    // sob a carga da suíte inteira. Com 15s de pausa, caem a ~14s da borda. A corrida não é
+    // tolerada, é removida — e nenhuma asserção foi afrouxada para isso.
     leituraDaVaza: 15_000,
     leituraDaVazaCastigo: 15_000,
     leituraDaVazaKing: 15_000,
@@ -85,17 +89,21 @@ async function ate(cond: () => boolean, ms = 15_000, rotulo = "?"): Promise<void
   }
 }
 
+interface Chegada { t: number; causa: Causa; versao: number; view: PlayerView }
+
 interface Sintetico {
   seat: Seat;
   sdk: { send: (t: string, m?: unknown) => void; onMessage: (t: string, cb: (...a: never[]) => void) => void };
   view: PlayerView | null;
   /** Última versão autoritativa que este cliente aplicou. */
   versao: number;
+  /** Cada estado recebido, com o instante de CHEGADA — a linha do tempo da fila do cliente. */
+  chegadas: Chegada[];
   /**
    * Os relógios recebidos, cada um com a VERSÃO que o cliente já tinha aplicado quando ele
    * chegou. É esse par que permite dizer a QUAL decisão o relógio pertence.
    */
-  relogios: { m: RelogioDaDecisao; versao: number }[];
+  relogios: { m: RelogioDaDecisao; versao: number; t: number }[];
 }
 
 async function salaCom4(): Promise<{ room: KingRoom; clientes: Sintetico[] }> {
@@ -105,15 +113,16 @@ async function salaCom4(): Promise<{ room: KingRoom; clientes: Sintetico[] }> {
     const sdk = await colyseus.connectTo(room, {
       protocolVersion: PROTOCOL_VERSION, nick: `P${seat}`, avatar: AVATARES[seat % AVATARES.length],
     });
-    const c: Sintetico = { seat, sdk: sdk as never, view: null, versao: 0, relogios: [] };
+    const c: Sintetico = { seat, sdk: sdk as never, view: null, versao: 0, chegadas: [], relogios: [] };
     sdk.onMessage("STATE_UPDATE", (m: AtualizacaoDeEstado) => {
       c.view = m.view; c.versao = m.stateVersion;
+      c.chegadas.push({ t: Date.now(), causa: m.cause, versao: m.stateVersion, view: m.view });
     });
     // A VERSÃO VIGENTE VAI JUNTO. O servidor difunde o estado ANTES do relógio, no mesmo bloco
     // (`#publicar` faz o fan-out e só então `#reagendar` anuncia), e o transporte preserva a
     // ordem por cliente. Então a versão registrada aqui é a da decisão a que este relógio
     // pertence — e é por ela que se identifica o relógio, nunca pelo instante.
-    sdk.onMessage("TURN_CLOCK", (m: RelogioDaDecisao) => c.relogios.push({ m, versao: c.versao }));
+    sdk.onMessage("TURN_CLOCK", (m: RelogioDaDecisao) => c.relogios.push({ m, versao: c.versao, t: Date.now() }));
     clientes.push(c);
   }
   for (const c of clientes) c.sdk.send("CLIENT_SET_READY", { ready: true });
@@ -183,20 +192,14 @@ async function resolverTrunfo(room: KingRoom, clientes: Sintetico[]): Promise<vo
  * intermitência: é critério de identidade errado. Tempo não identifica um evento que é
  * causalmente simultâneo à observação.
  *
- * Provado antes de corrigir: com o laço de espera atrasado para 60ms, o erro da CI reproduz
- * localmente, palavra por palavra.
- *
  * A terceira usou a POSIÇÃO na fila de mensagens. Também errada, e pelo mesmo tipo de motivo:
- * numa vaza o mesmo assento pode receber DOIS relógios de `PLAY` — o da vez dele antes de jogar
- * (prazo 20000) e o da vez dele na vaza seguinte, depois do fechamento (prazo 20000 + respiro).
- * Quem ganha a própria vaza lidera a seguinte, e é o caso comum. A posição não distingue os dois
- * quando a entrega do primeiro atravessa o marco: o teste pegava o relógio ANTIGO e media
- * `4998ms` de prazo útil — o número do defeito, com o código correto.
+ * numa vaza o mesmo assento pode receber DOIS relógios de `PLAY` — o da vez dele antes de jogar e
+ * o da vez dele na vaza seguinte. A posição não distingue os dois quando a entrega do primeiro
+ * atravessa o marco.
  *
  * O critério certo não é tempo nem posição: é CAUSALIDADE. Cada relógio é registrado com a
  * versão autoritativa que o cliente já havia aplicado quando ele chegou, e a decisão que
- * interessa é a primeira com versão >= a versão de DEPOIS do fechamento da vaza. Um relógio
- * emitido antes do fechamento carrega, necessariamente, uma versão menor.
+ * interessa é a primeira com versão >= a versão de DEPOIS da jogada que a abriu.
  */
 async function relogioDaDecisao(c: Sintetico, versaoMinima: number, seat: Seat) {
   const achar = () => c.relogios.find(
@@ -206,58 +209,95 @@ async function relogioDaDecisao(c: Sintetico, versaoMinima: number, seat: Seat) 
   return achar()!;
 }
 
+const SALTOS: ReadonlySet<Causa> = new Set<Causa>(["RESYNC", "RECONNECTED", "MATCH_STARTED"]);
+
 /**
- * O PRAZO ÚTIL: quanto tempo o jogador realmente tem depois de a mesa liberar.
+ * QUANDO ESTE CLIENTE MOSTRA A VERSÃO `versao` — a fila do cliente, rodada sobre as chegadas reais.
  *
- * `libera` é quando a apresentação termina — a pausa de leitura contada a partir do fechamento da
- * vaza. `fim` é quando o prazo autoritativo expira. A diferença é o que ele pode usar.
+ * A primeira visão e os saltos entram na hora e limpam fila e pausa. As demais passam pelo espelho
+ * da fila (`publicarNoEspelho`, com colapso), cuja equivalência com a fila do cliente — montada com
+ * as funções REAIS do cliente — é travada em apps/web/src/game/espelhoDaApresentacao.test.ts.
+ * A carta que FECHA uma vaza abre a pausa; virar a mão limpa a pausa.
  */
-function prazoUtil(r: { m: RelogioDaDecisao }, fechouEm: number, pausa: number): number {
-  // O relógio é lido assim que chega, e o fechamento da vaza é o zero da conta: os dois estão a
-  // milissegundos um do outro, e a margem de agendamento cobre a diferença com folga.
-  const fim = fechouEm + r.m.restanteMs;
-  const libera = fechouEm + pausa;
-  return fim - libera;
+function visivelEm(c: Sintetico, versao: number): number {
+  let espelho = espelhoVazio();
+  let fechadasAntes = 0;
+  for (let i = 0; i < c.chegadas.length; i++) {
+    const u = c.chegadas[i];
+    const fechadas = u.view.hand?.completedTricks.length ?? 0;
+    let em: number;
+    if (i === 0 || SALTOS.has(u.causa)) {
+      espelho = saltarEspelho(u.t);
+      em = u.t;
+    } else {
+      const r = publicarNoEspelho(espelho, {
+        chegada: u.t,
+        pausa: u.causa === "CARD_PLAYED" && fechadas > fechadasAntes ? pausaDaLeitura(u.view) : 0,
+        viraMao: u.causa === "HAND_ADVANCED",
+      }, TEMPOS.passoDaApresentacao);
+      espelho = r.espelho;
+      em = r.visivelEm;
+    }
+    fechadasAntes = fechadas;
+    if (u.versao === versao) return em;
+  }
+  throw new Error(`a versão ${versao} não chegou a este cliente`);
 }
 
 /**
- * ══ A PREMISSA QUE ESTE BLOCO JÁ EXIGIU, E QUE A MESA REAL DESMENTIU ══
+ * O PRAZO NO INSTANTE VISÍVEL: quanto resta quando a decisão entra na mesa deste jogador.
  *
- * A versão anterior deste bloco exigia que quem LIDERA a vaza seguinte recebesse a pausa de
- * leitura inteira somada ao prazo, sob a premissa de que "ninguém joga durante a pausa". Para o
- * líder, ela é falsa: a Mesa habilita as cartas dele DURANTE a pausa, de propósito (`Mesa.tsx`:
- * "jogar enquanto o chip está na tela continua possível"). Medido no navegador real
- * (tests/prazoJogavel.spec.ts), o líder ficava clicável com 25,6s depois de uma vaza comum e com
- * 27,2s depois de uma bucha — o respiro inflava o relógio de quem já podia agir.
- *
- * O contrato agora: sem nada represado, o líder recebe o prazo NOMINAL. O respiro de leitura só
- * existe enquanto uma apresentação ainda bloqueia a ação — ver o bloco das represadas.
+ * `fim` é quando o prazo autoritativo expira, lido na chegada do relógio. `visivel` é quando a fila
+ * do cliente mostra a decisão. Se ela já estava visível quando o relógio chegou, conta-se da
+ * chegada do relógio — antes dele o jogador não tem cronômetro para perder.
  */
-describe("quem lidera a vaza seguinte já pode agir: recebe o prazo nominal", () => {
-  it("o líder da vaza seguinte não recebe a pausa de leitura somada ao prazo", async () => {
+function prazoNoInstanteVisivel(c: Sintetico, r: { m: RelogioDaDecisao; versao: number; t: number }) {
+  const visivel = visivelEm(c, r.versao);
+  const fim = r.t + r.m.restanteMs;
+  return { restante: fim - Math.max(visivel, r.t), atraso: Math.max(0, visivel - r.t) };
+}
+
+/** Teto e piso, com a explicação de cada lado. */
+function exigirNominal(rotulo: string, p: { restante: number; atraso: number }): void {
+  expect(
+    p.restante,
+    `${rotulo}: visível com ${p.restante}ms de um prazo de ${TURNO}ms (a fila atrasou ${p.atraso}ms) — ` +
+    "INFLADO: o servidor somou tempo a quem já podia agir",
+  ).toBeLessThanOrEqual(TURNO + MARGEM);
+  expect(
+    p.restante,
+    `${rotulo}: visível com ${p.restante}ms de um prazo de ${TURNO}ms (a fila atrasou ${p.atraso}ms) — ` +
+    "ERODIDO: o relógio correu enquanto a mesa ainda não mostrava a vez",
+  ).toBeGreaterThanOrEqual(TURNO - MARGEM);
+}
+
+/**
+ * ══ O LÍDER DA VAZA SEGUINTE ══
+ *
+ * A Mesa habilita as cartas dele DURANTE a pausa de leitura — então a pausa não é dele. Mas a carta
+ * que FECHOU a vaza ainda precisa entrar na mesa, e ela entra na cadência: aqui, com as quatro
+ * cartas jogadas em sequência rápida, ~3 passos depois de chegar. Só a partir daí ele pode agir.
+ */
+describe("o líder da vaza seguinte: nominal no instante em que a vaza fechada aparece", () => {
+  it("o líder recebe o prazo nominal — sem a pausa, e sem pagar a cadência da carta que fechou", async () => {
     const { room, clientes } = await salaCom4();
     await resolverTrunfo(room, clientes);
     for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
     const versao = room.autoridadeDaPartida().stateVersion;
     const m = room.autoridadeDaPartida().estadoAutoritativo()!;
     expect(m.hand!.completedTricks.length, "a vaza não fechou").toBe(1);
-    const pausa = pausaDaLeitura(m);
-    expect(pausa, "pausa de leitura nula — o cenário não é o que se quer medir").toBeGreaterThan(0);
+    expect(pausaDaLeitura(m), "pausa de leitura nula — o cenário não é o que se quer medir").toBeGreaterThan(0);
 
     await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o próximo turno abrir");
     const lider = daVezNaAutoridade(room, clientes)!;
     const r = await relogioDaDecisao(lider, versao, lider.seat);
-
-    expect(
-      r.m.restanteMs,
-      `o líder nasceu com ${r.m.restanteMs}ms de um prazo de ${TURNO}ms — ` +
-      `a pausa de ${pausa}ms foi somada a quem já podia jogar`,
-    ).toBeLessThanOrEqual(TURNO + MARGEM);
-    expect(r.m.restanteMs, `o líder nasceu com ${r.m.restanteMs}ms — abaixo do nominal`)
-      .toBeGreaterThanOrEqual(TURNO - MARGEM);
+    const p = prazoNoInstanteVisivel(lider, r);
+    expect(p.atraso, "a carta que fechou não esperou cadência — o cenário não mede o que se quer")
+      .toBeGreaterThan(TEMPOS.passoDaApresentacao);
+    exigirNominal("líder da vaza 2", p);
   }, 60_000);
 
-  it("em duas vazas seguidas, nenhum líder nasce acima do nominal", async () => {
+  it("em duas vazas seguidas, cada líder recebe o nominal", async () => {
     const { room, clientes } = await salaCom4();
     await resolverTrunfo(room, clientes);
     for (let vaza = 1; vaza <= 2; vaza++) {
@@ -267,8 +307,7 @@ describe("quem lidera a vaza seguinte já pode agir: recebe o prazo nominal", ()
       await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o próximo turno abrir");
       const lider = daVezNaAutoridade(room, clientes)!;
       const r = await relogioDaDecisao(lider, versao, lider.seat);
-      expect(r.m.restanteMs, `vaza ${vaza}: o líder nasceu com ${r.m.restanteMs}ms`)
-        .toBeLessThanOrEqual(TURNO + MARGEM);
+      exigirNominal(`líder da vaza ${vaza + 1}`, prazoNoInstanteVisivel(lider, r));
     }
   }, 60_000);
 });
@@ -276,6 +315,14 @@ describe("quem lidera a vaza seguinte já pode agir: recebe o prazo nominal", ()
 describe("a regra da pausa espelha a do cliente", () => {
   it("sem vaza fechada não há o que descontar", () => {
     expect(pausaDaLeitura(null)).toBe(0);
+  }, 60_000);
+
+  it("a apresentação: o mais tardio entre chegada, cadência e pausa", () => {
+    const passo = 520;
+    expect(instanteDaApresentacao({ agora: 1000, ultimaEm: null, pausaAte: 0, passo })).toBe(1000);
+    expect(instanteDaApresentacao({ agora: 1000, ultimaEm: 900, pausaAte: 0, passo })).toBe(1420);
+    expect(instanteDaApresentacao({ agora: 1000, ultimaEm: 900, pausaAte: 5000, passo })).toBe(5000);
+    expect(instanteDaApresentacao({ agora: 9000, ultimaEm: 900, pausaAte: 5000, passo })).toBe(9000);
   }, 60_000);
 
   it("os tempos do servidor são os mesmos que o cliente apresenta", async () => {
@@ -305,72 +352,61 @@ describe("a regra da pausa espelha a do cliente", () => {
 });
 
 /**
- * A SEGUNDA PARCELA DA DÍVIDA: O QUE FICOU REPRESADO.
+ * ══ O QUE FOI JOGADO DURANTE A PAUSA ══
  *
- * A pausa de leitura não é a única coisa entre o servidor abrir o turno e o jogador poder agir.
- * O que for jogado DURANTE a pausa ainda vai entrar na mesa uma carta de cada vez — é a cadência
- * corrigida em 3018e97, e ela custa tempo justamente porque cada carta agora é perceptível.
+ * O que for jogado DURANTE a pausa entra na mesa depois dela, uma carta por passo — e o humano da
+ * vez só pode agir quando a carta que abriu a vez dele entrar. Com N represadas isso é
+ * `fim da pausa + (N − 1) × passo` SE a carta que fechou entrou na hora; se ela também esperou a
+ * cadência, a pausa começa mais tarde. Nenhuma conta fixa acerta os dois casos — por isso o
+ * servidor espelha a fila, e o teste afirma o resultado no instante visível para 1, 2 e 3.
  *
  * ══ POR QUE SEM BOTS ══
  *
  * A primeira versão deste teste montava 2 humanos + 2 bots e procurava uma vaza em que um bot
- * vencesse, para que a seguinte começasse por ele. Dependia do baralho e do relógio: reprovava em
- * cerca de uma execução em quinze, ora por "nada foi medido", ora sob a carga da suíte inteira.
- * Fixar a semente reduziu, mas não eliminou.
- *
- * Um teste intermitente não é um teste: ele treina quem o lê a ignorar vermelho. E o represamento
- * não precisa de bot nenhum para existir — precisa de uma jogada acontecendo enquanto a mesa está
- * parada. Aqui QUEM JOGA É O TESTE, no instante que ele escolhe, dentro de uma janela de 15s.
- * Zero sorteio, zero corrida, e o que se mede é exatamente o mesmo.
+ * vencesse. Dependia do baralho e do relógio: reprovava em cerca de uma execução em quinze. Aqui
+ * QUEM JOGA É O TESTE, no instante que ele escolhe, dentro de uma janela de 15s. Zero sorteio,
+ * zero corrida.
  */
-describe("o que foi jogado durante a pausa também é descontado", () => {
-  it("com uma carta represada, o humano seguinte ainda recebe o prazo cheio", async () => {
-    const { room, clientes } = await salaCom4();
-    await resolverTrunfo(room, clientes);
-    for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
-    const fechouEm = Date.now();
-    const pausa = pausaDaLeitura(room.autoridadeDaPartida().estadoAutoritativo()!);
-    expect(pausa, "sem pausa não há dívida a medir").toBeGreaterThan(0);
+/**
+ * Espera a última atualização recebida entrar na mesa — o que um jogador de verdade faz antes de
+ * jogar a carta seguinte.
+ *
+ * NÃO é espera para esconder corrida: é o CENÁRIO. Com trunfo, quatro cartas e mais três jogadas a
+ * milissegundos umas das outras, a fila do cliente passa de `LIMITE_DA_FILA` e COLAPSA — salta para
+ * o presente e descarta a pausa. Aí não há represamento nenhum a medir, e a guarda de cenário
+ * abaixo reprova, como deve. Medido: "a decisão não esperou a pausa: 511ms".
+ */
+async function aguardarVisivel(c: Sintetico): Promise<void> {
+  const alvo = visivelEm(c, c.versao);
+  await ate(() => Date.now() >= alvo, 10_000, "a última atualização entrar na mesa");
+}
 
-    // UMA carta da vaza nova, ainda DENTRO da pausa. Para a mesa ela está represada: só vai
-    // entrar quando a leitura terminar, e só então o próximo pode agir.
-    await jogarUma(room, clientes);
-    const versao = room.autoridadeDaPartida().stateVersion;
-    expect(Date.now(), "a jogada saiu da janela da pausa — o cenário não é o que se quer medir")
-      .toBeLessThan(fechouEm + pausa);
+describe("o que foi jogado durante a pausa: nominal no instante visível", () => {
+  for (const represadas of [1, 2, 3]) {
+    it(`com ${represadas} carta(s) represada(s), o humano seguinte recebe o nominal`, async () => {
+      const { room, clientes } = await salaCom4();
+      await resolverTrunfo(room, clientes);
+      // A vaza fecha com a mesa em dia: a pausa começa quando a carta que fecha chega.
+      for (let i = 0; i < 4; i++) {
+        await aguardarVisivel(clientes[0]);
+        await jogarUma(room, clientes);
+      }
+      const fechouEm = Date.now();
+      const pausa = pausaDaLeitura(room.autoridadeDaPartida().estadoAutoritativo()!);
+      expect(pausa, "sem pausa não há represamento a medir").toBeGreaterThan(0);
 
-    await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o turno seguinte abrir");
-    const proximo = daVezNaAutoridade(room, clientes)!;
-    const r = await relogioDaDecisao(proximo, versao, proximo.seat);
+      for (let i = 0; i < represadas; i++) await jogarUma(room, clientes);
+      const versao = room.autoridadeDaPartida().stateVersion;
+      expect(Date.now(), "a jogada saiu da janela da pausa — o cenário não é o que se quer medir")
+        .toBeLessThan(fechouEm + pausa);
 
-    // A liberação real: a pausa MAIS uma cadência pela carta represada.
-    const util = prazoUtil(r, fechouEm, pausa + TEMPOS.passoDaApresentacao);
-    expect(
-      util,
-      `com 1 carta represada o jogador recebeu ${util}ms úteis de um prazo de ${TURNO}ms`,
-    ).toBeGreaterThanOrEqual(TURNO - MARGEM);
-  }, 60_000);
-
-  it("duas cartas represadas custam duas cadências, e o prazo continua inteiro", async () => {
-    const { room, clientes } = await salaCom4();
-    await resolverTrunfo(room, clientes);
-    for (let i = 0; i < 4; i++) await jogarUma(room, clientes);
-    const fechouEm = Date.now();
-    const pausa = pausaDaLeitura(room.autoridadeDaPartida().estadoAutoritativo()!);
-
-    await jogarUma(room, clientes);
-    await jogarUma(room, clientes);
-    const versao = room.autoridadeDaPartida().stateVersion;
-    expect(Date.now()).toBeLessThan(fechouEm + pausa);
-
-    await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o turno seguinte abrir");
-    const proximo = daVezNaAutoridade(room, clientes)!;
-    const r = await relogioDaDecisao(proximo, versao, proximo.seat);
-
-    const util = prazoUtil(r, fechouEm, pausa + 2 * TEMPOS.passoDaApresentacao);
-    expect(
-      util,
-      `com 2 cartas represadas o jogador recebeu ${util}ms úteis de um prazo de ${TURNO}ms`,
-    ).toBeGreaterThanOrEqual(TURNO - MARGEM);
-  }, 60_000);
+      await ate(() => !!daVezNaAutoridade(room, clientes), 10_000, "o turno seguinte abrir");
+      const proximo = daVezNaAutoridade(room, clientes)!;
+      const r = await relogioDaDecisao(proximo, versao, proximo.seat);
+      const p = prazoNoInstanteVisivel(proximo, r);
+      expect(p.atraso, "a decisão não esperou a pausa — o cenário não mede o que se quer")
+        .toBeGreaterThan(pausa - MARGEM);
+      exigirNominal(`${represadas} represada(s)`, p);
+    }, 60_000);
+  }
 });
