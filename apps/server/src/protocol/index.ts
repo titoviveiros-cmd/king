@@ -59,8 +59,9 @@ export const CODIGO = {
    * RECUSAR EM VOZ ALTA, e não cair em identidade efêmera. Degradar em silêncio pareceria
    * gentileza e seria o contrário: quem mandou um token adulterado entraria assim mesmo, só que
    * como outra pessoa, e nunca saberia que a identidade dele não foi aceita — nem o dono da conta
-   * saberia que alguém tentou. Entrar SEM token continua permitido; entrar com um token que não
-   * confere, não.
+   * saberia que alguém tentou. Entrar com um token que não confere é recusado nos DOIS modos em
+   * que há verificador. Entrar SEM token depende do modo: permitido no MODO A (servidor sem
+   * `SUPABASE_URL`), recusado no MODO B com `CREDENCIAL_AUSENTE` (4005).
    */
   IDENTIDADE_RECUSADA: 4003,
   /**
@@ -112,9 +113,14 @@ export interface OpcoesDeEntrada {
    * contra o JWKS do emissor e deriva o `playerId` do claim `sub`; ele nunca acredita num
    * `playerId` que o cliente tenha declarado.
    *
-   * Ausente, o KING se comporta exatamente como antes: identidade efêmera, sorteada na entrada e
-   * morta com a sala. É o que permite um cliente antigo continuar entrando num servidor novo, e
-   * um cliente novo continuar jogando quando o provedor está fora do ar.
+   * Ausente, depende do MODO do servidor — e o cliente não escolhe o modo:
+   *
+   *   MODO A (sem `SUPABASE_URL`): o KING se comporta exatamente como antes — identidade efêmera,
+   *            sorteada na entrada e morta com a sala. Presente, o token é IGNORADO.
+   *   MODO B (com `SUPABASE_URL`): a entrada é RECUSADA com `CREDENCIAL_AUSENTE` (4005). Um
+   *            cliente antigo, ou um cliente novo cujo provedor está fora do ar, não entra.
+   *
+   * É por isso que a ordem de ativação é cliente primeiro, `SUPABASE_URL` no servidor por último.
    */
   accessToken?: string;
 }
