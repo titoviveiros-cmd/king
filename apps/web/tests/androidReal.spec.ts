@@ -25,7 +25,9 @@
  * As alturas menores cobrem o que as barras do sistema comem.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import { mesaEmPartida } from "./helpers/multiplayer.js";
+import { atalhosDe } from "../src/ui/social.js";
 import { SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
 import { fmt, insideViewport, intersects, type Box } from "./helpers/geometry.js";
 
@@ -39,9 +41,21 @@ const APARELHOS = [
   { width: 852, height: 393, nome: "iPhone 14/15 Pro" },
 ];
 
-/** Joga até a tela pedida aparecer em qualquer um dos dois aparelhos. */
-async function jogarAte(a: Page, b: Page, seletor: string, limite = 1200): Promise<boolean> {
-  for (let i = 0; i < limite && !(await a.locator(seletor).count()); i++) {
+/**
+ * Joga até a tela pedida aparecer em qualquer um dos dois aparelhos — ou até o ORÇAMENTO DE TEMPO.
+ *
+ * ══ ERA ORÇAMENTO DE ITERAÇÕES, E ELE FUNCIONAVA AO CONTRÁRIO ══
+ *
+ * A partida multiplayer tem o ritmo do SERVIDOR (cortesia dos bots, leitura das vazas, consenso
+ * entre mãos): medido, 775s até o placar final, e 95% das voltas deste laço não têm nada a fazer
+ * além de esperar. Contar voltas fazia a duração do orçamento depender da velocidade da máquina —
+ * e ao contrário do intuitivo: quanto MAIS RÁPIDA a volta, mais cedo as 6000 acabavam. A 157ms por
+ * volta sobravam 18%; abaixo de ~130ms o teste se pulava antes do fim, e foi o que a CI 34795927765
+ * mostrou nos treze viewports. O orçamento agora é o que ele sempre quis dizer: tempo.
+ */
+async function jogarAte(a: Page, b: Page, seletor: string, orcamentoMs: number): Promise<boolean> {
+  const fim = Date.now() + orcamentoMs;
+  while (Date.now() < fim && !(await a.locator(seletor).count())) {
     for (const p of [a, b]) {
       const pronto = p.getByRole("button", { name: /Estou pronto/ });
       if (await pronto.count()) { await pronto.first().click({ timeout: 3000 }).catch(() => {}); continue; }
@@ -59,8 +73,161 @@ async function jogarAte(a: Page, b: Page, seletor: string, limite = 1200): Promi
   return (await a.locator(seletor).count()) > 0;
 }
 
+/**
+ * O PLACAR FINAL, NO SOLO, NA ETAPA `completo` — por caminho determinístico.
+ *
+ * `?seed=42&mao=10` começa pela última mão com o baralho fixo: chegar ao fim é jogar uma mão, e
+ * não dez. O toque pula a encenação, e a espera final deixa as animações da coluna heroica
+ * assentarem antes de medir.
+ */
+async function placarFinalLocal(page: Page, vp: { width: number; height: number }): Promise<void> {
+  await page.setViewportSize(vp);
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("king.audio",
+        JSON.stringify({ music: false, sfx: false, haptics: false, musicVol: 0, sfxVol: 0 }));
+      window.localStorage.setItem("king:tutorial",
+        JSON.stringify({ iniciado: true, concluido: true, passo: 0 }));
+    } catch { /* segue */ }
+  });
+  await page.goto("/?seed=42&mao=10");
+  await iniciarPartidaLocal(page);
+  await page.locator(SEL.hud).waitFor({ timeout: 20_000 });
+  const anuncio = page.locator(".um");
+  if (await anuncio.count()) await anuncio.click().catch(() => {});
+  await expect(anuncio).toHaveCount(0, { timeout: 12_000 });
+
+  for (let i = 0; i < 400 && !(await page.locator(".fim").count()); i++) {
+    const t = page.locator(".trumpbtn").first();
+    if (await t.count()) { await t.click({ timeout: 5000 }).catch(() => {}); continue; }
+    const c = page.locator(SEL.handCardLegal).first();
+    if (await c.count()) {
+      await c.click({ timeout: 5000 }).catch(() => {});
+      const s = page.locator(SEL.handCardSelected);
+      if (await s.count()) await s.first().click({ timeout: 5000 }).catch(() => {});
+      continue;
+    }
+    await page.waitForTimeout(250);
+  }
+  // SEM ATALHO PARA "PASSAR PULANDO": se a mão fixa não chegar ao fim, é defeito, não orçamento.
+  await expect(page.locator(".fim"), "a mão 10 com semente fixa não chegou ao placar final").toBeVisible({ timeout: 20_000 });
+  await page.locator(".fim").click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await expect(page.locator(".fimacoes")).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(1200);
+}
+
+/**
+ * AS CLASSES QUE O TESTE INJETA SÃO AS DO COMPONENTE — ou o teste reprova.
+ *
+ * O painel injetado só vale como medida enquanto for o MESMO desenho que `BotaoSocial` gera: se o
+ * componente trocar uma classe, o CSS medido aqui deixa de ser o do aparelho, e o teste passaria
+ * verde medindo uma estrutura que não existe mais. Lê o código executável (sem comentários).
+ */
+function exigirMesmoDesenhoDoBotaoSocial(): void {
+  const codigo = readFileSync(new URL("../src/ui/MesaOnline.tsx", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const trecho of [
+    "className={`soc soc-${variante}",
+    'className="socscrim"',
+    "className={`socpanel socpanel-${variante}`}",
+    'className="socfrases"',
+    'className="socbtn"',
+    'className="socpe"',
+    'className="socmais"',
+    "atalhosDe(status)",
+  ]) {
+    expect(codigo.includes(trecho), `BotaoSocial não gera mais \`${trecho}\` — o painel injetado ficou desatualizado`).toBe(true);
+  }
+  const placar = readFileSync(new URL("../src/ui/PlacarFinal.tsx", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  expect(placar.includes('<BotaoSocial status="finished" variante="fim"'),
+    "o placar final não usa mais o BotaoSocial com status finished e variante fim").toBe(true);
+}
+
 for (const vp of APARELHOS) {
   test.describe(`${vp.width}×${vp.height} — ${vp.nome}`, () => {
+    /**
+     * O PAINEL DE MENSAGENS DO PLACAR FINAL — SEMPRE MEDIDO.
+     *
+     * ══ POR QUE ESTE TESTE EXISTE AO LADO DO MULTIPLAYER ══
+     *
+     * O teste multiplayer abaixo precisa jogar DEZ mãos com dois navegadores para chegar ao placar
+     * final, e quando a partida demora ele se pula. Na CI 34795927765 ele se pulou em todos os
+     * viewports: a suíte ficou verde sem ter medido o painel uma única vez.
+     *
+     * O defeito que ele guarda é de ANCORAGEM — `.socpanel-fim` é `position:absolute` dentro de
+     * `.fimacoes` (`position:relative`), e a posição sai toda do CSS. No multiplayer, `BotaoSocial`
+     * põe o botão, o scrim e o painel como os últimos filhos de `.fimacoes`. Aqui o placar final é
+     * alcançado no solo por semente fixa, e o MESMO DOM é posto no MESMO lugar, com as frases reais
+     * de `atalhosDe("finished")`. A geometria medida é a do CSS de verdade, e a guarda acima reprova
+     * se o componente deixar de gerar essa estrutura.
+     *
+     * Roda nos três aparelhos do arquivo — o multiplayer só roda no primeiro — e num único projeto:
+     * a geometria é a do `setViewportSize`, e não a do projeto.
+     */
+    test("o painel de mensagens do placar final cabe inteiro na tela (placar final por semente fixa)", async ({ page }, ti) => {
+      test.skip(ti.project.name !== "800x360", "a geometria vem de setViewportSize: uma execução basta");
+      test.setTimeout(180_000);
+      exigirMesmoDesenhoDoBotaoSocial();
+      await placarFinalLocal(page, vp);
+
+      const frases = atalhosDe("finished").map((f) => f.texto);
+      expect(frases.length, "o catálogo não tem atalhos para o placar final").toBeGreaterThan(0);
+      await page.locator(".fimacoes").evaluate((acoes, textos) => {
+        const botao = document.createElement("button");
+        botao.className = "soc soc-fim on";
+        botao.setAttribute("aria-label", "Mensagens rápidas");
+        botao.setAttribute("aria-expanded", "true");
+        botao.textContent = "💬";
+        const scrim = document.createElement("div");
+        scrim.className = "socscrim";
+        scrim.setAttribute("aria-hidden", "true");
+        const painel = document.createElement("div");
+        painel.className = "socpanel socpanel-fim";
+        painel.setAttribute("role", "dialog");
+        painel.setAttribute("aria-modal", "true");
+        painel.setAttribute("aria-label", "Mensagens rápidas");
+        const lista = document.createElement("div");
+        lista.className = "socfrases";
+        for (const t of textos) {
+          const b = document.createElement("button");
+          b.className = "socbtn";
+          b.textContent = t;
+          lista.appendChild(b);
+        }
+        const pe = document.createElement("div");
+        pe.className = "socpe";
+        for (const t of ["mais mensagens", "fechar"]) {
+          const b = document.createElement("button");
+          b.className = "socmais";
+          b.textContent = t;
+          pe.appendChild(b);
+        }
+        painel.append(lista, pe);
+        acoes.append(botao, scrim, painel);
+      }, frases);
+      await page.waitForTimeout(300);
+
+      const painel = page.locator(".fimacoes .socpanel-fim");
+      await expect(painel, "o painel não entrou na tela").toBeVisible();
+      const cx = await painel.boundingBox();
+      expect(cx, "painel sem caixa").not.toBeNull();
+      expect(insideViewport(cx as Box, vp, SUBPIXEL),
+        `[${vp.width}×${vp.height}] o painel de mensagens saiu da tela: ${fmt(cx as Box)}`).toBe(true);
+
+      const botoes = painel.locator(".socbtn");
+      const n = await botoes.count();
+      expect(n, "o painel abriu sem frases").toBe(frases.length);
+      for (let i = 0; i < n; i++) {
+        const f = await botoes.nth(i).boundingBox();
+        expect(insideViewport(f as Box, vp, SUBPIXEL),
+          `[${vp.width}×${vp.height}] a frase ${i} está fora da tela: ${fmt(f as Box)}`).toBe(true);
+      }
+      if (process.env.KING_SHOTS) {
+        await page.screenshot({ path: `${process.env.KING_SHOTS}/fim-painel-local-${vp.width}x${vp.height}.png` });
+      }
+    });
+
     /**
      * O PLACAR ENTRE-MÃOS, MÃO A MÃO — E EM SOLO, DE PROPÓSITO.
      *
@@ -192,10 +359,17 @@ for (const vp of APARELHOS) {
       // O defeito era de ANCORAGEM (o painel nascia à esquerda da tela, não importa a altura), e
       // 800×360 é onde ele foi encontrado. As outras geometrias ficam cobertas pelo mesmo código.
       test.skip(vp.width !== 800 || vp.height !== 360, "roda só na geometria do aparelho real");
+      // UMA EXECUÇÃO, NÃO TREZE. A geometria é a do `mesaEmPartida(browser, vp)`, e não a do
+      // projeto: as treze execuções eram a MESMA partida em 800×360, cada uma com até vinte minutos,
+      // e somavam quase toda a duração da CI. O painel em si é medido SEMPRE, e nos três aparelhos,
+      // pelo teste de semente fixa acima.
+      test.skip(ti.project.name !== "800x360", "a geometria vem de mesaEmPartida: uma execução basta");
       test.setTimeout(1_200_000);
       const { anfitriao, convidado, fechar } = await mesaEmPartida(browser, vp);
       try {
-        if (!(await jogarAte(anfitriao, convidado, ".fim", 6000))) {
+        // 17 minutos: 32% acima dos 775s medidos até o placar final, e ainda três minutos antes
+        // do `setTimeout` de vinte — sobra para medir o painel.
+        if (!(await jogarAte(anfitriao, convidado, ".fim", 17 * 60_000))) {
           test.skip(true, "a partida não chegou ao placar final no orçamento");
           return;
         }
