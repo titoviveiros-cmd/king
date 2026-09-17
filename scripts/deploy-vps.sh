@@ -25,6 +25,10 @@ ALVO="${1:-}"
 BRANCH="feat/multiplayer-v1"
 RAIZ="/opt/king"
 APP="king-server"
+# A DECLARACAO DE IDENTIDADE DE PRODUCAO. Fora do Git: sobrevive a reset, checkout, shell nova e
+# reboot. O servidor a le no boot (apps/server/src/config/ambiente.ts); nao depende do ambiente da
+# shell que roda este script nem do que o PM2 guardou.
+ENV_FILE="/etc/king/server.env"
 
 if [ -z "$ALVO" ]; then
   echo "xx uso: bash /tmp/king-deploy.sh <sha-curto-alvo>"
@@ -35,6 +39,8 @@ ANTERIOR=""
 JA_REINICIOU=0
 
 reiniciar() {
+  # `--update-env` relê o ambiente DESTA shell. Para a identidade isso deixou de importar: o processo
+  # lê $ENV_FILE no boot, e para aquelas chaves o arquivo é a única fonte.
   pm2 restart "$APP" --update-env >/dev/null 2>&1 || return 1
   sleep 4
   pm2 describe "$APP" 2>/dev/null | grep -q "online" || return 1
@@ -73,6 +79,14 @@ reverter() {
   echo "!! ROLLBACK para ${ANTERIOR:0:7}"
   git reset --hard "$ANTERIOR" >/dev/null 2>&1 || { echo "   xx reset falhou - INTERVENCAO MANUAL"; return 1; }
   npm ci --silent >/dev/null 2>&1 && npm run build:server >/dev/null 2>&1     || { echo "   xx build do rollback falhou - INTERVENCAO MANUAL"; return 1; }
+  # Codigo anterior a leitura do arquivo persistente IGNORA $ENV_FILE: com o modo permanent
+  # declarado, reiniciar nele voltaria ao MODO A em silencio. Nesse caso nao se reinicia.
+  if [ "$JA_REINICIOU" = "1" ] && [ ! -f apps/server/dist/config/ambiente.js ] \
+     && grep -qE '^[[:space:]]*(export[[:space:]]+)?KING_IDENTITY_MODE[[:space:]]*=[[:space:]]*["'"'"']?permanent' "$ENV_FILE" 2>/dev/null; then
+    echo "   xx o codigo de retorno nao le $ENV_FILE e o modo declarado e permanent - INTERVENCAO MANUAL"
+    echo "      (mude para legacy em $ENV_FILE antes de voltar a um codigo tao antigo)"
+    return 1
+  fi
   if [ "$JA_REINICIOU" = "1" ]; then
     reiniciar || { echo "   xx o servidor NAO voltou - INTERVENCAO MANUAL"; return 1; }
     systemctl is-active --quiet nginx || echo "   !! nginx nao esta ativo"
@@ -170,7 +184,25 @@ conferir_artefato "apps/server/dist/match/tempos.js" \
 # Esta linha confere que o binario nao chegou com o provedor embutido de outra forma.
 conferir_artefato "apps/server/dist/auth/identidade.js" \
   "SUPABASE_URL" "identidade le o ambiente (dormente sem SUPABASE_URL)" || ART="$ART identidade"
+# O MODO DECLARADO E O ARQUIVO PERSISTENTE: sem eles o modo volta a depender da shell.
+conferir_artefato "apps/server/dist/config/ambiente.js" \
+  "KING_IDENTITY_MODE" "modo de identidade declarado (legacy/permanent)" || ART="$ART modo-declarado"
+conferir_artefato "apps/server/dist/index.js" \
+  "prepararIdentidade" "boot le o arquivo persistente antes de escutar" || ART="$ART arquivo-persistente"
 [ -z "$ART" ] || abortar "artefato nao carrega a correcao aprovada:$ART"
+
+echo "=== IDENTIDADE: ARQUIVO PERSISTENTE, ANTES DO RESTART ==="
+# Mesmo caminho que o processo vai percorrer sob o PM2: arquivo obrigatorio, shell descartada,
+# modo resolvido pelo proprio artefato. Imprime so o modo e se a URL esta configurada.
+IDENT=$(node scripts/conferir-identidade.mjs "$ENV_FILE" --conferir-jwks 2>&1)
+IDENT_OK=$?
+printf '%s\n' "$IDENT"
+[ "$IDENT_OK" = "0" ] || abortar "configuracao de identidade incoerente em $ENV_FILE - o processo vivo NAO foi tocado"
+# O SMOKE E O CONTRATO POS-RESTART AINDA ENTRAM SEM CREDENCIAL. Em permanent eles recebem 4005 e o
+# deploy reprovaria no meio; melhor parar aqui, antes de construir expectativa, com o motivo claro.
+if printf '%s' "$IDENT" | grep -q "identity mode: permanent"; then
+  abortar "deploy com identidade permanent ainda nao suportado (smoke e contrato entram sem token). Mude $ENV_FILE para legacy, implante, e volte para permanent com o procedimento de troca de modo"
+fi
 
 echo "=== SMOKE EM PORTA SEPARADA (2599) ==="
 SMOKE_PORT=2599 npm run smoke:server || abortar "o artefato novo nao sobe"
@@ -213,4 +245,5 @@ echo ""
 echo "PROXIMO PASSO (fora do caminho transacional, sem rollback automatico):"
 echo "  cd $RAIZ && node scripts/verificar-ultima-mao.mjs ws://127.0.0.1:2567"
 echo "retorno manual: cd $RAIZ && git reset --hard ${ANTERIOR:0:7} && npm ci && npm run build:server && pm2 restart $APP"
+echo "identidade: o modo vem de $ENV_FILE (legacy|permanent); nunca volte a um codigo que nao o leia com permanent declarado"
 exit 0

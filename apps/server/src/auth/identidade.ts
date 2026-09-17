@@ -33,6 +33,7 @@
 // MESMO emissor (o Supabase), e o que distingue é o claim — não o caminho de código. Assim o
 // servidor não precisa saber quantos provedores existem, e acrescentar um não mexe aqui.
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { resolverModoDeIdentidade } from "../config/ambiente.js";
 
 /** Como a pessoa provou quem é. `guest` é a sessão anônima: identidade real, sem conta. */
 export type Provedor = "guest" | "google" | "apple" | "desconhecido";
@@ -197,23 +198,23 @@ export function configurarVerificador(v: VerificadorDeIdentidade | null): void {
 export function restaurarVerificador(): void { atual = undefined; }
 
 /**
- * Monta o verificador a partir do ambiente, ou devolve `null` quando a identidade não está
- * configurada.
+ * Monta o verificador a partir do ambiente, ou devolve `null` no MODO A (`legacy`).
  *
- * `null` NÃO é falha: é o modo em que o KING roda hoje, com identidade efêmera por sala. A fase
- * de identidade permanente é aditiva — um servidor sem `SUPABASE_URL` continua atendendo
- * exatamente como antes, e é isso que permite implantar o código antes de existir projeto
- * Supabase, e testar tudo o que não depende dele.
+ * `null` NÃO é falha: é o modo em que o KING roda sem identidade permanente, com identidade
+ * efêmera por sala. Quem decide o modo é `resolverModoDeIdentidade` (`config/ambiente.ts`), a
+ * partir de `KING_IDENTITY_MODE` e `SUPABASE_URL`: sem nenhum dos dois, `legacy`; com
+ * `permanent`, a URL é obrigatória e válida — e a falta dela LANÇA `ConfiguracaoInvalida`, em vez
+ * de cair para `legacy` em silêncio.
  */
 export function verificadorDoAmbiente(
   env: Record<string, string | undefined> = process.env,
 ): VerificadorDeIdentidade | null {
-  const url = env.SUPABASE_URL?.trim().replace(/\/+$/, "");
-  if (!url) return null;
-  const issuer = `${url}/auth/v1`;
+  const m = resolverModoDeIdentidade(env);
+  if (m.modo === "legacy") return null;
+  const issuer = `${m.url}/auth/v1`;
   return new VerificadorDeIdentidade({
     issuer,
     jwks: new URL(`${issuer}/.well-known/jwks.json`),
-    audience: env.SUPABASE_JWT_AUDIENCE?.trim() || "authenticated",
+    audience: m.audience,
   });
 }

@@ -504,11 +504,12 @@ export function mensagemDeFalha(e: unknown): string {
   if (/4001|protocol/i.test(m)) {
     return "Esta versão do jogo e o servidor não são compatíveis. Tente de novo mais tarde.";
   }
-  // Servidor com identidade obrigatória, aplicativo que não sabe mandar credencial. Quase
-  // sempre é uma versão anterior à fase de identidade — dizer "entre de novo" mandaria a
-  // pessoa repetir um gesto que nunca vai funcionar. O que resolve é atualizar.
+  // Servidor com identidade obrigatória, e a entrada chegou SEM sessão. A causa pode ser um app
+  // anterior à identidade, mas também uma sessão de convidado que ainda não pôde ser criada — e o
+  // cliente não sabe qual. Então a frase diz o que aconteceu e o gesto que costuma resolver, sem
+  // afirmar causa, sem culpar ninguém e sem expor detalhe de autenticação.
   if (/4005/.test(m)) {
-    return "Atualize o jogo para continuar jogando online. Esta versão não consegue entrar neste servidor.";
+    return "Não foi possível validar sua sessão. Reabra o jogo e tente novamente.";
   }
     // A mesma conta já está nesta mesa noutro aparelho. É a única falha desta lista em que o
   // jogador tem um gesto claro a fazer, então a frase diz qual é — cair no genérico aqui

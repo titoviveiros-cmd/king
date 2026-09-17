@@ -135,12 +135,33 @@ describe("sem configuração, o provedor não existe", () => {
   });
 });
 
-describe("4005 fala de atualizar, não de identidade", () => {
-  it("aplicativo antigo contra servidor que exige credencial", () => {
-    const f = mensagemDeFalha(new Error("code 4005"));
-    expect(f).toContain("Atualize");
-    // NÃO pode virar a frase de 4003: mandar entrar de novo é mandar repetir o que não funciona.
-    expect(f).not.toContain("Entre novamente");
+/**
+ * 4005: A SESSÃO NÃO PÔDE SER VALIDADA — sem culpar ninguém e sem diagnóstico interno.
+ *
+ * A frase anterior mandava "atualizar o jogo", sob a premissa de que só um aplicativo anterior à
+ * identidade chegaria sem credencial. Com o cliente que já manda credencial isso deixou de ser
+ * verdade: o 4005 também aparece quando a sessão de convidado ainda não pôde ser criada, e mandar
+ * atualizar quem já está na versão certa é mandar repetir um gesto inútil. A frase agora diz o que
+ * aconteceu e o gesto que costuma resolver — sem afirmar a causa, que o cliente não sabe.
+ */
+describe("4005 diz que a sessão não pôde ser validada — sem culpar e sem detalhe interno", () => {
+  const f = () => mensagemDeFalha(new Error("code 4005"));
+
+  it("é a frase neutra de sessão", () => {
+    expect(f()).toBe("Não foi possível validar sua sessão. Reabra o jogo e tente novamente.");
+  });
+
+  it("não afirma app desatualizado nem provedor fora do ar, e não culpa o jogador", () => {
+    expect(f()).not.toMatch(/atualiz|vers[aã]o|supabase|provedor|fora do ar|indispon|culpa|você errou/i);
+  });
+
+  it("não revela detalhe de autenticação", () => {
+    expect(f()).not.toMatch(/token|jwt|jwks|assinatura|credencial|anônim|4005/i);
+  });
+
+  it("continua diferente da frase do 4003 e do genérico", () => {
+    expect(f()).not.toBe(mensagemDeFalha(new Error("code 4003")));
+    expect(f()).not.toBe("Não foi possível conectar ao servidor.");
   });
 });
 
