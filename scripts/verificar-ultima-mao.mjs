@@ -36,12 +36,47 @@
 //   2  INCONCLUSIVO — a partida não chegou à mão 10 no tempo dado (rede, carga, sala recolhida).
 //      NÃO é reprovação: nada foi observado. Rode de novo, ou aceite a cobertura do CI.
 //
-// USO:  node scripts/verificar-ultima-mao.mjs [ws://127.0.0.1:2567] [minutos]
+// USO:  node scripts/verificar-ultima-mao.mjs [ws://127.0.0.1:2567] [minutos] [--modo=legacy|permanent]
+//
+// ══ EM IDENTIDADE PERMANENT ══
+//
+// A prova precisa de DOIS humanos distintos, e em MODO B cada um entra com a própria credencial.
+// Elas vêm SÓ do ambiente — KING_VERIFICACAO_TOKEN_A e KING_VERIFICACAO_TOKEN_B, dois access
+// tokens de pessoas diferentes, obtidos por quem roda. Este script NÃO cria usuário, não persiste
+// e não imprime token. Sem as duas, ele FALHA ("credenciais de verificação necessárias") — não
+// pula, não cai para legacy e não inventa identidade.
 import { Client } from "@colyseus/sdk";
 import { cardId, legalCardsFor, TOTAL_HANDS } from "@king/engine";
 
-const URL_WS = process.argv[2] ?? "ws://127.0.0.1:2567";
-const ORCAMENTO_MIN = Number(process.argv[3] ?? 20);
+const ARGS = process.argv.slice(2);
+const POSICIONAIS = ARGS.filter((a) => !a.startsWith("--"));
+const URL_WS = POSICIONAIS[0] ?? "ws://127.0.0.1:2567";
+const ORCAMENTO_MIN = Number(POSICIONAIS[1] ?? 20);
+const MODO = ARGS.find((a) => a.startsWith("--modo="))?.slice("--modo=".length) ?? "legacy";
+if (MODO !== "legacy" && MODO !== "permanent") {
+  console.error("\n❌ --modo precisa ser legacy ou permanent");
+  process.exit(1);
+}
+
+/** O `sub` de um token, sem verificar assinatura — só para exigir duas pessoas diferentes. */
+function subDe(token) {
+  try { return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString("utf8")).sub ?? null; } catch { return null; }
+}
+const TOKEN_A = MODO === "permanent" ? process.env.KING_VERIFICACAO_TOKEN_A?.trim() : undefined;
+const TOKEN_B = MODO === "permanent" ? process.env.KING_VERIFICACAO_TOKEN_B?.trim() : undefined;
+if (MODO === "permanent") {
+  if (!TOKEN_A || !TOKEN_B) {
+    console.error("\n❌ credenciais de verificação necessárias: em identidade permanent defina KING_VERIFICACAO_TOKEN_A e KING_VERIFICACAO_TOKEN_B (dois humanos distintos)");
+    process.exit(1);
+  }
+  const subA = subDe(TOKEN_A);
+  const subB = subDe(TOKEN_B);
+  if (!subA || !subB || subA === subB) {
+    console.error("\n❌ credenciais de verificação necessárias: os dois tokens precisam ser JWT de pessoas diferentes");
+    process.exit(1);
+  }
+}
+const credencial = (t) => (t ? { accessToken: t } : {});
 const SALA = "king";
 const PROTOCOL_VERSION = 3;
 /** Precisa bater com `TEMPOS_PADRAO` em apps/server/src/match/tempos.ts. */
@@ -111,7 +146,7 @@ let b = null;
 try {
   const cliente = new Client(URL_WS);
   const s1 = await cliente.joinOrCreate(SALA, {
-    protocolVersion: PROTOCOL_VERSION, nick: "QA-1", avatar: "raposa",
+    protocolVersion: PROTOCOL_VERSION, nick: "QA-1", avatar: "raposa", ...credencial(TOKEN_A),
   });
   a = escutar(s1);
   if (!(await ate(() => a.boasVindas !== null, 15_000))) throw new Error("SERVER_WELCOME não chegou");
@@ -119,7 +154,7 @@ try {
   ok(`sala ${codigo} criada, assento ${a.boasVindas.you.seat}`);
 
   const s2 = await cliente.joinById(s1.roomId, {
-    protocolVersion: PROTOCOL_VERSION, nick: "QA-2", avatar: "panda",
+    protocolVersion: PROTOCOL_VERSION, nick: "QA-2", avatar: "panda", ...credencial(TOKEN_B),
   });
   b = escutar(s2);
   if (!(await ate(() => b.boasVindas !== null, 15_000))) throw new Error("o segundo humano não entrou");
@@ -289,8 +324,14 @@ try {
     }
   }
 } catch (e) {
-  // Falha de INFRAESTRUTURA (conexão, sala recolhida, rede) não é reprovação de comportamento.
-  inconclusivo = inconclusivo ?? ("não foi possível concluir: " + (e instanceof Error ? e.message : String(e)));
+  // Recusa de IDENTIDADE não é infraestrutura: é a porta dizendo não. Vira reprovação, nunca
+  // "inconclusivo" — senão credencial ausente ou vencida passaria como "rode de novo".
+  if ([4003, 4004, 4005].includes(e?.code)) {
+    falhar(`entrada recusada pelo servidor (${e.code}) — credenciais de verificação inválidas ou ausentes`);
+  } else {
+    // Falha de INFRAESTRUTURA (conexão, sala recolhida, rede) não é reprovação de comportamento.
+    inconclusivo = inconclusivo ?? ("não foi possível concluir: " + (e instanceof Error ? e.message : String(e)));
+  }
 } finally {
   try { await Promise.race([b?.sala?.leave(true) ?? Promise.resolve(), espera(2000)]); } catch { /* já fechou */ }
   try { await Promise.race([a?.sala?.leave(true) ?? Promise.resolve(), espera(2000)]); } catch { /* já fechou */ }

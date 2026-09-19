@@ -18,6 +18,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Client } from "@colyseus/sdk";
+import { prepararIsolamento } from "./lib/servidor-isolado.mjs";
 
 const RAIZ = new URL("../", import.meta.url);
 const ENTRADA = fileURLToPath(new URL("apps/server/dist/index.js", RAIZ));
@@ -61,9 +62,14 @@ ok(`@king/engine resolve para o artefato compilado (${resolvido.split("/packages
 
 // ─────────────── 2. sobe o processo ───────────────
 
+// ISOLADO EM LEGACY. O smoke prova o ARTEFATO executável, não a integração com o emissor de
+// identidade: ele sobe com um arquivo de identidade TEMPORÁRIO (legacy), sem as chaves de
+// identidade da shell, e nunca lê /etc/king/server.env. Sem isto, na VPS em permanent o smoke
+// entraria sem token, receberia 4005 e reprovaria um artefato bom. Produção permanent ≠ smoke.
+const ISOLAMENTO = prepararIsolamento({ modo: "legacy" });
 const servidor = spawn(process.execPath, [ENTRADA], {
   stdio: ["ignore", "pipe", "pipe"],
-  env: { ...process.env, PORT: String(PORTA) },
+  env: ISOLAMENTO.ambiente(PORTA),
 });
 
 let saida = "";
@@ -107,6 +113,12 @@ try {
   }
   if (!respondeu) falhar(`a porta ${PORTA} não respondeu em 20s\n${saida}`);
   ok(`processo no ar e porta ${PORTA} respondendo`);
+
+  // A prova do isolamento vem do PRÓPRIO servidor: ele declara no boot o modo e o arquivo que leu.
+  if (!ISOLAMENTO.confere(saida)) {
+    falhar(`o smoke não está isolado: o artefato não subiu em legacy com o arquivo temporário\n${saida}`);
+  }
+  ok("artefato isolado: identity mode legacy, arquivo de identidade temporário (nunca o de produção)");
 
   // ─────────────── 4. um cliente REAL cria uma sala ───────────────
 

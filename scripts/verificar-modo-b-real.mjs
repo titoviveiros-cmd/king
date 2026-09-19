@@ -18,6 +18,14 @@
 //                 secreta e service_role. Nunca cria mais de um usuário, nem tenta de novo.
 //   --fonte=local JWKS servido localmente e token assinado aqui mesmo: sem rede e sem usuário.
 //                 É o que as provas causais (mutações no servidor) usam.
+//   --fonte=env   um access token já existente em KING_T4_ACCESS_TOKEN (e, se houver,
+//                 SUPABASE_URL para classificar o provedor). Não cria usuário. Só com --server-url.
+//
+// ALVO
+//   (padrão)                  o script sobe o servidor LOCAL compilado em MODO B;
+//   --server-url=wss://…      um servidor JÁ NO AR (ou KING_T4_SERVER_URL). Nenhum servidor é
+//                             iniciado: prova-se o processo que realmente está atendendo. É o T4
+//                             REAL PÓS-DEPLOY: rode-o do notebook depois de ativar o MODO B na VPS.
 //
 // SAÍDA: 0 aprovado · 1 reprovado · 2 não executado (configuração, rede, limite de taxa).
 import { spawn } from "node:child_process";
@@ -31,6 +39,8 @@ import { Client } from "@colyseus/sdk";
 import { decodeJwt, exportJWK, generateKeyPair, SignJWT } from "jose";
 
 const FONTE = process.argv.find((a) => a.startsWith("--fonte="))?.split("=")[1] ?? "real";
+const SERVER_URL = (process.argv.find((a) => a.startsWith("--server-url="))?.slice("--server-url=".length)
+  ?? process.env.KING_T4_SERVER_URL ?? "").trim() || null;
 const RAIZ = new URL("../", import.meta.url);
 const ENTRADA = fileURLToPath(new URL("apps/server/dist/index.js", RAIZ));
 const { PROTOCOL_VERSION, CODIGO } = await import(new URL("apps/server/dist/protocol/index.js", RAIZ).href);
@@ -116,6 +126,18 @@ async function fonteReal() {
   };
 }
 
+/** Um token que já existe, vindo do ambiente. Não cria usuário. */
+async function fonteEnv() {
+  const token = process.env.KING_T4_ACCESS_TOKEN?.trim();
+  if (!token) naoExecutado("KING_T4_ACCESS_TOKEN ausente");
+  segredo(token);
+  let sub;
+  try { sub = decodeJwt(token).sub; } catch { naoExecutado("KING_T4_ACCESS_TOKEN não é um JWT"); }
+  if (!sub) naoExecutado("o token não tem sub");
+  const url = (process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "").trim().replace(/\/+$/, "") || null;
+  return { url, token, sub, fechar: async () => {} };
+}
+
 // ── O SERVIDOR LOCAL EM MODO B ────────────────────────────────────────────────────────────────
 function shellLimpa() {
   const e = { ...process.env };
@@ -185,31 +207,45 @@ function adulterar(token) {
 
 // ── A PROVA ───────────────────────────────────────────────────────────────────────────────────
 log(`\nT4 — MODO B num servidor local compilado (fonte: ${FONTE})\n`);
-if (FONTE !== "real" && FONTE !== "local") naoExecutado("use --fonte=real ou --fonte=local");
+if (!["real", "local", "env"].includes(FONTE)) naoExecutado("use --fonte=real, --fonte=local ou --fonte=env");
+if (SERVER_URL && !/^wss?:\/\//i.test(SERVER_URL)) naoExecutado("--server-url precisa ser ws:// ou wss://");
+if (SERVER_URL && FONTE === "local") naoExecutado("--fonte=local não serve com --server-url: o servidor alvo não confia no JWKS local");
+if (!SERVER_URL && FONTE === "env") naoExecutado("--fonte=env só com --server-url");
 
 const dir = mkdtempSync(join(tmpdir(), "king-t4-"));
 let fonte = null;
 let servidor = null;
 try {
-  fonte = FONTE === "local" ? await fonteLocal() : await fonteReal();
+  fonte = FONTE === "local" ? await fonteLocal() : FONTE === "env" ? await fonteEnv() : await fonteReal();
   log(`convidado: ${mascarar(fonte.sub)} · convidados criados nesta execução: ${convidadosCriados}`);
-  servidor = await subirServidor(fonte.url, dir);
-  if (servidor.morreu) naoExecutado(`o servidor local não subiu: ${servidor.saida.split("\n")[0]}`);
-  const boot = (servidor.saida.match(/identity mode[^\n]*/) ?? [""])[0];
-  log(`servidor: ${boot.replace(/\(.*server\.env\)/, "(arquivo temporário)")}\n`);
-  if (!boot.startsWith("identity mode: permanent")) naoExecutado("o servidor não subiu em MODO B");
+  let alvo;
+  if (SERVER_URL) {
+    // O processo que REALMENTE está no ar. Nada é iniciado aqui; B (sem token = 4005) prova o modo.
+    alvo = SERVER_URL;
+    log(`servidor alvo: ${SERVER_URL} (já no ar — nenhum servidor é iniciado por este script)\n`);
+  } else {
+    servidor = await subirServidor(fonte.url, dir);
+    if (servidor.morreu) naoExecutado(`o servidor local não subiu: ${servidor.saida.split("\n")[0]}`);
+    const boot = (servidor.saida.match(/identity mode[^\n]*/) ?? [""])[0];
+    log(`servidor: ${boot.replace(/\(.*server\.env\)/, "(arquivo temporário)")}\n`);
+    if (!boot.startsWith("identity mode: permanent")) naoExecutado("o servidor não subiu em MODO B");
+    alvo = `ws://127.0.0.1:${servidor.porta}`;
+  }
 
-  const client = new Client(`ws://127.0.0.1:${servidor.porta}`);
+  const client = new Client(alvo);
 
   // A
   const a = await tentar(client, fonte.token);
-  const id = await verificadorDoAmbiente({ KING_IDENTITY_MODE: "permanent", SUPABASE_URL: fonte.url })
-    .verificar(fonte.token).catch((e) => ({ erro: e?.motivo ?? "?" }));
+  // O provedor é classificado pelo verificador COMPILADO do servidor, quando a URL do projeto é conhecida.
+  const id = fonte.url
+    ? await verificadorDoAmbiente({ KING_IDENTITY_MODE: "permanent", SUPABASE_URL: fonte.url })
+      .verificar(fonte.token).catch((e) => ({ erro: e?.motivo ?? "?" }))
+    : null;
   registrar("A", "token válido entra com o sub como playerId",
     !!a.boasVindas && a.boasVindas.you.playerId === fonte.sub && a.boasVindas.you.identidadePermanente === true
-      && id.playerId === fonte.sub && id.provedor === "guest" && id.convidado === true,
+      && (id === null || (id.playerId === fonte.sub && id.provedor === "guest" && id.convidado === true)),
     a.boasVindas
-      ? `playerId=${mascarar(a.boasVindas.you.playerId)} (sub=${mascarar(fonte.sub)}), identidadePermanente=${a.boasVindas.you.identidadePermanente}, provedor(servidor)=${id.provedor ?? id.erro}`
+      ? `playerId=${mascarar(a.boasVindas.you.playerId)} (sub=${mascarar(fonte.sub)}), identidadePermanente=${a.boasVindas.you.identidadePermanente}, provedor(servidor)=${id ? (id.provedor ?? id.erro) : "não classificado (sem SUPABASE_URL)"}`
       : `recusado: ${a.codigo}`);
   const criadaEm = Date.now();
 
@@ -239,7 +275,7 @@ try {
     await dormir(300);
     let d = null;
     try {
-      const volta = await new Client(`ws://127.0.0.1:${servidor.porta}`).reconnect(recovery);
+      const volta = await new Client(alvo).reconnect(recovery);
       d = await boasVindasDe(volta);
       await volta.leave(true).catch(() => {});
     } catch (e) { d = { erro: limpar(e?.message ?? e) }; }

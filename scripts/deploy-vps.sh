@@ -37,6 +37,7 @@ fi
 
 ANTERIOR=""
 JA_REINICIOU=0
+MODO=""
 
 reiniciar() {
   # `--update-env` relê o ambiente DESTA shell. Para a identidade isso deixou de importar: o processo
@@ -89,6 +90,13 @@ reverter() {
   fi
   if [ "$JA_REINICIOU" = "1" ]; then
     reiniciar || { echo "   xx o servidor NAO voltou - INTERVENCAO MANUAL"; return 1; }
+    # O rollback tambem nao pode trocar o modo em silencio.
+    if [ -n "$MODO" ]; then
+      pm2 logs "$APP" --lines 200 --nostream 2>/dev/null | grep -oE "identity mode: (legacy|permanent)" | tail -1 \
+        | grep -q "identity mode: $MODO" \
+        && echo "   ok modo efetivo apos o rollback: $MODO" \
+        || echo "   xx modo efetivo apos o rollback NAO e $MODO - INTERVENCAO MANUAL"
+    fi
     systemctl is-active --quiet nginx || echo "   !! nginx nao esta ativo"
     ufw status 2>/dev/null | grep -q "Status: active" || echo "   !! UFW nao esta ativo"
     echo "   ok versao anterior no ar, Nginx e UFW conferidos"
@@ -198,14 +206,24 @@ IDENT=$(node scripts/conferir-identidade.mjs "$ENV_FILE" --conferir-jwks 2>&1)
 IDENT_OK=$?
 printf '%s\n' "$IDENT"
 [ "$IDENT_OK" = "0" ] || abortar "configuracao de identidade incoerente em $ENV_FILE - o processo vivo NAO foi tocado"
-# O SMOKE E O CONTRATO POS-RESTART AINDA ENTRAM SEM CREDENCIAL. Em permanent eles recebem 4005 e o
-# deploy reprovaria no meio; melhor parar aqui, antes de construir expectativa, com o motivo claro.
-if printf '%s' "$IDENT" | grep -q "identity mode: permanent"; then
-  abortar "deploy com identidade permanent ainda nao suportado (smoke e contrato entram sem token). Mude $ENV_FILE para legacy, implante, e volte para permanent com o procedimento de troca de modo"
-fi
+# O MODO DESTE DEPLOY E O DECLARADO NO ARQUIVO. O deploy nunca escreve nele: um deploy em
+# permanent continua permanent do comeco ao fim, sem janela em legacy.
+MODO=$(printf '%s' "$IDENT" | grep -oE "identity mode: (legacy|permanent)" | head -1 | sed 's/identity mode: //')
+[ -n "$MODO" ] || abortar "o portao de identidade nao informou o modo declarado"
+echo "  ok modo declarado para este deploy: $MODO ($ENV_FILE nao e alterado)"
 
-echo "=== SMOKE EM PORTA SEPARADA (2599) ==="
+echo "=== SMOKE EM PORTA SEPARADA (2599), ISOLADO EM LEGACY ==="
+# O smoke prova o ARTEFATO: sobe com um arquivo de identidade temporario (legacy), nunca com
+# $ENV_FILE. Producao permanent nao contamina o smoke.
 SMOKE_PORT=2599 npm run smoke:server || abortar "o artefato novo nao sobe"
+
+if [ "$MODO" = "permanent" ]; then
+  echo "=== CONTRATO COMPLETO NO ARTEFATO NOVO ISOLADO (legacy, porta 2598) ==="
+  # Em permanent o processo no ar so aceita credencial, e o deploy nao tem - nem deve ter - uma
+  # credencial real. O contrato de duas pessoas roda AQUI, contra o artefato novo isolado, antes do
+  # restart; o processo vivo nao e tocado e continua permanent.
+  node scripts/verificar-artefato-isolado.mjs 2598 || abortar "o contrato reprovou no artefato novo isolado"
+fi
 
 echo "=== REINICIAR ==="
 JA_REINICIOU=1
@@ -217,7 +235,10 @@ FALHA=""
 systemctl is-active --quiet nginx || FALHA="$FALHA nginx-inativo"
 ufw status 2>/dev/null | grep -q "Status: active" || FALHA="$FALHA ufw-inativo"
 ufw status 2>/dev/null | grep -E "^2567(/tcp)?[[:space:]]" | grep -qi "ALLOW" && FALHA="$FALHA porta-2567-exposta"
-node scripts/verificar-implantacao.mjs ws://127.0.0.1:2567 || FALHA="$FALHA contrato-reprovado"
+node scripts/verificar-implantacao.mjs ws://127.0.0.1:2567 --modo="$MODO" || FALHA="$FALHA contrato-reprovado"
+# O modo em que o processo REALMENTE subiu - registrado por ele mesmo no boot - tem de ser o
+# declarado. E o que impede um rebaixamento silencioso para legacy de passar como deploy aprovado.
+pm2 logs "$APP" --lines 400 --nostream 2>/dev/null | node scripts/conferir-modo-efetivo.mjs "$MODO" || FALHA="$FALHA modo-efetivo-divergente"
 conferir_logs || FALHA="$FALHA logs-com-erro-grave"
 
 if [ -n "$FALHA" ]; then
@@ -238,12 +259,23 @@ case "$FINAL" in
 esac
 
 echo ""
-echo "  ok Nginx . UFW . 2567 fechada . contrato aprovado . logs limpos . artefato conferido"
+echo "  ok Nginx . UFW . 2567 fechada . contrato aprovado . modo efetivo $MODO . logs limpos . artefato conferido"
 echo ""
-echo "IMPLANTACAO CONCLUIDA - ${NOVO:0:7}"
+echo "DEPLOY TRANSACIONAL APROVADO - ${NOVO:0:7} (identidade: $MODO)"
+if [ "$MODO" = "permanent" ]; then
+  echo ""
+  echo "T4 REAL POS-DEPLOY AINDA PENDENTE - este deploy provou 4005, 4003, processo vivo e modo efetivo"
+  echo "  permanent, mas NAO uma entrada com JWT valido: ele nao tem, nem deve ter, credencial real."
+  echo "  No notebook: node scripts/verificar-modo-b-real.mjs --server-url=wss://server.playkingcards.com.br"
+fi
 echo ""
 echo "PROXIMO PASSO (fora do caminho transacional, sem rollback automatico):"
-echo "  cd $RAIZ && node scripts/verificar-ultima-mao.mjs ws://127.0.0.1:2567"
+if [ "$MODO" = "permanent" ]; then
+  echo "  cd $RAIZ && node scripts/verificar-ultima-mao.mjs ws://127.0.0.1:2567 20 --modo=permanent"
+  echo "  (com KING_VERIFICACAO_TOKEN_A e KING_VERIFICACAO_TOKEN_B no ambiente: dois humanos distintos)"
+else
+  echo "  cd $RAIZ && node scripts/verificar-ultima-mao.mjs ws://127.0.0.1:2567"
+fi
 echo "retorno manual: cd $RAIZ && git reset --hard ${ANTERIOR:0:7} && npm ci && npm run build:server && pm2 restart $APP"
 echo "identidade: o modo vem de $ENV_FILE (legacy|permanent); nunca volte a um codigo que nao o leia com permanent declarado"
 exit 0

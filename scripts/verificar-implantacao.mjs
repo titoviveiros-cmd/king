@@ -5,16 +5,35 @@
 // o que o servidor devolve. É o portão do deploy: se qualquer verificação falhar, o script sai
 // com código diferente de zero e o bloco de deploy faz rollback.
 //
-//   node scripts/verificar-implantacao.mjs [ws://127.0.0.1:2567]
+//   node scripts/verificar-implantacao.mjs [ws://127.0.0.1:2567] [--modo=legacy|permanent]
 //
 // Roda pelo LOOPBACK de propósito: prova o processo, não a cadeia TLS/Nginx (que tem gate
 // próprio). Nada aqui escreve no disco nem deixa sala pendurada — as salas criadas são
 // abandonadas ao sair e o Colyseus as recolhe.
+//
+// ══ OS DOIS MODOS — e o modo é DECLARADO por quem chama, nunca deduzido do servidor ══
+//
+// Deduzir o modo pelo comportamento faria um servidor rebaixado em silêncio para legacy passar
+// como "legacy aprovado". Quem chama diz o que o processo DEVERIA ser, e o script cobra isso.
+//
+//   legacy (padrão) — o contrato completo: duas pessoas na mesma sala, sem credencial.
+//   permanent       — sem credencial real, não se finge provar uma entrada válida. Prova-se, no
+//                     processo que está no ar: health; SEM token → exatamente 4005; token com
+//                     formato de JWT e assinatura inválida → exatamente 4003; nenhuma das duas
+//                     vira entrada com playerId sorteado; e o processo continua vivo depois. O
+//                     lado positivo (JWT real entra) é do T4 real pós-deploy
+//                     (`verificar-modo-b-real.mjs --server-url=…`).
 import { Client } from "@colyseus/sdk";
+import { randomBytes, randomUUID } from "node:crypto";
 
-const URL_WS = process.argv[2] ?? "ws://127.0.0.1:2567";
+const ARGS = process.argv.slice(2);
+const URL_WS = ARGS.find((a) => !a.startsWith("--")) ?? "ws://127.0.0.1:2567";
+const MODO = ARGS.find((a) => a.startsWith("--modo="))?.slice("--modo=".length) ?? "legacy";
 const SALA = "king";
 const PROTOCOL_VERSION = 3;
+/** Precisam bater com `CODIGO` em apps/server/src/protocol/index.ts (conferido pelo teste dos portões). */
+const CREDENCIAL_AUSENTE = 4005;
+const IDENTIDADE_RECUSADA = 4003;
 
 /** Precisa bater com apps/server/src/rooms/identidade.ts. */
 const AVATARES = ["leao", "coruja", "raposa", "macaco", "panda", "tucano", "unicornio", "sapo"];
@@ -24,8 +43,10 @@ const TEMA_NAO_PADRAO = "verde";
 const MENSAGEM_VALIDA = "boa";
 
 const falhas = [];
-const ok = (t) => console.log("  ✓ " + t);
-const falhar = (t) => { console.error("  ✗ " + t); falhas.push(t); };
+/** Tudo o que sai por `ok`/`falhar` — para o portão F poder afirmar que nenhuma credencial saiu. */
+const impressas = [];
+const ok = (t) => { impressas.push(t); console.log("  ✓ " + t); };
+const falhar = (t) => { impressas.push(t); console.error("  ✗ " + t); falhas.push(t); };
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function ate(cond, ms, rotulo) {
@@ -60,6 +81,116 @@ function escutar(sala) {
 const assentosDe = (c) => [...(c.sala.state?.seats ?? [])];
 /** O avatar de um assento, na visão daquele cliente. */
 const avatarNo = (c, i) => assentosDe(c)[i]?.avatar;
+
+/**
+ * O resumo e o código de saída — o mesmo para os dois modos.
+ *
+ * A ESPERA ANTES DO `exit` NÃO É DE TESTE: é de ENCERRAMENTO. No Windows, `process.exit` chamado
+ * enquanto uma conexão WebSocket recusada ainda está fechando aborta o processo dentro do libuv
+ * (`Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)`, src\win\async.c) e troca o código de
+ * saída por 0xC0000409 — medido: 3 em 3 execuções, inclusive na versão anterior deste script. Um
+ * portão cujo código de saída é sorteado pelo sistema não é portão. Dar ao laço de eventos tempo de
+ * terminar os fechamentos deixa o código ser o que o script decidiu.
+ */
+async function concluir() {
+  const codigo = falhas.length > 0 ? 1 : 0;
+  if (codigo) {
+    console.error(`\n❌ IMPLANTAÇÃO REPROVADA — ${falhas.length} verificação(ões) falharam:`);
+    for (const f of falhas) console.error("   • " + f);
+  } else {
+    console.log(MODO === "permanent"
+      ? "\n✅ IMPLANTAÇÃO APROVADA (identidade permanent) — portões de MODO B no processo no ar. Entrada com JWT válido: T4 real pós-deploy.\n"
+      : "\n✅ IMPLANTAÇÃO APROVADA — servidor no ar com o contrato esperado.\n");
+  }
+  await espera(300);
+  process.exit(codigo);
+}
+
+/** Tenta entrar. Devolve se entrou (e com que playerId) ou o código da recusa. Nunca imprime o token. */
+async function tentarEntrar(token) {
+  const cliente = new Client(URL_WS);
+  try {
+    const s = await cliente.create(SALA, {
+      protocolVersion: PROTOCOL_VERSION, nick: "Verificador", avatar: "raposa", ...(token ? { accessToken: token } : {}),
+    });
+    let playerId = null;
+    s.onMessage("SERVER_WELCOME", (m) => { playerId = m?.you?.playerId ?? "?"; });
+    for (const t of ["PLAYER_JOINED", "PLAYER_LEFT", "PLAYER_CONNECTION", "SERVER_ERROR", "STATE_UPDATE",
+      "READY_STATE", "TURN_CLOCK", "AUTO_ACTION", "ACTION_REJECTED", "SOCIAL_MESSAGE"]) s.onMessage(t, () => {});
+    await ate(() => playerId !== null, 5000);
+    await Promise.race([s.leave(true).catch(() => {}), espera(2000)]);
+    return { entrou: true, playerId };
+  } catch (e) {
+    return { entrou: false, codigo: e?.code };
+  }
+}
+
+/**
+ * Um token com FORMATO de JWT e assinatura inválida: cabeçalho ES256 com um `kid` que nenhum JWKS
+ * tem, corpo plausível, assinatura aleatória. Não é credencial de ninguém e não vale nada — é
+ * exatamente o que o MODO B precisa recusar com 4003.
+ */
+function tokenForjado() {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const agora = Math.floor(Date.now() / 1000);
+  return `${b64({ alg: "ES256", typ: "JWT", kid: "verificacao-king-sem-chave" })}.${b64({
+    sub: randomUUID(), aud: "authenticated", role: "authenticated", is_anonymous: true, iat: agora, exp: agora + 300,
+  })}.${randomBytes(64).toString("base64url")}`;
+}
+
+async function verificarModoPermanente() {
+  console.log(`\nVERIFICAÇÃO DE IMPLANTAÇÃO — ${URL_WS} — identidade PERMANENT\n`);
+  const URL_HTTP = URL_WS.replace(/^ws/, "http");
+  const saude = async (rotulo) => {
+    try {
+      const r = await fetch(URL_HTTP, { signal: AbortSignal.timeout(10_000) });
+      if (!r.ok) falhar(`${rotulo}: health HTTP ${r.status}`);
+      else ok(`${rotulo}: health HTTP ${r.status}`);
+    } catch (e) {
+      falhar(`${rotulo}: health não respondeu (${e instanceof Error ? e.name : "erro"})`);
+    }
+  };
+
+  await saude("A. processo no ar");
+
+  const semToken = await tentarEntrar(undefined);
+  if (semToken.entrou) {
+    falhar("B. entrada SEM token foi ACEITA — o processo no ar não está em MODO B");
+  } else if (semToken.codigo !== CREDENCIAL_AUSENTE) {
+    falhar(`B. entrada sem token recusada com ${semToken.codigo}, esperado exatamente ${CREDENCIAL_AUSENTE}`);
+  } else ok(`B. sem token: recusado com ${CREDENCIAL_AUSENTE}`);
+
+  const forjado = tokenForjado();
+  const invalido = await tentarEntrar(forjado);
+  if (invalido.entrou) {
+    falhar("C. token com assinatura inválida foi ACEITO");
+  } else if (invalido.codigo !== IDENTIDADE_RECUSADA) {
+    falhar(`C. token inválido recusado com ${invalido.codigo}, esperado exatamente ${IDENTIDADE_RECUSADA}`);
+  } else ok(`C. token inválido: recusado com ${IDENTIDADE_RECUSADA}`);
+
+  if (semToken.entrou || invalido.entrou) falhar("D. houve entrada com playerId sorteado — fallback proibido em MODO B");
+  else ok("D. nenhuma recusa virou entrada com playerId sorteado");
+
+  await saude("E. processo continua vivo depois das recusas");
+
+  // F. Nada do que este script escreveu carrega o token usado na prova.
+  if (impressas.some((l) => l.includes(forjado) || l.includes(forjado.split(".")[2]))) {
+    falhar("F. o token da prova apareceu na saída");
+  } else ok("F. nenhuma credencial na saída");
+
+  // G. O modo EFETIVO do processo é conferido pelo deploy, nos logs do PM2
+  // (`conferir-modo-efetivo.mjs permanent`): daqui não se lê o log do processo.
+  console.log("  · G. modo efetivo: conferido pelo deploy no log do processo (conferir-modo-efetivo.mjs)");
+}
+
+if (MODO !== "legacy" && MODO !== "permanent") {
+  console.error("  ✗ --modo precisa ser legacy ou permanent");
+  process.exit(1);
+}
+if (MODO === "permanent") {
+  await verificarModoPermanente();
+  await concluir();
+}
 
 console.log(`\nVERIFICAÇÃO DE IMPLANTAÇÃO — ${URL_WS}\n`);
 
@@ -341,10 +472,4 @@ try {
   } catch { /* já fechou */ }
 }
 
-if (falhas.length > 0) {
-  console.error(`\n❌ IMPLANTAÇÃO REPROVADA — ${falhas.length} verificação(ões) falharam:`);
-  for (const f of falhas) console.error("   • " + f);
-  process.exit(1);
-}
-console.log("\n✅ IMPLANTAÇÃO APROVADA — servidor no ar com o contrato esperado.\n");
-process.exit(0);
+await concluir();
