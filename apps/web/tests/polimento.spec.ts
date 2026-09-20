@@ -38,6 +38,9 @@ async function mesaComTrunfo(page: Page): Promise<void> {
     } catch { /* headless sem storage: segue */ }
   });
   await page.goto("/");
+  // O tutorial NUNCA se abre sozinho: a Home é a primeira tela. Quem quer medi-lo, abre — é o
+  // mesmo gesto que um humano faria.
+  await page.locator(".hm-tutorial").click();
   await page.locator(".tut").waitFor({ timeout: 20_000 });
 
   // A ORDEM IMPORTA, e custou uma execução para descobrir: a cena positiva já monta esperando o

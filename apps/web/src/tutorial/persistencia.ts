@@ -41,7 +41,8 @@ export function normalizar(bruto: unknown): ProgressoDoTutorial {
  *
  * Toda operação é envolvida em `try`: aba anônima com storage bloqueado, cota estourada e JSON
  * corrompido são situações reais, e nenhuma delas pode impedir alguém de jogar. Sem persistência,
- * o tutorial simplesmente abre de novo — irritante, jamais quebrado.
+ * perde-se só a retomada: quem abrir o tutorial de novo recomeça do passo 1. Nada quebra, e a
+ * Home continua sendo a primeira tela de qualquer jeito — ela não depende deste arquivo.
  */
 export const armazenamentoLocal: ArmazenamentoDoTutorial = {
   ler() {
@@ -56,16 +57,7 @@ export const armazenamentoLocal: ArmazenamentoDoTutorial = {
     try {
       localStorage?.setItem(CHAVE, JSON.stringify(normalizar(p)));
     } catch {
-      /* sem persistência: o tutorial abre de novo na próxima vez, e é só */
+      /* sem persistência: a próxima abertura do tutorial começa do passo 1, e é só */
     }
   },
 };
-
-/**
- * O tutorial deve abrir SOZINHO agora?
- *
- * Só na primeira utilização. Depois de aberto uma vez — concluído, pulado ou abandonado no meio —
- * ele nunca mais se impõe: quem quiser rever, chama pela Home. Tutorial que reaparece sem ser
- * chamado é a forma mais rápida de tornar um jogo irritante.
- */
-export const deveAbrirSozinho = (p: ProgressoDoTutorial): boolean => !p.iniciado && !p.concluido;

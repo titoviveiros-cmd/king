@@ -9,7 +9,7 @@ import { servidorConfigurado } from "./net/servidor.js";
 import { lerRecuperacao } from "./net/recuperacao.js";
 import type { Entrada } from "./modos.js";
 import { analytics } from "./analytics/analytics.js";
-import { armazenamentoLocal, deveAbrirSozinho } from "./tutorial/persistencia.js";
+import { armazenamentoLocal } from "./tutorial/persistencia.js";
 
 /**
  * Dois modos, uma Mesa.
@@ -32,9 +32,11 @@ const Tutorial = lazy(() => import("./tutorial/Tutorial.js").then((m) => ({ defa
 export function App() {
   const [audioOpen, setAudioOpen] = useState(false);
   const [entrada, setEntrada] = useState<Entrada | null>(null);
-  // Primeira utilização: o tutorial se apresenta sozinho. Uma vez só, para sempre — ver
-  // `deveAbrirSozinho`. Depois disso ele só aparece quando chamado.
-  const [tutorialAberto, setTutorialAberto] = useState(() => deveAbrirSozinho(armazenamentoLocal.ler()));
+  // O TUTORIAL NUNCA SE ABRE SOZINHO. Quem abre o KING cai na Home, sempre — mesmo na primeira
+  // vez, mesmo com armazenamento zerado. O APRENDA KING é um convite na Home ("Aprenda KING" /
+  // "Rever como se joga"), e só o toque nele monta o tutorial. O progresso salvo continua valendo:
+  // é lido quando ele abre, para retomar de onde parou.
+  const [tutorialAberto, setTutorialAberto] = useState(false);
   const [tutorialConcluido, setTutorialConcluido] = useState(() => armazenamentoLocal.ler().concluido);
 
   const aberturaAnunciada = useRef(false);

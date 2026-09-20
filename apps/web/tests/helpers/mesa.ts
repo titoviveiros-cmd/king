@@ -68,10 +68,10 @@ export async function openMesaStress(page: Page, seed: number = SEED): Promise<v
       );
       // E declara o tutorial como JÁ VISTO.
       //
-      // Sem isto, o APRENDA KING abre sozinho na primeira visita — que é o comportamento certo
-      // do produto e foi o que reprovou esta suíte inteira quando ele entrou: não havia mais
-      // Home nem botão "Jogar agora" para clicar. Aqui se mede a geometria da MESA do jogo;
-      // a do tutorial tem suíte própria em tutorial.spec.ts.
+      // Hoje o tutorial não se abre sozinho (a Home é sempre a primeira tela), então isto não é
+      // mais o que desvia dele — é o que põe a Home no estado "quem já aprendeu", que é o de
+      // quem joga. Aqui se mede a geometria da MESA do jogo; a do tutorial tem suíte própria em
+      // tutorial.spec.ts.
       window.localStorage.setItem(
         "king:tutorial",
         JSON.stringify({ iniciado: true, concluido: true, passo: 0 }),

@@ -2,7 +2,7 @@
  * APRENDA KING no navegador real, em cada viewport do projeto.
  *
  * O que os testes de unidade não conseguem provar e este arquivo prova:
- *   • o tutorial se apresenta sozinho na primeira visita — e nunca mais depois;
+ *   • a Home é a primeira tela, sempre: o tutorial só abre quando alguém o chama;
  *   • dá para CONCLUIR do começo ao fim sem ficar preso em passo nenhum;
  *   • a cromagem do tutorial não cobre HUD, card do jogador nem controles do topo;
  *   • pular funciona, e pular não é concluir;
@@ -46,6 +46,18 @@ async function primeiraVisita(page: Page, extra?: () => void): Promise<void> {
   });
   if (extra) await page.addInitScript(extra);
   await page.goto("/");
+}
+
+/**
+ * Primeira visita MAIS o toque que abre o APRENDA KING.
+ *
+ * Existe porque o tutorial não se abre sozinho — ver o primeiro teste deste arquivo. Todo teste
+ * que mede o tutorial precisa, antes, do gesto que um humano faria: tocar no botão da Home.
+ */
+async function abrirTutorial(page: Page, extra?: () => void): Promise<void> {
+  await primeiraVisita(page, extra);
+  await page.locator(".hm-tutorial").click();
+  await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 }
 
 /**
@@ -133,12 +145,29 @@ async function percorrer(page: Page, limite = 60): Promise<string[]> {
   throw new Error(`tutorial não terminou em ${limite} passos: ${trilha.join(" -> ")}`);
 }
 
-test("primeira visita: o tutorial se apresenta sozinho, na mesa de verdade", async ({ page }) => {
+/**
+ * A HOME É A PRIMEIRA TELA. SEMPRE.
+ *
+ * Este teste nasceu de um defeito visto em produção: em armazenamento novo o APRENDA KING se
+ * abria sozinho, e quem chegava ao jogo caía dentro de uma aula que não pediu — sem Home, sem
+ * "Jogar agora", sem escolha. A regra é uma só: o tutorial se oferece, nunca se impõe.
+ */
+test("primeira visita: a Home vem primeiro — e o tutorial só abre quando chamado", async ({ page }) => {
   await primeiraVisita(page);
 
+  // ESPERA A HOME PRIMEIRO, e só então cobra a ausência do tutorial. A ordem importa: o
+  // Tutorial entra por lazy(), então um toHaveCount(0) feito cedo demais passa porque o módulo
+  // ainda nem chegou — instrumento que aprova o defeito que deveria pegar.
+  await expect(page.locator(".hm-tutorial")).toHaveText("Aprenda KING", { timeout: 20_000 });
+  await expect(page.locator(".home")).toBeVisible();
+  // ausente do DOM, não "escondido": nem tutorial, nem mesa montada por trás dele
+  await expect(page.locator(".tut")).toHaveCount(0);
+  await expect(page.locator(".mesa")).toHaveCount(0);
+
+  // e é o toque que o abre, no passo 1, na mesa de verdade
+  await page.locator(".hm-tutorial").click();
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".tut-passo")).toHaveText(/^1\/\d+$/);
-  // a mesa é a real: leque, adversários e HUD do contrato
   await expect(page.locator(SEL.handCard).first()).toBeVisible();
   await expect(page.locator(SEL.hud)).toBeVisible();
   await expect(page.locator(".opp")).toHaveCount(3);
@@ -157,7 +186,7 @@ test("primeira visita: o tutorial se apresenta sozinho, na mesa de verdade", asy
  * dentro da Mesa.
  */
 test("a faixa do tutorial reserva o topo — a Mesa inteira começa abaixo dela", async ({ page }, ti) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   const vp = vpOf(page);
@@ -212,7 +241,7 @@ test("a faixa do tutorial reserva o topo — a Mesa inteira começa abaixo dela"
  * Aqui a régua é o dedo (44px) e a tela (contido no viewport).
  */
 test("progresso e Pular: visíveis, legíveis e com alvo de dedo", async ({ page }, ti) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
   const vp = vpOf(page);
 
@@ -240,7 +269,7 @@ test("progresso e Pular: visíveis, legíveis e com alvo de dedo", async ({ page
 });
 
 test("dá para concluir do começo ao fim, sem ficar preso", async ({ page }) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   const trilha = await percorrer(page);
@@ -268,7 +297,7 @@ test("dá para concluir do começo ao fim, sem ficar preso", async ({ page }) =>
 });
 
 test("concluído, não abre mais sozinho — e vira 'Rever'", async ({ page }) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
   await percorrer(page);
 
@@ -284,7 +313,7 @@ test("concluído, não abre mais sozinho — e vira 'Rever'", async ({ page }) =
 });
 
 test("pular pede confirmação, sai — e pular NÃO é concluir", async ({ page }) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   await page.locator(".tut-ok").click();          // avança um passo, para haver progresso
@@ -306,13 +335,19 @@ test("pular pede confirmação, sai — e pular NÃO é concluir", async ({ page
   expect(p.concluido, "pular não é concluir").toBe(false);
   // não se impõe de novo, mas guardou onde parou
   await page.reload();
+  await expect(page.locator(".home")).toBeVisible();
   await expect(page.locator(".tut")).toHaveCount(0);
   await expect(page.locator(".hm-tutorial")).toHaveText(/aprenda/i);
+
+  // e o progresso salvo continua valendo: aberto à mão, ele RETOMA em vez de recomeçar
+  await page.locator(".hm-tutorial").click();
+  await expect(page.locator(".tut")).toBeVisible();
+  await expect(page.locator(".tut-passo")).toHaveText(/^2\/\d+$/);
 });
 
 test("com MOVIMENTO REDUZIDO, o tutorial continua completável", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
   await percorrer(page);
   await expect(page.locator(".home")).toBeVisible();
@@ -322,7 +357,7 @@ test("com ÁUDIO E VIBRAÇÃO DESLIGADOS, nada depende do som", async ({ page })
   const erros: string[] = [];
   page.on("pageerror", (e) => erros.push(String(e)));
 
-  await primeiraVisita(page); // primeiraVisita já grava música/efeitos/haptics em false
+  await abrirTutorial(page); // primeiraVisita já grava música/efeitos/haptics em false
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   // a instrução do passo continua legível sem som nenhum
@@ -333,7 +368,7 @@ test("com ÁUDIO E VIBRAÇÃO DESLIGADOS, nada depende do som", async ({ page })
 });
 
 test("passo de AÇÃO se anuncia — o tutorial nunca parece travado", async ({ page }, ti) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   // avança até o primeiro passo que pede uma carta
@@ -353,7 +388,7 @@ test("passo de AÇÃO se anuncia — o tutorial nunca parece travado", async ({ 
 });
 
 test("VOLTAR relê a instrução anterior sem desfazer jogada", async ({ page }) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   // no primeiro passo não há para onde voltar
@@ -383,7 +418,7 @@ test("VOLTAR relê a instrução anterior sem desfazer jogada", async ({ page })
  * o pedido impossível, que é o deadlock clássico deste tutorial.
  */
 test("VOLTAR depois de jogar, na mesma mesa, não pede a jogada de novo", async ({ page }) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   // até 4/16, o passo de negar
@@ -413,7 +448,7 @@ test("VOLTAR depois de jogar, na mesma mesa, não pede a jogada de novo", async 
  * a ação sem ter como cumpri-la.
  */
 test("VOLTAR para um passo prático de outra cena continua jogável", async ({ page }) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   // 3/16 é prático (servir) e 4/16 troca de cena
@@ -445,7 +480,7 @@ test("VOLTAR para um passo prático de outra cena continua jogável", async ({ p
  * inicial deixaria passar exatamente o que o aparelho pegou.
  */
 test("os dezesseis passos, um a um: sem colisão, sem clipping, sem travar", async ({ page }, ti) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
   const vp = vpOf(page);
   const proj = ti.project.name;
@@ -545,7 +580,7 @@ test("os dezesseis passos, um a um: sem colisão, sem clipping, sem travar", asy
  * pedindo ação já feita, mesa de uma mão com a fala de outra, ou nada clicável.
  */
 test("VOLTAR entre microcenários não corrompe o estado", async ({ page }) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   // até 7/16, que é a primeira mão com cena própria (mão 2)
@@ -579,7 +614,7 @@ test("VOLTAR entre microcenários não corrompe o estado", async ({ page }) => {
  * confirma o que o Rei diz, passo a passo.
  */
 test("cada mão negativa é explicada com o card do contrato daquela mão", async ({ page }) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   const esperado: Record<string, string> = {
@@ -616,7 +651,7 @@ test("cada mão negativa é explicada com o card do contrato daquela mão", asyn
  * Estes testes cobram os três momentos, e o do meio é o que faltava.
  */
 test("os controles de trunfo só existem no passo que os pede", async ({ page }, ti) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
   const vp = vpOf(page);
 
@@ -679,7 +714,7 @@ test("os controles de trunfo só existem no passo que os pede", async ({ page },
 });
 
 test("um toque onde o painel de trunfo ficava não faz nada antes da hora", async ({ page }) => {
-  await primeiraVisita(page);
+  await abrirTutorial(page);
   await expect(page.locator(".tut")).toBeVisible({ timeout: 20_000 });
 
   // até o passo 12, o que anunciava as positivas

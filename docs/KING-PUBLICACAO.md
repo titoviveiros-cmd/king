@@ -302,8 +302,8 @@ reconexões desnecessárias.
 
 | | Situação | Observação |
 |---|---|---|
-| **Tutorial abre na 1ª execução** | 🟡 esperado, não verificado no WebView | usa `localStorage`, que existe nos dois WebViews; mesma persistência da Web |
-| **Não entra em loop** | 🟢 coberto por Playwright | `deveAbrirSozinho` só é verdade uma vez |
+| **Tutorial NÃO abre sozinho** | 🟢 coberto por Playwright | a Home é a primeira tela em qualquer visita; o tutorial só abre pelo botão |
+| **Não entra em loop** | 🟢 coberto por Playwright | nada o abre sem toque; o progresso salvo serve só para retomar |
 | **Acessível manualmente** | 🟢 "Rever como se joga" na Home | — |
 | **WebView landscape** | 🟡 orientação travada nativamente; layout validado em 6 viewports | falta aparelho |
 | **AudioContext** | 🟡 desbloqueado no 1º gesto (`audio.unlock()` no "Jogar agora") | é o padrão exigido por iOS; já implementado |

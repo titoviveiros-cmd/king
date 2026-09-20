@@ -1,11 +1,12 @@
-// QUANDO O TUTORIAL APARECE, E QUANDO NÃO APARECE.
+// O QUE O TUTORIAL LEMBRA ENTRE UMA VISITA E OUTRA.
 //
-// A regra de produto tem duas metades e a segunda é a que costuma ser esquecida: ele abre sozinho
-// na PRIMEIRA utilização, e **nunca mais se impõe** depois disso. Tutorial que reaparece sem ser
-// chamado é a forma mais rápida de tornar um jogo irritante.
+// Este arquivo cobre só a memória do tutorial: já abriu? já concluiu? onde parou? QUANDO ele
+// aparece não se decide aqui e nem depende do que está salvo — ele nunca se abre sozinho, e a
+// Home é sempre a primeira tela (ver `App.tsx` e o primeiro teste de `tests/tutorial.spec.ts`).
+// O progresso existe para RETOMAR quando alguém o chama, não para decidir por ninguém.
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  PROGRESSO_ZERO, armazenamentoLocal, deveAbrirSozinho, normalizar,
+  PROGRESSO_ZERO, armazenamentoLocal, normalizar,
   type ProgressoDoTutorial,
 } from "./persistencia.js";
 
@@ -21,27 +22,25 @@ function comArmazenamento(inicial: Record<string, string> = {}) {
 afterEach(() => { delete (globalThis as Record<string, unknown>).localStorage; });
 
 describe("primeira utilização", () => {
-  it("sem nada salvo, o tutorial se apresenta sozinho", () => {
-    expect(deveAbrirSozinho(PROGRESSO_ZERO)).toBe(true);
-  });
-
   it("do zero, o progresso começa no passo 0", () => {
     comArmazenamento();
     expect(armazenamentoLocal.ler()).toEqual({ iniciado: false, concluido: false, passo: 0 });
   });
 });
 
-describe("nunca mais se impõe", () => {
-  it("depois de CONCLUÍDO, não abre sozinho", () => {
-    expect(deveAbrirSozinho({ iniciado: true, concluido: true, passo: 0 })).toBe(false);
+describe("quem já passou por ele fica marcado", () => {
+  it("pular guarda INICIADO sem concluir — o rótulo da Home continua 'Aprenda KING'", () => {
+    comArmazenamento();
+    armazenamentoLocal.gravar({ iniciado: true, concluido: false, passo: 2 });
+    const lido = armazenamentoLocal.ler();
+    expect(lido.iniciado).toBe(true);
+    expect(lido.concluido).toBe(false);
   });
 
-  it("depois de PULADO, também não — quem saiu no passo 2 escolheu sair", () => {
-    expect(deveAbrirSozinho({ iniciado: true, concluido: false, passo: 2 })).toBe(false);
-  });
-
-  it("basta ter ABERTO uma vez: mesmo abandonado no meio, não se impõe de novo", () => {
-    expect(deveAbrirSozinho({ iniciado: true, concluido: false, passo: 0 })).toBe(false);
+  it("concluir marca CONCLUÍDO — é o que faz a Home dizer 'Rever como se joga'", () => {
+    comArmazenamento();
+    armazenamentoLocal.gravar({ iniciado: true, concluido: true, passo: 0 });
+    expect(armazenamentoLocal.ler().concluido).toBe(true);
   });
 });
 

@@ -95,7 +95,7 @@ export function Home({
 
       {/* APRENDA KING fica FORA da fileira principal e em tom discreto: quem já sabe jogar não
           deve tropeçar nele toda vez que abre o app, e quem não sabe precisa achá-lo sem
-          procurar. Ele abre sozinho na primeira utilização; aqui é só o caminho de volta. */}
+          procurar. Ele NUNCA se abre sozinho: este botão é a única porta de entrada dele. */}
       {tutorial && (
         <button className="hm-tutorial" onClick={() => { sfxTap(); tutorial.onAbrir(); }}>
           {tutorial.concluido ? "Rever como se joga" : "Aprenda KING"}

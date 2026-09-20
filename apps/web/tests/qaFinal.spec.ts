@@ -23,6 +23,9 @@ async function tutorial(page: Page): Promise<void> {
     } catch { /* headless sem storage: segue */ }
   });
   await page.goto("/");
+  // O tutorial NUNCA se abre sozinho: a Home é a primeira tela. Quem quer medi-lo, abre — é o
+  // mesmo gesto que um humano faria.
+  await page.locator(".hm-tutorial").click();
   await page.locator(".tut").waitFor({ timeout: 20_000 });
 }
 
