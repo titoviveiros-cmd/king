@@ -1,20 +1,25 @@
 /**
- * T5 — A IDENTIDADE DE CONVIDADO NO PREVIEW REAL (FASE 1).
+ * T5 — A IDENTIDADE PERMANENTE NA PUBLICAÇÃO REAL.
  *
  * ══ QUANDO RODA ══
  *
- * SÓ com `KING_PREVIEW_URL` definida — e só num Preview publicado COM `VITE_SUPABASE_URL` e
- * `VITE_SUPABASE_PUBLISHABLE_KEY`. Sem a variável, o teste é pulado: o build local de e2e não tem
- * provedor de identidade e não deve ter. Na CI ele não roda.
+ * SÓ com `KING_IDENTITY_TEST_URL` definida (`KING_PREVIEW_URL` ainda vale, por compatibilidade)
+ * — e só contra uma publicação COM `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY`. Sem a
+ * variável, o teste é pulado: o build local de e2e não tem provedor de identidade e não deve ter.
+ * Na CI ele não roda.
+ *
+ * O alvo deixou de ser "o Preview" e passou a ser "a publicação que se quer provar": hoje isso é
+ * a Production, que não tem proteção nenhuma; o caminho do Preview protegido continua existindo
+ * porque o Preview continua existindo.
  *
  * Preview com proteção da Vercel: passe `VERCEL_PROTECTION_BYPASS` (o segredo de "Protection
  * Bypass for Automation"), SÓ por variável de ambiente. Ele vai apenas na PRIMEIRA navegação, na
  * query, com `x-vercel-set-bypass-cookie=true`; dali em diante quem abre a porta é o cookie que a
- * Vercel grava para o domínio do Preview. Nunca vira cabeçalho do contexto — um cabeçalho global
+ * Vercel grava para o domínio do alvo. Nunca vira cabeçalho do contexto — um cabeçalho global
  * atingiria, cross-origin, o servidor do jogo e dispararia preflight de CORS. Nunca é impresso.
  * Rode com `--reporter=list --trace=off`: o relatório html e o trace guardam a URL de cada passo.
  *
- *   KING_PREVIEW_URL=https://king-xxxx.vercel.app npx playwright test identidadePreview.spec.ts \
+ *   KING_IDENTITY_TEST_URL=https://playkingcards.com.br npx playwright test identidadeReal.spec.ts \
  *     --config apps/web/playwright.config.ts --project=800x360 --reporter=list --trace=off
  *
  * ══ O QUE PROVA ══
@@ -23,8 +28,11 @@
  *   2. a entrada na sala leva `accessToken`, e o `sub` dele é o usuário da sessão;
  *   3. o reload preserva o MESMO `sub` — nenhum convidado novo;
  *   4. uma nova aba preserva o MESMO `sub`;
- *   5. o servidor da FASE 1 continua no MODO A: entra, IGNORA o token (o `playerId` do
- *      `SERVER_WELCOME` é sorteado, diferente do `sub`, e `identidadePermanente` é falso).
+ *   5. o servidor está em IDENTIDADE PERMANENTE (MODO B): ele CONFERE o token e responde
+ *      `playerId === sub`, com `identidadePermanente` verdadeiro — nas três entradas.
+ *
+ * O que este teste NÃO é: prova de concorrência. Duas abas da mesma identidade na MESMA sala
+ * devem receber 4004, e isso é o comportamento certo — por isso cada entrada cria a sua sala.
  *
  * Nenhum token é impresso: compara-se só o `sub`, e o log mostra o `sub` mascarado.
  */
@@ -36,10 +44,15 @@ import { semSegredo, urlDeEntrada } from "./helpers/bypassVercel.js";
 const require = createRequire(import.meta.url);
 const { unpack } = require("@colyseus/msgpackr") as { unpack: (b: Buffer) => unknown };
 
-const PREVIEW = process.env.KING_PREVIEW_URL?.trim().replace(/\/+$/, "");
+/**
+ * O ALVO. `KING_PREVIEW_URL` continua aceita porque há procedimento escrito que a usa; o nome
+ * novo é o que descreve o que o teste faz hoje — provar a publicação real, seja ela qual for.
+ */
+const ALVO = (process.env.KING_IDENTITY_TEST_URL ?? process.env.KING_PREVIEW_URL)
+  ?.trim().replace(/\/+$/, "");
 const BYPASS = process.env.VERCEL_PROTECTION_BYPASS?.trim();
 
-test.use({ baseURL: PREVIEW });
+test.use({ baseURL: ALVO });
 
 const mascarar = (id?: string) => (id && id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : "∅");
 
@@ -92,22 +105,23 @@ async function usuarioDaSessao(page: Page): Promise<string | undefined> {
 /**
  * A PORTA DA VERCEL — atravessada uma vez, e o resto do contexto vive do cookie.
  *
- * Sem segredo não faz nada: um Preview sem proteção abre direto, e um protegido reprova adiante,
- * na tela de login, com o motivo visível. Com segredo, a navegação inicial pede à Vercel que grave
- * o cookie de bypass; o teste confere que a página ficou no domínio do Preview (e não foi mandada
+ * Sem segredo não faz nada: uma publicação sem proteção (Production, por exemplo) abre direto, e
+ * um Preview protegido reprova adiante, na tela de login, com o motivo visível. Com segredo, a
+ * navegação inicial pede à Vercel que grave o cookie de bypass; o teste confere que a página
+ * ficou no domínio do alvo (e não foi mandada
  * para o login) e que há cookie para esse domínio. Nenhuma mensagem carrega o segredo.
  */
 async function passarPelaProtecao(page: Page): Promise<void> {
   if (!BYPASS) return;
   try {
-    await page.goto(urlDeEntrada(PREVIEW!, BYPASS), { waitUntil: "domcontentloaded" });
+    await page.goto(urlDeEntrada(ALVO!, BYPASS), { waitUntil: "domcontentloaded" });
   } catch (e) {
-    throw new Error(`a navegação inicial do Preview falhou: ${semSegredo(String((e as Error)?.message ?? e), BYPASS)}`);
+    throw new Error(`a navegação inicial do alvo falhou: ${semSegredo(String((e as Error)?.message ?? e), BYPASS)}`);
   }
-  const ficouNoPreview = new URL(page.url()).host === new URL(PREVIEW!).host;
+  const ficouNoPreview = new URL(page.url()).host === new URL(ALVO!).host;
   expect(ficouNoPreview, "a Vercel mandou para o login — o segredo de bypass não foi aceito").toBe(true);
-  const cookies = await page.context().cookies(PREVIEW!);
-  expect(cookies.length, "a Vercel não gravou cookie para o domínio do Preview").toBeGreaterThan(0);
+  const cookies = await page.context().cookies(ALVO!);
+  expect(cookies.length, "a Vercel não gravou cookie para o domínio do alvo").toBeGreaterThan(0);
 }
 
 /** Cria uma sala e devolve o `sub` enviado e o que o servidor respondeu. */
@@ -121,8 +135,8 @@ async function entrar(page: Page, o: Observado, apelido: string) {
   return { sub, boasVindas: o.boasVindas.at(-1)! };
 }
 
-test("FASE 1: convidado real persiste e o servidor continua no MODO A", async ({ context }, ti) => {
-  test.skip(!PREVIEW, "defina KING_PREVIEW_URL para rodar contra um Preview com identidade");
+test("convidado real persiste, e o servidor confirma a identidade permanente", async ({ context }, ti) => {
+  test.skip(!ALVO, "defina KING_IDENTITY_TEST_URL para rodar contra uma publicação com identidade");
   test.skip(ti.project.name !== "800x360", "roda uma vez");
   test.setTimeout(180_000);
 
@@ -137,15 +151,21 @@ test("FASE 1: convidado real persiste e o servidor continua no MODO A", async ({
   expect(usuario, "a primeira visita não criou sessão de convidado").toBeTruthy();
   expect(primeira.sub, "o accessToken enviado não é do usuário da sessão").toBe(usuario);
 
-  // 5 — MODO A: o servidor ignorou o token
-  expect(primeira.boasVindas.identidadePermanente, "o servidor está em MODO B — não é a Fase 1").toBe(false);
-  expect(primeira.boasVindas.playerId, "o playerId veio do token — o servidor não está em MODO A").not.toBe(usuario);
+  // 5 — MODO B: o servidor CONFERIU o token e é ele quem diz quem entrou
+  console.log(`T5 servidor: playerId===sub ${primeira.boasVindas.playerId === usuario}, ` +
+    `identidadePermanente ${primeira.boasVindas.identidadePermanente}`);
+  expect(primeira.boasVindas.identidadePermanente,
+    "o servidor não está em identidade permanente — entrou sem conferir o token").toBe(true);
+  expect(primeira.boasVindas.playerId,
+    "o playerId não é o sub do token — o servidor não está usando a credencial apresentada").toBe(usuario);
 
   // 3 — reload
   await pagina.reload();
   const depoisDoReload = await entrar(pagina, o, "T5 dois");
   expect(await usuarioDaSessao(pagina), "o reload trocou o convidado").toBe(usuario);
   expect(depoisDoReload.sub, "depois do reload, o token enviado é de outro usuário").toBe(usuario);
+  expect(depoisDoReload.boasVindas.playerId, "depois do reload o servidor deu outro playerId").toBe(usuario);
+  expect(depoisDoReload.boasVindas.identidadePermanente).toBe(true);
 
   // 4 — nova aba no mesmo navegador
   const aba = await context.newPage();
@@ -153,5 +173,6 @@ test("FASE 1: convidado real persiste e o servidor continua no MODO A", async ({
   const naAba = await entrar(aba, oAba, "T5 tres");
   expect(await usuarioDaSessao(aba), "a nova aba criou outro convidado").toBe(usuario);
   expect(naAba.sub, "a nova aba enviou o token de outro usuário").toBe(usuario);
-  expect(naAba.boasVindas.identidadePermanente).toBe(false);
+  expect(naAba.boasVindas.playerId, "na aba nova o servidor deu outro playerId").toBe(usuario);
+  expect(naAba.boasVindas.identidadePermanente).toBe(true);
 });

@@ -49,7 +49,7 @@ test.describe("T5 — primeira navegação num Preview protegido", () => {
   });
 
   test("o T5 não usa cabeçalho global de bypass, e navega pela URL de entrada", () => {
-    const fonte = readFileSync(new URL("./identidadePreview.spec.ts", import.meta.url), "utf8")
+    const fonte = readFileSync(new URL("./identidadeReal.spec.ts", import.meta.url), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     expect(fonte, "extraHTTPHeaders atingiria o servidor do jogo, cross-origin").not.toContain("extraHTTPHeaders");
     expect(fonte, "o segredo não pode virar cabeçalho").not.toMatch(/["']x-vercel-protection-bypass["']\s*:/);

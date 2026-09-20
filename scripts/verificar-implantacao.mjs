@@ -443,12 +443,26 @@ try {
   a.sociais.length = 0;
   b.sociais.length = 0;
   sala.send("CLIENT_SOCIAL_MESSAGE", { messageId: MENSAGEM_VALIDA });
-  if (!(await ate(() => b.sociais.length > 0, 10_000))) {
-    falhar("a mensagem social NÃO chegou ao outro cliente");
-  } else if (b.sociais.at(-1).seat !== 0 || b.sociais.at(-1).messageId !== MENSAGEM_VALIDA) {
+  // UMA DIFUSÃO, DUAS CONEXÕES — E UM PRAZO SÓ PARA AS DUAS.
+  //
+  // A versão anterior esperava a mensagem no OUTRO aparelho e, no instante seguinte, cobrava o
+  // eco de quem mandou. São sockets independentes: nada garante a ordem entre eles. Quando o eco
+  // do remetente atrasava alguns milissegundos, o portão reprovava um servidor correto — e
+  // reprovou, em duas de cada três execuções contra a VPS. O prazo agora é um só e vale para os
+  // dois; o que se exige continua sendo o mesmo, inclusive que a difusão seja a MESMA nos dois.
+  const chegouNosDois = await ate(() => a.sociais.length > 0 && b.sociais.length > 0, 10_000);
+  const ecoDoRemetente = a.sociais.at(-1);
+  const noOutroAparelho = b.sociais.at(-1);
+  if (!chegouNosDois) {
+    falhar(
+      "a mensagem social não chegou aos dois clientes em 10s " +
+      `(remetente: ${a.sociais.length}, outro aparelho: ${b.sociais.length})`,
+    );
+  } else if (noOutroAparelho.seat !== 0 || noOutroAparelho.messageId !== MENSAGEM_VALIDA) {
     falhar("a mensagem social chegou com autor ou etiqueta errados");
-  } else if (a.sociais.length === 0) {
-    falhar("quem enviou a mensagem social não a recebeu de volta");
+  } else if (ecoDoRemetente.seat !== noOutroAparelho.seat
+    || ecoDoRemetente.messageId !== noOutroAparelho.messageId) {
+    falhar("os dois clientes receberam difusões diferentes — não é a mesma mensagem");
   } else ok("mensagem social difundida para os dois clientes, com o autor certo");
 
   // ── 8. nenhum dado privado no estado sincronizado ─────────────────────────────────────────
