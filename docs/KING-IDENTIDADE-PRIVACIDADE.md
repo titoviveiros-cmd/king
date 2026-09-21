@@ -82,6 +82,69 @@ O que **não** existe e não foi inventado: nenhum `linkIdentity` de Apple, nenh
 
 ---
 
+## 2-A. Google: vínculo, não login paralelo
+
+**A regra, antes de tudo:** quem joga o KING **já tem conta**. Ao entrar online pela primeira vez
+o jogador vira um convidado de verdade no Supabase, e o `playerId` da mesa é o `sub` desse
+convidado. Conectar o Google **não cria um usuário** — pendura uma identidade Google **no mesmo**
+`auth.users.id`. Antes e depois, o mesmo id; antes e depois, o mesmo `playerId`.
+
+Por isso o código usa `linkIdentity`, nunca `signInWithOAuth`. O segundo é *entrar*, e entrar com
+um Google que ainda não pertence ao convidado criaria **outro** usuário — o jogador voltaria dono
+de uma conta vazia, com a antiga órfã. A porta do KING para o SDK
+([`clienteSupabase.ts`](../apps/web/src/auth/clienteSupabase.ts)) **não declara** `signInWithOAuth`:
+trocar um pelo outro não compila.
+
+### Como o retorno é conduzido
+
+| Decisão | O que foi escolhido | Por quê |
+|---|---|---|
+| Fluxo | **PKCE** (`flowType: "pkce"`) | o implícito devolveria `access_token` no fragmento da URL, onde ele entra em histórico, em `Referer` e em captura de tela |
+| Detecção automática | **`detectSessionInUrl: false`**, mantido | ligá-lo faria o SDK processar qualquer URL com `code=` no arranque, calado, antes de o KING saber se aquilo era transação sua |
+| Reconhecimento | um ponto só, na Home, por `?conta=google` | retorno é um evento do produto, não um efeito colateral de carregar a página |
+| Limpeza | `history.replaceState` logo depois, em **todos** os caminhos | um `code` que sobrevive na barra de endereços é um retorno que alguém repete sem querer |
+| Cliente | **uma instância** de módulo, compartilhada | o `code_verifier` do PKCE vive no storage do cliente que **iniciou** o fluxo; um segundo cliente no retorno falharia por verificador ausente |
+
+### A trava que importa
+
+Antes de sair para o Google, grava-se uma linha **sem segredo nenhum**: qual usuário iniciou, qual
+provedor, quando. Na volta, o usuário que retorna é comparado com esse. Divergiu, **fecha**: não há
+vínculo, não há merge, não há cópia de progresso, não há `public.players` novo. A UI diz uma frase
+neutra e o jogo continua.
+
+E o retorno **nunca cria convidado**. Criar um ali seria o pior desfecho da fase: o Google ficaria
+vinculado a um usuário recém-nascido e o antigo ficaria órfão. A separação é explícita —
+*preciso de identidade para jogar* pode criar convidado (`token()`); *estou concluindo um vínculo*
+não pode, e falha fechado.
+
+A prova do vínculo é `getUserIdentities()` com `provider === "google"` no **mesmo** `user_id` —
+nunca `user_metadata`, que é o que o token diz de si mesmo.
+
+### O que NÃO é guardado
+
+`access_token`, `refresh_token`, `provider_token`, `provider_refresh_token`, credencial do Google
+e `code_verifier` (esse é do SDK, e fica com ele). O KING grava uma coisa só: o id esperado da
+transação, e o apaga ao terminar.
+
+### Google ainda está DESLIGADO
+
+Nada disso aparece em Production. O botão depende de `VITE_KING_GOOGLE_LINK` **e** de identidade
+configurada; sem as duas, a Home é exatamente a de hoje. O gate existe porque o Google só passa a
+funcionar quando alguém o configurar fora do repositório — e um convite publicado antes disso seria
+um caminho para o erro.
+
+**O que a fase seguinte precisará configurar, fora do código:**
+
+| Onde | O quê |
+|---|---|
+| Google Auth Platform | um OAuth Client Web; **origem autorizada** `https://playkingcards.com.br`; **redirect URI** `https://dwkpkpmfsqvyarjtcmjd.supabase.co/auth/v1/callback` (quem recebe o Google é o Supabase, não o KING); escopos apenas de autenticação (`openid`, `email`, `profile`) |
+| Supabase → Authentication → Providers → Google | habilitar, com o Client ID e o Client Secret do item acima (o secret vive só ali — nunca em repositório, bundle ou documento) |
+| Supabase → Authentication → URL Configuration | **Site URL** `https://playkingcards.com.br` e **Redirect URL** `https://playkingcards.com.br/?conta=google` — é para cá que o Supabase devolve o jogador |
+| Supabase → Authentication → Providers | **Enable Manual Linking**, exigido pelo SDK para `linkIdentity`/`unlinkIdentity` |
+| Vercel (Production) | `VITE_KING_GOOGLE_LINK=1` — e só depois de tudo acima estar de pé |
+
+---
+
 ## 3. Inventário de dados
 
 ### 3.1 O que passou a existir com esta fase

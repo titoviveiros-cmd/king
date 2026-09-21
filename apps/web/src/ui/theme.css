@@ -1827,6 +1827,25 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   cursor:pointer;padding:.3em .6em;text-decoration:underline;text-underline-offset:4px;}
 .hm-tutorial:active{color:var(--gold);}
 
+/* A CONTA — mais discreta ainda que o APRENDA KING.
+   Quem joga nao veio configurar conta nenhuma: o convite fica no rodape da Home, em texto menor,
+   e vira um aviso de estado depois de conectado. Em tela baixa ele CEDE, porque texto auxiliar
+   cede antes de espacamento e muito antes da acao. */
+.hm-conta{margin-top:0;display:flex;flex-direction:column;align-items:center;gap:2px;}
+/* HITBOX de 44px, VISUAL de texto auxiliar. O alvo de dedo nao se resolve aumentando a letra:
+   a area cresce por padding transparente e um min-height explicito, e a tipografia continua
+   pequena — acao secundaria parece acao secundaria, e ainda assim se acerta com o polegar. */
+.hm-conta-btn{font-family:var(--disp);font-weight:700;font-size:calc(var(--ui)*.66);letter-spacing:.06em;
+  color:var(--turq);background:none;border:none;cursor:pointer;padding:0 .9em;min-height:44px;
+  display:inline-flex;align-items:center;justify-content:center;
+  text-decoration:underline;text-underline-offset:4px;opacity:.8;}
+.hm-conta-btn:active{color:var(--gold);}
+.hm-conta-btn:disabled{cursor:default;opacity:.5;text-decoration:none;}
+.hm-conta-ok{font-family:var(--disp);font-weight:700;font-size:calc(var(--ui)*.62);letter-spacing:.06em;
+  color:var(--turq);opacity:.75;margin:0;}
+.hm-conta-aviso{font-size:calc(var(--ui)*.6);opacity:.9;margin:0;max-width:34ch;text-align:center;}
+@media (max-height: 360px){.hm-conta{display:none;}}
+
 /* ══════════════════════ ALTURA COMPACTA ══════════════════════
    A segunda dimensão da responsividade, que faltava.
 

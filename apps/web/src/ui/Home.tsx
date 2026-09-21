@@ -3,6 +3,7 @@ import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
 import { AVATARES, desenhoDoAvatar, type Avatar } from "./avatares.js";
+import type { ContaDaHome } from "../auth/useConta.js";
 
 /**
  * O código da sala tem QUATRO DÍGITOS e é sempre string.
@@ -32,13 +33,15 @@ export interface OnlineDaHome {
 }
 
 export function Home({
-  onStart, onOpenAudio, online, tutorial,
+  onStart, onOpenAudio, online, tutorial, conta,
 }: {
   onStart: (avatar: Avatar) => void;
   onOpenAudio: () => void;
   /** Ausente = build sem multiplayer. A Home continua a de sempre. */
   online?: OnlineDaHome;
   tutorial?: TutorialDaHome;
+  /** Ausente = esta publicação não vincula contas. A Home continua a de sempre. */
+  conta?: ContaDaHome;
 }) {
   const [painel, setPainel] = useState(false);
   const [nick, setNick] = useState("");
@@ -100,6 +103,29 @@ export function Home({
         <button className="hm-tutorial" onClick={() => { sfxTap(); tutorial.onAbrir(); }}>
           {tutorial.concluido ? "Rever como se joga" : "Aprenda KING"}
         </button>
+      )}
+
+      {/* A CONTA, EM TOM MENOR — e com o verbo certo.
+
+          Quem chega aqui JÁ tem conta: o convidado do Supabase é uma conta de verdade, e o
+          progresso e a identidade na mesa já são dele. Por isso a palavra não é "entrar", que
+          prometeria trocar de usuário, e sim salvar: o Google vira uma chave a mais para a MESMA
+          conta, e é isso que o botão faz. */}
+      {conta && (
+        <div className="hm-conta">
+          {conta.estado === "google" ? (
+            <p className="hm-conta-ok" role="status">Google conectado</p>
+          ) : (
+            <button
+              className="hm-conta-btn"
+              disabled={conta.estado === "processando"}
+              onClick={() => { sfxTap(); conta.onVincular(); }}
+            >
+              {conta.estado === "processando" ? "Conectando…" : "Salvar progresso com Google"}
+            </button>
+          )}
+          {conta.aviso && <p className="hm-conta-aviso" role="status">{conta.aviso}</p>}
+        </div>
       )}
 
       {online && painel && (

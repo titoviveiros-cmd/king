@@ -27,6 +27,9 @@
 // `SUPABASE_URL` antes de publicar o cliente que sabe mandar token tranca todo mundo do lado de
 // fora — a ordem correta é cliente primeiro, variável do servidor por último.
 
+import { criarConta, type ContaDoJogador } from "./conta.js";
+import { portaDeAutenticacao } from "./clienteSupabase.js";
+
 /**
  * Quem sabe conseguir uma credencial. Uma função, não um objeto de sessão: a única pergunta que o
  * resto do aplicativo faz é "tem token agora?".
@@ -118,28 +121,21 @@ export function identidadeConfigurada(): ResultadoDaIdentidade {
  * que nenhum: seria recusado na porta, e a recusa é em voz alta.
  */
 export function identidadeSupabase(cfg: { url: string; anonKey: string }): ProvedorDeIdentidade {
-  let clientePromise: Promise<{ auth: SupabaseAuth } | null> | null = null;
-
-  const cliente = () => {
-    clientePromise ??= import("@supabase/supabase-js")
-      .then(({ createClient }) => createClient(cfg.url, cfg.anonKey, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-      }) as unknown as { auth: SupabaseAuth })
-      .catch(() => null);
-    return clientePromise;
-  };
-
   return {
     async token() {
       try {
-        const c = await cliente();
-        if (!c) return undefined;
-        const atual = await c.auth.getSession();
+        const porta = await portaDeAutenticacao(cfg);
+        if (!porta) return undefined;
+        const atual = await porta.getSession();
         const token = atual.data.session?.access_token;
         if (token) return token;
-        // Ninguém logado ainda: entra como CONVIDADO. É uma conta de verdade, sem cadastro —
-        // e é ela que, mais tarde, o jogador vincula ao Google sem perder o que já é dele.
-        const novo = await c.auth.signInAnonymously();
+        // ENTRAR PARA JOGAR PODE CRIAR CONVIDADO. É uma conta de verdade, sem cadastro — e é ela
+        // que, mais tarde, o jogador vincula ao Google sem perder o que já é dele.
+        //
+        // Esta permissão é DESTE caminho e de mais nenhum. Concluir um vínculo de conta sem
+        // sessão precisa FALHAR, nunca inventar um usuário novo para "continuar" — ver
+        // `concluirRetornoOAuth` em `conta.ts`.
+        const novo = await porta.signInAnonymously();
         return novo.data.session?.access_token ?? undefined;
       } catch {
         return undefined; // provedor indisponível ≠ jogador impedido de jogar
@@ -148,14 +144,35 @@ export function identidadeSupabase(cfg: { url: string; anonKey: string }): Prove
   };
 }
 
-/** O pedaço do SDK que este arquivo usa. Escrito à mão para o tipo não vazar para o resto. */
-interface SupabaseAuth {
-  getSession(): Promise<{ data: { session: { access_token: string } | null } }>;
-  signInAnonymously(): Promise<{ data: { session: { access_token: string } | null } }>;
-}
-
 /** O provedor real, ou `null` quando esta publicação não tem identidade configurada. */
 export function provedorConfigurado(): ProvedorDeIdentidade | null {
   const r = identidadeConfigurada();
   return r.configurado ? identidadeSupabase(r) : null;
+}
+
+/**
+ * VÍNCULO DE CONTA LIGADO NESTA PUBLICAÇÃO?
+ *
+ * Duas condições, e as duas importam. A identidade precisa estar configurada — sem provedor não
+ * há o que vincular — e o vínculo precisa estar explicitamente ligado em `VITE_KING_GOOGLE_LINK`.
+ * A segunda existe porque o Google só passa a funcionar quando alguém o configurar no painel do
+ * Supabase: até lá, um botão "Conectar com Google" publicado seria um convite para um erro. Com o
+ * gate, a Production continua exatamente como está hoje enquanto a fase não fecha.
+ */
+export function vinculoDeContaLigado(): boolean {
+  const env = import.meta.env as { VITE_KING_GOOGLE_LINK?: string };
+  const ligado = (env.VITE_KING_GOOGLE_LINK ?? "").trim().toLowerCase();
+  return identidadeConfigurada().configurado && (ligado === "1" || ligado === "true");
+}
+
+/** A conta do jogador, ou `null` quando esta publicação não vincula contas. */
+export function contaConfigurada(): ContaDoJogador | null {
+  const r = identidadeConfigurada();
+  if (!r.configurado || !vinculoDeContaLigado()) return null;
+  return criarConta({
+    porta: () => portaDeAutenticacao(r),
+    armazenamento: () => { try { return localStorage ?? null; } catch { return null; } },
+    urlAtual: () => window.location.href,
+    trocarUrl: (nova) => window.history.replaceState(null, "", nova),
+  });
 }

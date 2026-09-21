@@ -10,6 +10,7 @@ import { lerRecuperacao } from "./net/recuperacao.js";
 import type { Entrada } from "./modos.js";
 import { analytics } from "./analytics/analytics.js";
 import { armazenamentoLocal } from "./tutorial/persistencia.js";
+import { useConta } from "./auth/useConta.js";
 
 /**
  * Dois modos, uma Mesa.
@@ -108,6 +109,10 @@ function ModoLocal({
   const { screen, goHome } = g;
   useBotaoVoltar(screen === "mesa", goHome);
 
+  // A conta vive na Home, e o retorno do Google é processado aqui dentro, uma vez. `null` quando
+  // esta publicação não vincula contas — e aí a Home é exatamente a de sempre.
+  const conta = useConta();
+
   // Lidos direto dos módulos puros: saber se há servidor configurado não exige abrir conexão
   // nenhuma — e nenhum destes dois módulos toca no cliente Colyseus.
   const servidor = servidorConfigurado();
@@ -120,7 +125,15 @@ function ModoLocal({
   };
 
   if (screen === "home" || !g.game) {
-    return <Home onStart={g.start} onOpenAudio={onOpenAudio} online={online} tutorial={tutorial} />;
+    return (
+      <Home
+        onStart={g.start}
+        onOpenAudio={onOpenAudio}
+        online={online}
+        tutorial={tutorial}
+        conta={conta ?? undefined}
+      />
+    );
   }
   return (
     <Mesa
