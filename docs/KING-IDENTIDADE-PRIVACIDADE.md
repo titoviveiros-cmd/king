@@ -143,6 +143,36 @@ um caminho para o erro.
 | Supabase → Authentication → Providers | **Enable Manual Linking**, exigido pelo SDK para `linkIdentity`/`unlinkIdentity` |
 | Vercel (Production) | `VITE_KING_GOOGLE_LINK=1` — e só depois de tudo acima estar de pé |
 
+### Validação real do Google linking — 24/09/2026
+
+Feita na **Production real** (`playkingcards.com.br`), com o Google Auth Platform em **Testing** e
+um único usuário de teste. O que ficou provado, no ar:
+
+| O que se mediu | Resultado |
+|---|---|
+| Operação usada | `linkIdentity` — o convidado existente recebeu uma identidade nova, nenhum usuário foi criado |
+| Mesmo `auth.users.id` antes e depois | **confirmado pela trava interna** (o retorno compara quem saiu com quem voltou e fecha se divergir) |
+| Provider Google no usuário | presente, no **mesmo** usuário |
+| Sessão | deixou de ser anônima |
+| URL do callback | voltou **limpa** — sem `code`, sem `sb_flow_id`, sem marcador |
+| JWT depois do vínculo | **aceito** pelo servidor em identidade permanente |
+| Sala real criada depois do vínculo | sim, e sem 4004/4005 |
+| UI | a Home passou a mostrar "Google conectado" |
+
+**Nada disto libera o recurso.** O rollout público **continua desligado**, e o motivo é de produto,
+não técnico: enquanto o app do Google está em *Testing*, só a conta de teste atravessa o
+consentimento — um botão que funciona para uma pessoa e falha para todas as outras é pior do que
+botão nenhum. O vínculo já feito **permanece** no Supabase; o que sai é só a interface.
+
+O interruptor é `VITE_KING_GOOGLE_LINK` (ver `vinculoDeContaLigado()`): o recurso só acende com
+`1` ou `true` **e** identidade configurada. **Ausência da variável é OFF**, e foi assim que ela
+foi recolhida da Production — nenhuma linha de código mudou para isso. Religar é devolver a
+variável e publicar o mesmo SHA de novo.
+
+Para a liberação pública faltará, fora do repositório: publicar o app no Google (sair de
+*Testing*), ou acrescentar os usuários previstos como testadores.
+
+
 ---
 
 ## 3. Inventário de dados
