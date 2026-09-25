@@ -10,6 +10,10 @@
 // `token()`, convidado, leitura de sessão, `linkIdentity`, retorno do OAuth e `getUserIdentities`.
 //
 // O `import` continua DINÂMICO: quem só joga contra bots nunca baixa o SDK.
+//
+// A LEITURA DO PROGRESSO (`progresso.ts`) usa esta MESMA instância. O objeto do SDK não sai da
+// pasta `auth/`: quem está fora dela recebe operações de domínio, nunca o cliente.
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** O que o KING usa de uma sessão. O resto do objeto do SDK não interessa a ninguém aqui. */
 export interface SessaoSupabase {
@@ -51,7 +55,7 @@ export interface PortaDeAutenticacao {
 
 export interface ConfiguracaoDeIdentidade { url: string; anonKey: string }
 
-let compartilhado: Promise<PortaDeAutenticacao | null> | null = null;
+let compartilhado: Promise<SupabaseClient | null> | null = null;
 let configuracaoEmUso: string | null = null;
 
 /**
@@ -66,7 +70,7 @@ let configuracaoEmUso: string | null = null;
  * `code=` durante o arranque, calado, antes de o KING saber se aquilo era uma transação sua. O
  * retorno é reconhecido por nós, num ponto só, e a URL é limpa logo depois — ver `conta.ts`.
  */
-export function portaDeAutenticacao(cfg: ConfiguracaoDeIdentidade): Promise<PortaDeAutenticacao | null> {
+export function clienteCompartilhado(cfg: ConfiguracaoDeIdentidade): Promise<SupabaseClient | null> {
   if (compartilhado && configuracaoEmUso !== cfg.url) return Promise.resolve(null);
   configuracaoEmUso = cfg.url;
   compartilhado ??= import("@supabase/supabase-js")
@@ -77,9 +81,14 @@ export function portaDeAutenticacao(cfg: ConfiguracaoDeIdentidade): Promise<Port
         detectSessionInUrl: false,
         flowType: "pkce",
       },
-    }).auth as unknown as PortaDeAutenticacao)
+    }))
     .catch(() => null);
   return compartilhado;
+}
+
+/** A parte de AUTENTICAÇÃO do cliente único. */
+export function portaDeAutenticacao(cfg: ConfiguracaoDeIdentidade): Promise<PortaDeAutenticacao | null> {
+  return clienteCompartilhado(cfg).then((c) => (c ? (c.auth as unknown as PortaDeAutenticacao) : null));
 }
 
 /** Só para teste: esquece a instância. Nunca chamado pelo aplicativo. */

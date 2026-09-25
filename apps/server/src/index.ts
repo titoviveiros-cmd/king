@@ -12,6 +12,10 @@
 import { PORTA_PADRAO, servidor } from "./app.js";
 import { verificadorEmUso } from "./auth/identidade.js";
 import { ConfiguracaoInvalida, prepararIdentidade } from "./config/ambiente.js";
+import { ConfiguracaoDeProgressoInvalida, lerConfiguracaoDeProgresso } from "./progresso/config.js";
+import { OutboxDeProgresso } from "./progresso/outbox.js";
+import { repositorioPg } from "./progresso/repositorio.js";
+import { ServicoDeProgresso, configurarProgresso } from "./progresso/servico.js";
 
 const SAIDA_CONFIGURACAO_INVALIDA = 78;
 
@@ -23,6 +27,34 @@ try {
 } catch (e) {
   if (e instanceof ConfiguracaoInvalida) {
     console.error(`[king] configuração de identidade inválida: ${e.message}`);
+    process.exit(SAIDA_CONFIGURACAO_INVALIDA);
+  }
+  throw e;
+}
+
+// O PROGRESSO É RESOLVIDO DO MESMO JEITO, EM ARQUIVO PRÓPRIO (`/etc/king/progress.env`). Ausente,
+// o progresso fica desligado e o jogo segue igual. Presente e incoerente, derruba o boot com 78.
+// Ver `progresso/config.ts`.
+try {
+  const progresso = lerConfiguracaoDeProgresso(process.env);
+  if (progresso.modo === "database") {
+    const servico = new ServicoDeProgresso(
+      new OutboxDeProgresso(progresso.outbox),
+      repositorioPg({ connectionString: progresso.url }),
+    );
+    configurarProgresso(servico);
+    console.log("[king] progress mode: database");
+    // Pendências de um boot anterior. Não segura a subida: o jogo não espera o banco.
+    void servico.reprocessar().then(
+      (b) => console.log(`[king] progresso reprocessado: ${b.entregues} entregue(s), ${b.pendentes} pendente(s), ${b.corrompidas.length} ilegível(is)`),
+      (e) => console.error(`[king] reprocessamento do progresso falhou: ${(e as Error)?.name ?? "erro"}`),
+    );
+  } else {
+    console.log(`[king] progress mode: disabled (${progresso.motivo})`);
+  }
+} catch (e) {
+  if (e instanceof ConfiguracaoDeProgressoInvalida) {
+    console.error(`[king] configuração de progresso inválida: ${e.message}`);
     process.exit(SAIDA_CONFIGURACAO_INVALIDA);
   }
   throw e;

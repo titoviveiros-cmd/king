@@ -41,12 +41,16 @@ export function prepararIsolamento({ modo = "legacy", supabaseUrl } = {}) {
       const e = { ...process.env };
       for (const k of CHAVES_DE_IDENTIDADE) delete e[k];
       e.KING_ENV_FILE = arquivo;
+      // PROGRESSO DESLIGADO no artefato isolado: aponta para um arquivo que NÃO existe. Sem isto,
+      // na VPS o smoke leria o /etc/king/progress.env de produção e abriria conexão com o banco.
+      e.KING_PROGRESS_ENV_FILE = join(dir, "progress.env.inexistente");
       e.PORT = String(porta);
       return e;
     },
     /** O boot declarou o modo escolhido E disse que leu o arquivo temporário — e não outro. */
     confere(saida) {
-      return saida.includes(`identity mode: ${modo}`) && saida.includes(`env file: loaded (${arquivo})`);
+      return saida.includes(`identity mode: ${modo}`) && saida.includes(`env file: loaded (${arquivo})`)
+        && saida.includes("progress mode: disabled");
     },
   };
 }

@@ -13,15 +13,21 @@
     "build:server": "npm run build --workspace packages/engine && npm run build --workspace apps/server",
     "typecheck": "tsc -p packages/engine/tsconfig.json --noEmit && tsc -p apps/server/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
     "smoke:server": "node scripts/smoke-server.mjs",
-    "test": "npm run test --workspace packages/engine && npm run test --workspace apps/server && npm run test --workspace apps/web",
+    "test": "npm run test --workspace packages/engine && npm run test --workspace apps/server && npm run test --workspace apps/web && npm run test:progresso-sql:ci",
     "build": "npm run build --workspace packages/engine && npm run build --workspace apps/server && npm run build --workspace apps/web",
     "test:e2e": "npm run test:e2e --workspace apps/web",
     "ci": "npm test && npm run build && npm run smoke:server && npm run test:e2e",
     "mobile:preparar": "node scripts/preparar-mobile.mjs",
     "mobile:sync": "npm run build --workspace apps/web && npm --workspace apps/web exec cap sync && npm run mobile:preparar && npm run mobile:validar",
-    "mobile:validar": "node scripts/validar-mobile.mjs"
+    "mobile:validar": "node scripts/validar-mobile.mjs",
+    "test:progresso-sql": "node scripts/testar-progresso-sql.mjs",
+    "test:progresso-sql:provas": "node scripts/testar-progresso-sql.mjs --provas",
+    "test:progresso-sql:ci": "npm run build:server && node scripts/testar-progresso-sql.mjs --provas"
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "embedded-postgres": "17.10.0-beta.17"
   }
 }

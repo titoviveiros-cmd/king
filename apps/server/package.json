@@ -13,10 +13,12 @@
     "@colyseus/schema": "^4.0.31",
     "@king/engine": "*",
     "colyseus": "^0.17.10",
-    "jose": "^6.2.10"
+    "jose": "^6.2.10",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@colyseus/testing": "^0.17.11",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   }

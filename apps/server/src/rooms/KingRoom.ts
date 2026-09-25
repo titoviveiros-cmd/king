@@ -18,6 +18,7 @@
 //
 // A Room é transporte e fan-out; a validação vive em `match/autoridade.ts`, pura e sem Colyseus;
 // e a REGRA vive só em `@king/engine`. Nada de KING é reimplementado aqui.
+import { randomUUID } from "node:crypto";
 import { CloseCode, Room, ServerError, generateId, type Client } from "colyseus";
 import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import {
@@ -25,13 +26,16 @@ import {
 } from "./identidade.js";
 import { DURACAO_MS, RitmoSocial, mensagemValida } from "./social.js";
 import { ArraySchema, schema } from "@colyseus/schema";
-import { TOTAL_HANDS, type Seat } from "@king/engine";
+import { TOTAL_HANDS, rankings, type Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
 import { TEMPOS } from "../match/tempos.js";
 import {
   espelhoVazio, pausaDaLeitura, publicarNoEspelho, respiroDaLeitura, saltarEspelho, type EspelhoDaFila,
 } from "../match/pausaDaVaza.js";
 import { IdentidadeRecusada, verificadorEmUso, type IdentidadeVerificada } from "../auth/identidade.js";
+import { progressoEmUso } from "../progresso/servico.js";
+import type { AssentoAoFim } from "../progresso/resultado.js";
+import type { Posicao } from "../progresso/tipos.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
   type Causa, type DefinirAvatar, type DefinirPronto, type DefinirTemaDaMesa, type EnviarMensagemSocial,
@@ -192,6 +196,22 @@ export class KingRoom extends Room<{
   #conexaoAtiva = new Map<string, ClienteDoKing>();
 
   /**
+   * O ELENCO DA PARTIDA, congelado no início: quem ocupa cada assento, se é bot e se a identidade
+   * é permanente. É deste retrato — e não de quem estiver conectado no fim — que o crédito de
+   * progresso nasce. Durante a partida o assento não muda de dono (decisão D1), mas o retrato
+   * deixa isso explícito em vez de depender dessa regra.
+   */
+  #elenco: { playerId: string; bot: boolean; permanente: boolean }[] = [];
+  #iniciadaEm: Date | null = null;
+  /**
+   * PARTICIPAÇÃO, contada só em JOGADAS DE CARTA. `#jogadas` conta toda carta que saiu do assento;
+   * `#jogadasProprias`, só as que o PRÓPRIO humano enviou. Assistência e estouro de prazo contam
+   * no total e não nas próprias. Escolha de trunfo não entra em nenhum dos dois.
+   */
+  #jogadas = [0, 0, 0, 0];
+  #jogadasProprias = [0, 0, 0, 0];
+
+  /**
    * RELÓGIO AUTORITATIVO. O servidor é a única fonte de tempo; o cliente só representa.
    *
    * `#pendencia` descreve a decisão que a partida está esperando AGORA. Todo timer agendado
@@ -340,6 +360,7 @@ export class KingRoom extends Room<{
       const dados = client.userData;
       if (!dados) return;
       const r = this.autoridade.jogarCarta(dados.seat, dados.playerId, msg);
+      if (r.ok && !r.duplicada) this.#contarJogada(dados.seat, true);
       this.#responder(client, msg?.actionId ?? "", r, "CARD_PLAYED");
     });
 
@@ -518,8 +539,12 @@ export class KingRoom extends Room<{
     // A SEMENTE é do servidor. Nunca do cliente nem das opções da sala: quem escolhe a semente
     // escolhe a distribuição.
     const semente = Math.floor(Math.random() * 0xffffffff) >>> 0;
-    const r = this.autoridade.iniciar(nomes, generateId(), semente);
+    // O ID DA PARTIDA é um UUID do servidor, gerado UMA vez aqui. É com ele que o progresso é
+    // creditado uma vez só — retry, reconexão e reprocessamento reenviam o mesmo. Continua sendo
+    // uma `string` no protocolo, e o cliente só o lê.
+    const r = this.autoridade.iniciar(nomes, randomUUID(), semente);
     if (!r.ok) return;
+    this.#congelarElenco();
     this.state.status = "playing" satisfies StatusDaSala;
     // O ready do LOBBY cumpriu o papel dele. Entre mãos a mesma flag passa a significar
     // "pedi a próxima mão" — deixá-la ligada faria o consenso nascer satisfeito.
@@ -675,6 +700,7 @@ export class KingRoom extends Room<{
       const cardId = this.autoridade.cartaAutomatica(seat);
       if (!cardId) return;
       r = this.autoridade.jogarCarta(seat, playerId, { actionId: acao, cardId });
+      if (r.ok && !r.duplicada) this.#contarJogada(seat, false);
     } else {
       const trump = this.autoridade.trunfoAutomatico(seat);
       if (!trump) return;
@@ -756,6 +782,56 @@ export class KingRoom extends Room<{
     this.#publicar(causa);
   }
 
+  // ══════════════════ PROGRESSO ══════════════════
+
+  #congelarElenco(): void {
+    this.#iniciadaEm = new Date();
+    this.#jogadas = [0, 0, 0, 0];
+    this.#jogadasProprias = [0, 0, 0, 0];
+    this.#elenco = this.state.seats.map((a) => ({
+      playerId: a.playerId,
+      bot: a.bot,
+      permanente: !a.bot && [...this.#sessoes.values()].some((d) => d.playerId === a.playerId && d.identidadePermanente),
+    }));
+  }
+
+  #contarJogada(seat: Seat, propria: boolean): void {
+    this.#jogadas[seat] += 1;
+    if (propria) this.#jogadasProprias[seat] += 1;
+  }
+
+  /**
+   * Entrega o fim da partida ao registrador de progresso. Tudo o que vai daqui é FATO que o
+   * servidor já decidiu — elenco, posição do motor, conexão no fim, contagem de jogadas. Nenhum
+   * XP. E nada aqui pode quebrar a mesa: qualquer falha fica no registrador.
+   */
+  #aoTerminarPartida(): void {
+    const m = this.autoridade.estadoAutoritativo();
+    if (!m || !this.#iniciadaEm || this.#elenco.length !== ASSENTOS) return;
+    const posicoes: Record<number, Posicao> = {};
+    for (const linha of rankings(m)) posicoes[linha.seat] = linha.position as Posicao;
+    const assentos: AssentoAoFim[] = this.#elenco.map((e, seat) => ({
+      seat,
+      playerId: e.playerId,
+      bot: e.bot,
+      permanente: e.permanente,
+      conectado: this.state.seats[seat].connected,
+      jogadasTotais: this.#jogadas[seat],
+      jogadasProprias: this.#jogadasProprias[seat],
+    }));
+    try {
+      progressoEmUso().partidaEncerrada({
+        partidaId: this.autoridade.matchId,
+        iniciadaEm: this.#iniciadaEm,
+        terminadaEm: new Date(),
+        assentos,
+        posicoes,
+      });
+    } catch (e) {
+      console.error(`[progresso] registrador falhou ao receber o fim da partida: ${(e as Error)?.name ?? "erro"}`);
+    }
+  }
+
   #recusar(client: ClienteDoKing, actionId: string, code: string, message: string): void {
     enviar(client, "ACTION_REJECTED", {
       actionId,
@@ -771,6 +847,9 @@ export class KingRoom extends Room<{
     // o fim da partida é do MOTOR; a sala só reflete
     if (m?.finished && this.state.status !== "finished") {
       this.state.status = "finished" satisfies StatusDaSala;
+      // O PROGRESSO NASCE AQUI, e só aqui: na transição única para `finished`. Nunca em reconexão,
+      // nunca em mensagem de cliente, nunca em pedido de próxima mão.
+      this.#aoTerminarPartida();
     }
     // instante em que a mão acabou: origem do piso do Placar e dos prazos de auto-ready
     if (m?.hand && m.hand.handScores !== null) {
