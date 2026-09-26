@@ -28,14 +28,17 @@ export function parametrosDoCredito(r: ResultadoDaPartida): unknown[] {
  * Repositório sobre `pg`. Pool PEQUENA, criada uma vez: um crédito por partida encerrada não
  * justifica mais que duas conexões.
  *
- * A URL vem do arquivo de progresso já validada (inclusive `sslmode`). Nada aqui monta host ou
- * usuário do Supabase — a string de conexão é a copiada do painel, na fase de operação.
+ * A URL vem do arquivo de progresso já validada e SEM parâmetro SSL: o TLS é definido AQUI, com a
+ * CA explícita e `rejectUnauthorized: true` — cadeia e nome do host verificados, sem fallback para
+ * conexão sem TLS e sem `checkServerIdentity` próprio. Nada aqui monta host ou usuário do Supabase:
+ * a string de conexão é a copiada do painel, na fase de operação.
  */
-export function repositorioPg(origem: { connectionString: string } | { pool: pg.Pool }): RepositorioDeProgresso {
+export function repositorioPg(origem: { connectionString: string; ca: string } | { pool: pg.Pool }): RepositorioDeProgresso {
   const pool = "pool" in origem
     ? origem.pool
     : new pg.Pool({
       connectionString: origem.connectionString,
+      ssl: { ca: origem.ca, rejectUnauthorized: true },
       max: 2,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,

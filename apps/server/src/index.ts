@@ -40,7 +40,7 @@ try {
   if (progresso.modo === "database") {
     const servico = new ServicoDeProgresso(
       new OutboxDeProgresso(progresso.outbox),
-      repositorioPg({ connectionString: progresso.url }),
+      repositorioPg({ connectionString: progresso.url, ca: progresso.ca }),
     );
     configurarProgresso(servico);
     console.log("[king] progress mode: database");
