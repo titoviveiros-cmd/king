@@ -6,11 +6,14 @@
 //
 // ══ COMO AS CORRIDAS SÃO PROVADAS ══
 //
-// Corrida que depende de sorte não prova nada. Os testes de concorrência usam uma variante da
-// migração em que o marcador `-- [ponto-de-corrida]` — que fica logo DEPOIS da trava por jogador
-// — vira `perform pg_sleep(0.4)`. Isso alarga a janela entre "travei" e "olhei o passado" para
-// 400 ms, e duas conexões independentes disparam ao mesmo tempo. Com a trava, a segunda espera a
-// primeira; sem ela, as duas enxergam o mesmo passado.
+// Corrida que depende de sorte — ou de cronômetro — não prova nada. A serialização POR JOGADOR (T4,
+// T4b, T6, T9) é provada sem relógio: uma conexão de fora segura a linha do jogador com a MESMA
+// trava da função (`for update`), as chamadas são disparadas, e o teste espera o PRÓPRIO Postgres
+// dizer que cada uma está parada (`pg_blocking_pids`). Com a trava da função, elas param ANTES de
+// olhar o passado; sem ela, só param no UPDATE final, DEPOIS de ler e gravar o ledger — e o
+// `pg_locks` mostra isso. Solta a trava, e o resultado é o mesmo em máquina rápida ou lenta.
+// (O T3 — a MESMA partida duas vezes — ainda usa a variante em que o marcador
+// `-- [ponto-de-corrida]` vira `perform pg_sleep(0.4)`; lá a prova é a chave única, não o tempo.)
 //
 // ══ RED → GREEN ══
 //
@@ -37,13 +40,18 @@ const PROGRESSO = ler("supabase/migrations/20260925120000_progresso.sql");
 
 const MARCADOR = "  -- [ponto-de-corrida]";
 const JANELA_MS = 400;
-const LIMIAR_SERIAL_MS = 700; // duas janelas de 400 ms em série passam disto; em paralelo, não
+const TRAVA = "  perform 1 from public.progresso as g where g.player_id = any (v_ids) order by g.player_id for update;\n";
 
 /** Cada mutação remove UMA proteção. `alvos` são os testes que precisam reprovar sem ela. */
 const MUTACOES = {
   "sem-trava": {
-    trocas: [["  perform 1 from public.progresso as g where g.player_id = any (v_ids) order by g.player_id for update;\n", ""]],
+    trocas: [[TRAVA, ""]],
     alvos: ["T4", "T6", "T9"],
+  },
+  // O erro oposto: serializar TODO MUNDO. Correto, mas uma mesa passaria a esperar a outra à toa.
+  "trava-global": {
+    trocas: [[TRAVA, "  lock table public.progresso in exclusive mode;\n"]],
+    alvos: ["T4b"],
   },
   "sem-idempotencia": {
     trocas: [["  values (p_partida, p_iniciada, p_terminada, p_humanos, p_bots, 1)\n  on conflict (id) do nothing;\n",
@@ -153,6 +161,7 @@ async function bancoDeTeste(modelo) {
       return c;
     },
     async anonimo() { const c = await conectar(nome); abertos.push(c); await c.query("set role anon"); return c; },
+    async outraAdmin() { const c = await conectar(nome); abertos.push(c); return c; },
     async jogadores(n) {
       const ids = Array.from({ length: n }, () => randomUUID());
       for (const id of ids) await admin.query("insert into auth.users (id) values ($1)", [id]);
@@ -202,7 +211,57 @@ async function reprova(promessa, padrao, msg) {
   }
   throw new Error(msg);
 }
-async function cronometrar(fn) { const t0 = performance.now(); const r = await fn(); return { r, ms: performance.now() - t0 }; }
+
+/** A "transação 1": segura a linha do jogador com a MESMA trava da função, até `soltar()`. */
+async function segurarJogador(b, id) {
+  const c = await b.outraAdmin();
+  await c.query("begin");
+  await c.query("select 1 from public.progresso where player_id = $1 for update", [id]);
+  return { pid: c.processID, soltar: () => c.query("commit") };
+}
+
+/** Crédito disparado SEM esperar; a rejeição fica anotada, nunca solta. */
+function disparar(c, args) {
+  const p = creditar(c, args);
+  const estado = { terminou: false };
+  p.then(() => { estado.terminou = true; }, () => { estado.terminou = true; });
+  return { pid: c.processID, p, estado };
+}
+
+/**
+ * Até o Postgres dizer que a chamada está PARADA esperando só as conexões `por` — ou que terminou.
+ * Não há limiar: cada desfecho é determinado pelo código SQL. O prazo só impede a suíte de pendurar.
+ */
+async function paradaOuTerminou(b, chamada, por) {
+  const prazo = Date.now() + 60_000;
+  while (Date.now() < prazo) {
+    const { rows: [r] } = await b.admin.query("select pg_blocking_pids($1) as quem", [chamada.pid]);
+    if (chamada.estado.terminou) return "terminou";
+    if (r.quem.length && r.quem.every((q) => por.includes(q))) return "parada";
+    await new Promise((ok) => setTimeout(ok, 5));
+  }
+  throw new Error("a chamada nem parou nem terminou em 60 s");
+}
+
+/** Quantos locks a conexão tem no LEDGER — tocou `xp_eventos` = já olhou o passado. */
+async function tocouOLedger(b, pid) {
+  const r = await b.admin.query("select count(*)::int n from pg_locks where pid = $1 and relation = 'public.xp_eventos'::regclass", [pid]);
+  return r.rows[0].n > 0;
+}
+
+/**
+ * Corrida SEM relógio: segura o jogador, dispara as chamadas, espera TODAS pararem (na trava da
+ * função, ou — sem ela — no UPDATE final), e só então solta. Sem a trava, todas já leram o mesmo
+ * passado quando param; com ela, nenhuma leu, e passam uma de cada vez.
+ */
+async function corridaSobATrava(b, jogador, pares) {
+  const trava = await segurarJogador(b, jogador);
+  const chamadas = pares.map(([c, args]) => disparar(c, args));
+  const por = [trava.pid, ...chamadas.map((c) => c.pid)];
+  for (const c of chamadas) afirmar(await paradaOuTerminou(b, c, por) === "parada", "uma chamada terminou com o jogador travado por fora");
+  await trava.soltar();
+  return Promise.all(chamadas.map((c) => c.p));
+}
 
 // ─────────────────────────── os testes ───────────────────────────
 // `janela: true` = roda no modelo com o amplificador de corrida.
@@ -236,29 +295,34 @@ const TESTES = [
     afirmar(novos === 2, `deveria haver exatamente 2 lançamentos novos, houve ${novos}`);
     afirmar(await total(b.admin, a) === 150, `progresso de A = ${await total(b.admin, a)}, esperado 150`);
   } },
-  { id: "T4", janela: true, nome: "partidas DIFERENTES com o mesmo jogador serializam (jogador que JÁ tem progresso)", async fn(b) {
-    const [a, x, y, w] = await b.jogadores(4);
-    const [s0, s1, s2] = [await b.servidor(), await b.servidor(), await b.servidor()];
+  { id: "T4", nome: "partidas DIFERENTES com o mesmo jogador serializam NA TRAVA, antes de olhar o passado", async fn(b) {
+    const [a, x, w] = await b.jogadores(3);
+    const [s0, s1] = [await b.servidor(), await b.servidor()];
     // O CASO DIFÍCIL: A já tem linha em `progresso`. No primeiro crédito de um jogador, o
-    // INSERT ... ON CONFLICT da segunda transação espera a linha ainda não confirmada da primeira
-    // — uma serialização ACIDENTAL que esconde a falta da trava. Com a linha já existente, só a
-    // trava explícita serializa.
+    // INSERT ... ON CONFLICT espera a linha ainda não confirmada da outra transação — uma
+    // serialização ACIDENTAL que esconde a falta da trava. Com a linha já existente, só a trava
+    // explícita serializa.
     await creditar(s0, { ...janelaDaPartida(9), humanos: [{ id: a, posicao: 4 }, { id: w, posicao: 1 }] });
-    const { ms } = await cronometrar(() => Promise.all([
-      creditar(s1, { ...janelaDaPartida(0), humanos: [{ id: a, posicao: 1 }, { id: x, posicao: 2 }] }),
-      creditar(s2, { ...janelaDaPartida(1), humanos: [{ id: a, posicao: 2 }, { id: y, posicao: 1 }] }),
-    ]));
-    afirmar(ms >= LIMIAR_SERIAL_MS, `as duas rodaram em paralelo (${Math.round(ms)} ms) — não houve serialização por jogador`);
-    afirmar(await total(b.admin, a) === 380, "progresso de A deveria somar 100 + 150 + 130");
+    const trava = await segurarJogador(b, a); // a transação 1
+    const segunda = disparar(s1, { ...janelaDaPartida(1), humanos: [{ id: a, posicao: 2 }, { id: x, posicao: 1 }] });
+    const onde = await paradaOuTerminou(b, segunda, [trava.pid]);
+    const olhouAntes = onde === "parada" && await tocouOLedger(b, segunda.pid);
+    await trava.soltar();
+    afirmar(onde === "parada", "a segunda partida terminou sem esperar o jogador travado");
+    afirmar(!olhouAntes, "a segunda partida parou só DEPOIS de ler e gravar o ledger — não houve trava por jogador antes do passado");
+    const { linhas } = await segunda.p; // soltou a 1: a 2 prossegue
+    afirmar(xpDe(linhas, a) === 130 && await total(b.admin, a) === 230, `A = ${await total(b.admin, a)}, esperado 100 + 130`);
   } },
-  { id: "T4b", janela: true, nome: "jogadores DISTINTOS não serializam à toa, e nada se corrompe", async fn(b) {
+  { id: "T4b", nome: "jogadores DISTINTOS não esperam a trava de quem não está na mesa, e nada se corrompe", async fn(b) {
     const [a, x, y, z] = await b.jogadores(4);
-    const [s1, s2] = [await b.servidor(), await b.servidor()];
-    const { ms } = await cronometrar(() => Promise.all([
-      creditar(s1, { ...janelaDaPartida(0), humanos: [{ id: a, posicao: 1 }, { id: x, posicao: 2 }] }),
-      creditar(s2, { ...janelaDaPartida(0), humanos: [{ id: y, posicao: 1 }, { id: z, posicao: 2 }] }),
-    ]));
-    afirmar(ms < LIMIAR_SERIAL_MS, `jogadores distintos esperaram um pelo outro (${Math.round(ms)} ms)`);
+    const [s0, s1] = [await b.servidor(), await b.servidor()];
+    await creditar(s0, { ...janelaDaPartida(9), humanos: [{ id: a, posicao: 1 }, { id: x, posicao: 2 }] });
+    const trava = await segurarJogador(b, a);
+    const outra = disparar(s1, { ...janelaDaPartida(0), humanos: [{ id: y, posicao: 1 }, { id: z, posicao: 2 }] });
+    const onde = await paradaOuTerminou(b, outra, [trava.pid]);
+    await trava.soltar();
+    afirmar(onde === "terminou", "uma mesa SEM o jogador travado ficou esperando por ele — a trava não é por jogador");
+    await outra.p;
     for (const [id, esperado] of [[a, 150], [x, 130], [y, 150], [z, 130]]) {
       afirmar(await total(b.admin, id) === esperado, `progresso corrompido para um jogador distinto`);
     }
@@ -273,16 +337,16 @@ const TESTES = [
     afirmar(xpDe(linhas, a) === 0, `A estava em duas mesas ao mesmo tempo e ganhou ${xpDe(linhas, a)}`);
     afirmar(xpDe(linhas, y) === 130, "quem não estava na outra mesa ganha normalmente");
   } },
-  { id: "T6", janela: true, nome: "corrida de sobreposição não premia as duas partidas (jogador que JÁ tem progresso)", async fn(b) {
+  { id: "T6", nome: "corrida de sobreposição não premia as duas partidas (jogador que JÁ tem progresso)", async fn(b) {
     const [a, x, y, w] = await b.jogadores(4);
     const [s0, s1, s2] = [await b.servidor(), await b.servidor(), await b.servidor()];
     // Mesmo cuidado do T4: sem progresso prévio, a espera acidental do INSERT mascararia a corrida.
     await creditar(s0, { ...janelaDaPartida(9), humanos: [{ id: a, posicao: 4 }, { id: w, posicao: 1 }] });
     const j = janelaDaPartida(0);
     const meio = { iniciada: new Date(j.iniciada.getTime() + 5 * 60_000), terminada: new Date(j.terminada.getTime() + 5 * 60_000) };
-    const [r1, r2] = await Promise.all([
-      creditar(s1, { ...j, humanos: [{ id: a, posicao: 1 }, { id: x, posicao: 2 }] }),
-      creditar(s2, { ...meio, humanos: [{ id: a, posicao: 1 }, { id: y, posicao: 2 }] }),
+    const [r1, r2] = await corridaSobATrava(b, a, [
+      [s1, { ...j, humanos: [{ id: a, posicao: 1 }, { id: x, posicao: 2 }] }],
+      [s2, { ...meio, humanos: [{ id: a, posicao: 1 }, { id: y, posicao: 2 }] }],
     ]);
     const positivas = [xpDe(r1.linhas, a), xpDe(r2.linhas, a)].filter((v) => v > 0).length;
     afirmar(positivas === 1, `A ganhou XP em ${positivas} de 2 partidas sobrepostas`);
@@ -303,13 +367,13 @@ const TESTES = [
     afirmar(xpDe(linhas, a) === 37, `a 7ª rendeu ${xpDe(linhas, a)}, esperado 37 (150/4)`);
     afirmar(xpDe(linhas, outros[6]) === 130, "a redução é por jogador, não por mesa");
   } },
-  { id: "T9", janela: true, nome: "na fronteira 6ª/7ª, duas partidas simultâneas não levam as duas 100%", async fn(b) {
+  { id: "T9", nome: "na fronteira 6ª/7ª, duas partidas simultâneas não levam as duas 100%", async fn(b) {
     const [a, ...outros] = await b.jogadores(8);
     const [s0, s1, s2] = [await b.servidor(), await b.servidor(), await b.servidor()];
     for (let k = 0; k < 5; k++) await creditar(s0, { ...janelaDaPartida(k), humanos: [{ id: a, posicao: 1 }, { id: outros[k], posicao: 2 }] });
-    const [r1, r2] = await Promise.all([
-      creditar(s1, { ...janelaDaPartida(5), humanos: [{ id: a, posicao: 1 }, { id: outros[5], posicao: 2 }] }),
-      creditar(s2, { ...janelaDaPartida(6), humanos: [{ id: a, posicao: 1 }, { id: outros[6], posicao: 2 }] }),
+    const [r1, r2] = await corridaSobATrava(b, a, [
+      [s1, { ...janelaDaPartida(5), humanos: [{ id: a, posicao: 1 }, { id: outros[5], posicao: 2 }] }],
+      [s2, { ...janelaDaPartida(6), humanos: [{ id: a, posicao: 1 }, { id: outros[6], posicao: 2 }] }],
     ]);
     const xs = [xpDe(r1.linhas, a), xpDe(r2.linhas, a)].sort((p, q) => p - q);
     afirmar(xs[0] === 37 && xs[1] === 150, `na fronteira A recebeu ${xs.join(" e ")}, esperado 37 e 150`);
@@ -457,13 +521,14 @@ const TESTES = [
       // 1ª vida: o COMMIT acontece e o processo "morre" antes de remover a pendência
       class OutboxQueMorre extends OutboxDeProgresso { remover() { throw new Error("o processo morreu aqui"); } }
       const primeira = new ServicoDeProgresso(new OutboxQueMorre(dirOutbox), repo, semEspera);
+      afirmar((await primeira.iniciar()).estado === "closed", "a sonda do boot não fechou o disjuntor");
       primeira.partidaEncerrada(partida);
       await primeira.ocioso();
       afirmar(await total(b.admin, a) === 150 && await total(b.admin, x) === 115, "a primeira vida não creditou (x participou com 18/30 = 60%)");
       afirmar(new OutboxDeProgresso(dirOutbox).pendentes().validas.length === 1, "a pendência deveria ter sobrado no outbox");
-      // 2ª vida: boot reprocessa a MESMA partida
-      const balanco = await new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), repo, semEspera).reprocessar();
-      afirmar(balanco.entregues === 1 && balanco.pendentes === 0, `reprocessamento: ${JSON.stringify(balanco)}`);
+      // 2ª vida: boot — UMA sonda, closed, e reprocessa a MESMA partida
+      const { estado, balanco } = await new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), repo, semEspera).iniciar();
+      afirmar(estado === "closed" && balanco?.entregues === 1 && balanco?.pendentes === 0, `boot: ${estado} ${JSON.stringify(balanco)}`);
       afirmar(await total(b.admin, a) === 150 && await total(b.admin, x) === 115, "o reprocessamento somou de novo");
       const n = await b.admin.query("select count(*)::int n from public.xp_eventos where partida_id = $1", [partida.partidaId]);
       afirmar(n.rows[0].n === 2, "o ledger duplicou no reprocessamento");

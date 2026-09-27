@@ -7,6 +7,8 @@ import pg from "pg";
 import type { LancamentoConfirmado, ResultadoDaPartida } from "./tipos.js";
 
 export interface RepositorioDeProgresso {
+  /** UMA consulta trivial (`select 1`): prova conexão, TLS e credencial, sem tocar em dado nenhum. */
+  sondar(): Promise<void>;
   creditar(r: ResultadoDaPartida): Promise<LancamentoConfirmado[]>;
   encerrar(): Promise<void>;
 }
@@ -48,6 +50,9 @@ export function repositorioPg(origem: { connectionString: string; ca: string } |
   pool.on("error", (e) => console.error(`[progresso] conexão ociosa com erro: ${(e as { code?: string }).code ?? e.name}`));
 
   return {
+    async sondar() {
+      await pool.query("select 1");
+    },
     async creditar(r) {
       const { rows } = await pool.query(CHAMADA_DE_CREDITO, parametrosDoCredito(r));
       return rows.map((l: { player_id: string; posicao: number; xp_delta: number; novo: boolean }) => ({

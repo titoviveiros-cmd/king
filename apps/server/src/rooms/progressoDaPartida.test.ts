@@ -34,7 +34,7 @@ afterAll(async () => { restaurarTempos(); await colyseus.shutdown(); });
 beforeEach(async () => {
   await colyseus.cleanup();
   recebidas = [];
-  configurarProgresso({ partidaEncerrada: (p) => { recebidas.push(p); } });
+  configurarProgresso({ estado: "closed", partidaEncerrada: (p) => { recebidas.push(p); } });
 });
 afterEach(() => { restaurarProgresso(); restaurarTempos(); });
 
@@ -200,6 +200,25 @@ describe("o fim da partida chega ao progresso", () => {
     await new Promise((r) => setTimeout(r, 300));
 
     expect(recebidas).toHaveLength(1);
+  }, 120_000);
+
+  it("com o PROGRESSO QUEBRADO, a partida termina e a mesa segue — XP nunca é pedágio do jogo", async () => {
+    configurarTempos(TEMPOS_LONGOS);
+    let chamadas = 0;
+    configurarProgresso({
+      estado: "open_auth",
+      partidaEncerrada: () => { chamadas += 1; throw new Error("o progresso caiu"); },
+    });
+    const { room, clientes } = await salaCom4();
+    await jogarAteOFim(room, clientes);
+    await ate(() => clientes.every((c) => c.view?.finished === true), 10_000, "clientes verem o fim");
+    expect(chamadas).toBe(1);
+    expect(room.state.status).toBe("finished");
+    expect(room.state.seats.every((a) => a.connected)).toBe(true);
+    // a sala continua respondendo depois do fim: um pedido fora de hora é recusado, não derruba nada
+    clientes[1].sdk.send("CLIENT_READY_NEXT_HAND", { actionId: acao("depois-do-fim") });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(room.state.seats.every((a) => a.connected)).toBe(true);
   }, 120_000);
 
   it("o protocolo continua na versão 3", () => {

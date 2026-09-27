@@ -44,10 +44,13 @@ try {
     );
     configurarProgresso(servico);
     console.log("[king] progress mode: database");
-    // Pendências de um boot anterior. Não segura a subida: o jogo não espera o banco.
-    void servico.reprocessar().then(
-      (b) => console.log(`[king] progresso reprocessado: ${b.entregues} entregue(s), ${b.pendentes} pendente(s), ${b.corrompidas.length} ilegível(is)`),
-      (e) => console.error(`[king] reprocessamento do progresso falhou: ${(e as Error)?.name ?? "erro"}`),
+    // UMA sonda e, se passar, as pendências de um boot anterior. NÃO segura a subida: o jogo sobe
+    // mesmo com o banco recusando a credencial (open_auth) ou com o pooler bloqueado (open_circuit).
+    void servico.iniciar().then(
+      ({ estado, balanco }) => console.log(`[king] progresso: ${estado}${balanco
+        ? ` · reprocessado: ${balanco.entregues} entregue(s), ${balanco.pendentes} pendente(s), ${balanco.corrompidas.length} ilegível(is)`
+        : ""}`),
+      (e) => console.error(`[king] sonda do progresso falhou: ${(e as Error)?.name ?? "erro"}`),
     );
   } else {
     console.log(`[king] progress mode: disabled (${progresso.motivo})`);
