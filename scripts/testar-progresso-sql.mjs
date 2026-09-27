@@ -26,11 +26,13 @@
 //   node scripts/testar-progresso-sql.mjs --provas   # mutações (RED) + suíte GREEN
 import EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
+import { fileURLToPath } from "node:url";
+import { gerarSenha, validarVerificador, verificadorScram } from "./lib/scram.mjs";
 
 const RAIZ = new URL("../", import.meta.url);
 const ler = (rel) => readFileSync(new URL(rel, RAIZ), "utf8").replace(/\r\n/g, "\n");
@@ -538,6 +540,85 @@ const TESTES = [
       rmSync(dirOutbox, { recursive: true, force: true });
     }
   } },
+  { id: "T22", nome: "a credencial da ferramenta (scripts/lib/scram.mjs) autentica por SCRAM num Postgres de verdade", async fn(b) {
+    // A suíte sobe com `scram-sha-256`: o login abaixo é a troca SCRAM completa — o servidor confere
+    // a prova do cliente pela StoredKey e assina com a ServerKey, que o cliente confere.
+    const papel = `t22_${randomBytes(4).toString("hex")}`;
+    const senha = gerarSenha();
+    const verificador = verificadorScram(senha);
+    afirmar(validarVerificador(verificador), "a ferramenta gerou verificador inválido");
+    await b.admin.query(`create role ${papel} login password '${verificador}'`);
+    try {
+      const guardado = await b.admin.query("select rolpassword = $1 as igual from pg_authid where rolname = $2", [verificador, papel]);
+      afirmar(guardado.rows[0].igual, "o Postgres não guardou o verificador como veio — tratou como senha em texto");
+      const c = await conectar(b.nome, papel, senha);
+      const quem = (await c.query("select current_user as u")).rows[0].u;
+      await c.end();
+      afirmar(quem === papel, "o login com a senha certa não entrou como o papel");
+      let codigo = null;
+      try { const e = await conectar(b.nome, papel, `${senha}x`); await e.end(); } catch (e) { codigo = e.code; }
+      afirmar(codigo === "28P01", `senha errada deveria dar 28P01, deu ${codigo}`);
+      // O INSTRUMENTO: a troca é SCRAM mesmo? Com `password`, o servidor só confere a ServerKey. Uma
+      // StoredKey adulterada (ServerKey intacta) SÓ é recusada numa troca SCRAM de verdade.
+      const metodos = await b.admin.query("select distinct auth_method from pg_hba_file_rules where type = 'host'");
+      afirmar(metodos.rows.length === 1 && metodos.rows[0].auth_method === "scram-sha-256",
+        `pg_hba não está em scram-sha-256: ${JSON.stringify(metodos.rows)}`);
+      const [, iter, sal, stored, server] = /^SCRAM-SHA-256\$(\d+):([^$]+)\$([^:]+):(.+)$/.exec(verificador);
+      const adulterada = Buffer.from(stored, "base64");
+      adulterada[0] ^= 0xff;
+      await b.admin.query(`alter role ${papel} password 'SCRAM-SHA-256$${iter}:${sal}$${adulterada.toString("base64")}:${server}'`);
+      let recusada = null;
+      try { const e = await conectar(b.nome, papel, senha); await e.end(); } catch (e) { recusada = e.code; }
+      afirmar(recusada === "28P01", `StoredKey adulterada deveria ser recusada (28P01), deu ${recusada} — a troca não é SCRAM`);
+    } finally {
+      await b.admin.query(`drop role if exists ${papel}`);
+    }
+  } },
+  { id: "T23", nome: "a sonda da ativação com 28P01 DE VERDADE: uma confirmação, e acabou", async fn(b) {
+    // A sonda REAL (apps/server/dist/progresso/sonda.js) contra este Postgres. Só o TLS fica de fora
+    // (o Postgres embutido não tem certificado); parser, repositório e lógica de sonda são os mesmos.
+    const { sondarProgresso } = await import(new URL("apps/server/dist/progresso/sonda.js", RAIZ).href);
+    const { repositorioPg } = await import(new URL("apps/server/dist/progresso/repositorio.js", RAIZ).href);
+    const papel = `t23_${randomBytes(4).toString("hex")}`;
+    const [certa, velha] = [gerarSenha(), gerarSenha()];
+    const dir = mkdtempSync(join(tmpdir(), "king-t23-"));
+    const arquivo = join(dir, "progress.env.pendente");
+    writeFileSync(arquivo, [
+      "KING_PROGRESS_MODE=database",
+      `KING_PROGRESS_DATABASE_URL=postgresql://${papel}:${certa}@127.0.0.1:${PORTA}/${b.nome}`,
+      `KING_PROGRESS_SSL_ROOT_CERT=${fileURLToPath(new URL("scripts/ops/fixtures/ca-teste.pem", RAIZ))}`,
+    ].join("\n"));
+    const semTls = ({ url }) => repositorioPg({ pool: new pg.Pool({ connectionString: url, max: 1 }) });
+    const agendados = [];
+    const agendar = (fn, ms) => { agendados.push({ fn, ms }); };
+    const ate = async (cond) => { for (let i = 0; i < 1000 && !cond(); i++) await new Promise((r) => setTimeout(r, 10)); afirmar(cond(), "a sonda não chegou ao ponto esperado"); };
+    const trocar = (senha) => b.admin.query(`alter role ${papel} password '${verificadorScram(senha)}'`);
+    await b.admin.query(`create role ${papel} login password '${verificadorScram(certa)}'`);
+    try {
+      // (a) credencial certa: closed de primeira
+      const a = await sondarProgresso({ arquivo, criarRepositorio: semTls, agendar });
+      afirmar(a.desfecho === "closed" && a.tentativas === 1 && agendados.length === 0, `certa: ${JSON.stringify(a)}`);
+      // (b) O CASO DO POOLER: o banco ainda recusa (senha velha); a confirmação chega DEPOIS da troca
+      await trocar(velha);
+      const pb = sondarProgresso({ arquivo, criarRepositorio: semTls, agendar });
+      await ate(() => agendados.length === 1);
+      afirmar(agendados[0].ms === 30_000, `confirmação agendada para ${agendados[0].ms} ms`);
+      await trocar(certa);
+      agendados.shift().fn();
+      const rb = await pb;
+      afirmar(rb.desfecho === "closed" && rb.tentativas === 2 && rb.codigos.join(",") === "28P01/autenticacao,ok", `pooler: ${JSON.stringify(rb)}`);
+      // (c) senha errada de verdade: 28P01, confirmação 28P01, open_auth — e NENHUMA terceira
+      await trocar(velha);
+      const pc = sondarProgresso({ arquivo, criarRepositorio: semTls, agendar });
+      await ate(() => agendados.length === 1);
+      agendados.shift().fn();
+      const rc = await pc;
+      afirmar(rc.desfecho === "open_auth" && rc.tentativas === 2 && rc.saida === 10 && agendados.length === 0, `errada: ${JSON.stringify(rc)}`);
+    } finally {
+      await b.admin.query(`drop role if exists ${papel}`);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  } },
 ];
 
 // ─────────────────────────── execução ───────────────────────────
@@ -564,6 +645,8 @@ try {
   banco = new EmbeddedPostgres({
     databaseDir: join(dir, "data"), port: PORTA, user: "postgres", password: SENHA_ADMIN,
     persistent: false, onLog: () => {}, onError: () => {},
+    // SCRAM como no Supabase: todo login aqui é a troca SCRAM completa (o T22 depende disso).
+    authMethod: "scram-sha-256",
     // UTF-8 como no Supabase. Sem isto, no Windows o cluster nasce em WIN1252 e recusa os
     // comentários da própria migração.
     initdbFlags: ["--encoding=UTF8", "--locale=C"],
