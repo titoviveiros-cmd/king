@@ -12,7 +12,7 @@ distribuição, vazas, pontuação, turno, trunfo e vencedor. O cliente apenas *
 | **Presentation** | UI, game feel, animações, partículas. | 🔵 Fase 4–5 em curso (`apps/web`, React) — ritmo em `game/timings.ts` |
 | **Audio** | Música / efeitos / haptics (controles separados). | ✅ implementado (`apps/web/src/audio`, procedural) |
 | **Persistence** | Perfil, XP, progressão, cosméticos. | ⏳ Fase 7 |
-| **Analytics** | Eventos desacoplados. | ⏳ Fase 7 |
+| **Analytics** | Eventos desacoplados. | 🟡 instrumentado na Fase 4F (`apps/web/src/analytics`, PostHog anônimo atrás de adaptador) — **desligado em Production** até a 4F-B; ver [KING-ANALYTICS.md](KING-ANALYTICS.md) |
 | **Social** | Amigos, convites, emotes, compartilhamento. | ⏳ Fase 7 |
 
 ## Stack (decidida)

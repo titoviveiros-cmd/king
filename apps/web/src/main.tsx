@@ -5,6 +5,7 @@ import "@fontsource/nunito/400.css";
 import "@fontsource/nunito/700.css";
 import "./ui/theme.css";
 import { App } from "./App.js";
+import { iniciarAnalytics } from "./analytics/iniciar.js";
 
 /**
  * A altura visível vem do CSS: `--vh` é `1dvh` onde existe e `1vh` como reserva (ver theme.css).
@@ -15,6 +16,10 @@ import { App } from "./App.js";
  * Safari e a barra do Chrome sozinho, sem evento nenhum. O corte do leque na base, que motivou
  * aquela versão, tinha outra causa (a barriga do arco) e foi resolvido em `--ymax`.
  */
+
+// Antes da primeira tela: decide o destino da medição (PostHog ou silêncio) e o contexto. Não
+// baixa nada aqui — o SDK, quando configurado, chega depois, num arquivo à parte.
+iniciarAnalytics();
 
 // Sem StrictMode: o loop de bots usa um setInterval; o double-invoke do StrictMode em dev
 // poderia duplicar passos. Em produção não faria diferença, mas mantemos previsível.

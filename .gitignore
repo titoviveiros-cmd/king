@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-e2e-progresso/
+dist-e2e-analytics/
 build/
 *.log
 .DS_Store

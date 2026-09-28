@@ -231,7 +231,10 @@ de hoje (convidado anônimo, sem OAuth):
 
 - **Coleta:** identificador de usuário, apelido, preferência de avatar.
 - **Finalidade:** funcionamento do aplicativo (identificar o jogador entre sessões). Não há
-  publicidade, não há analytics de terceiros, não há corretagem de dados.
+  publicidade, não há analytics de terceiros, não há corretagem de dados. *(Verdade enquanto o
+  PostHog estiver desligado em Production. A medição anônima já está instrumentada — Fase 4F — e,
+  quando for ligada, esta linha e os formulários mudam **antes**: ver
+  [KING-ANALYTICS.md §15](KING-ANALYTICS.md).)*
 - **Compartilhamento com terceiros:** nenhum, além do provedor de autenticação e da hospedagem.
 - **Criptografia em trânsito:** sim, em tudo — `wss://` para o jogo, `https://` exigido para o
   provedor de identidade ([validado em código](../apps/web/src/auth/identidade.ts)).

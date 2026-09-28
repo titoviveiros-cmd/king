@@ -9,6 +9,7 @@ import { TEMPOS } from "../game/timings.js";
 import { interpolar, saldosAntes, scoresPorAssento } from "./placarFinalDados.js";
 import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVictory } from "../audio/sounds.js";
 import { analytics } from "../analytics/analytics.js";
+import { anunciarFimDePartida } from "../analytics/partida.js";
 import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
 import { BalaoSocial, BotaoSocial, type MesaMultiplayer } from "./MesaOnline.js";
 import { useXpDaPartida, xpParaExibir } from "../game/xpDaPartida.js";
@@ -58,14 +59,21 @@ export function PlacarFinal({
   // o resultado só aparece em "completo". Sem crédito real, não aparece nada — nunca um zero.
   const xp = xpParaExibir(useXpDaPartida(mp?.matchId, mp?.progresso));
 
+  // PARA A MEDIÇÃO: a MINHA posição e se ela é dividida com alguém. Não o placar bruto — só o
+  // resultado que responde "quem termina em que lugar volta a jogar?".
+  const modo = mp ? "online" : "local";
+  const minhaPosicao = finais.find((r) => r.seat === eu)?.position;
+  const meuEmpate = minhaPosicao !== undefined && finais.filter((r) => r.position === minhaPosicao).length > 1;
+
   // A partida acabou de verdade quando esta tela monta — é o único ponto do app em que isso é
-  // certo nos dois modos. `useRef` porque a tela remonta a cada tique da animação de pontos.
+  // certo nos dois modos. `useRef` porque a tela re-renderiza a cada tique da animação de pontos;
+  // o id da partida online cobre o que o ref não cobre: o reload no próprio Placar.
   const fimAnunciado = useRef(false);
   useEffect(() => {
     if (fimAnunciado.current) return;
     fimAnunciado.current = true;
-    analytics.track("match_finished", { venci, empate, maos: 10 });
-  }, [venci, empate]);
+    anunciarFimDePartida({ modo, posicao: minhaPosicao, empate: meuEmpate, partidaId: mp?.matchId });
+  }, [modo, minhaPosicao, meuEmpate, mp?.matchId]);
 
   // ---- encenação ----
   //
@@ -187,7 +195,11 @@ export function PlacarFinal({
               <button
                 className="btn gold"
                 autoFocus
-                onClick={() => { sfxTap(); analytics.track("rematch_clicked", { venci }); onRestart(); }}
+                onClick={() => {
+                  sfxTap();
+                  analytics.track("rematch_clicked", minhaPosicao === undefined ? { modo } : { modo, posicao: minhaPosicao });
+                  onRestart();
+                }}
               >
                 {venci ? "Jogar novamente" : "Revanche"}
               </button>
@@ -311,19 +323,24 @@ function Compartilhar({
     [finais, game, empate],
   );
 
+  // Mede o compartilhamento que ACONTECEU: a folha do sistema devolveu sucesso, ou o texto foi
+  // para a área de transferência. Desistir da folha não conta. O texto nunca vai junto.
   const compartilhar = async () => {
     sfxTap();
     try {
       if (navigator.share) {
         await navigator.share({ title: "KING", text: texto });
+        analytics.track("result_shared", { method: "native_share" });
         return;
       }
       await navigator.clipboard.writeText(texto);
+      analytics.track("result_shared", { method: "clipboard" });
       setAviso("Resultado copiado");
     } catch (e) {
       if ((e as Error)?.name === "AbortError") return; // desistiu; não é falha
       try {
         await navigator.clipboard.writeText(texto);
+        analytics.track("result_shared", { method: "clipboard" });
         setAviso("Resultado copiado");
       } catch {
         setAviso("Não foi possível compartilhar");

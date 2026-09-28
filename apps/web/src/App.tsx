@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useKingGame } from "./game/useKingGame.js";
 import { Home, type OnlineDaHome, type TutorialDaHome } from "./ui/Home.js";
 import { Mesa } from "./ui/Mesa.js";
@@ -8,7 +8,7 @@ import { useBotaoVoltar } from "./ui/useBotaoVoltar.js";
 import { servidorConfigurado } from "./net/servidor.js";
 import { lerRecuperacao } from "./net/recuperacao.js";
 import type { Entrada } from "./modos.js";
-import { analytics } from "./analytics/analytics.js";
+import { anunciarAbertura } from "./analytics/iniciar.js";
 import { armazenamentoLocal } from "./tutorial/persistencia.js";
 import { useConta } from "./auth/useConta.js";
 import { leitorDeProgressoConfigurado } from "./auth/progresso.js";
@@ -42,12 +42,9 @@ export function App() {
   const [tutorialAberto, setTutorialAberto] = useState(false);
   const [tutorialConcluido, setTutorialConcluido] = useState(() => armazenamentoLocal.ler().concluido);
 
-  const aberturaAnunciada = useRef(false);
-  useEffect(() => {
-    if (aberturaAnunciada.current) return;
-    aberturaAnunciada.current = true;
-    analytics.track("app_open", {});
-  }, []);
+  // Uma abertura por página: a trava mora no módulo, e não num ref, para que nem uma remontagem
+  // do App anuncie duas vezes.
+  useEffect(() => { anunciarAbertura(); }, []);
 
   // Esc fecha o painel de áudio (teclado de PC).
   useEffect(() => {

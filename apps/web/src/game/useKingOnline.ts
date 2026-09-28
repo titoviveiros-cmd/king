@@ -31,6 +31,7 @@ import { agoraMonotonico } from "./monotonico.js";
 import { audio } from "../audio/engine.js";
 import { sfxSocial, sfxTap, sfxTrump } from "../audio/sounds.js";
 import { analytics } from "../analytics/analytics.js";
+import { anunciarInicioDePartida, contarAssentos } from "../analytics/partida.js";
 import { provedorConfigurado } from "../auth/identidade.js";
 import { abridorColyseus, type AbridorDeSessao, type EstadoDaSalaLido, type SessaoKing } from "../net/clienteKing.js";
 import { servidorConfigurado } from "../net/servidor.js";
@@ -68,6 +69,8 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
   const partida = useRef<PartidaRemota | null>(null);
   const fila = useRef<AtualizacaoDeEstado[]>([]);
   const assento = useRef<Seat | null>(null);
+  /** A última partida anunciada à medição por ESTA montagem (a memória local cobre o reload). */
+  const partidaMedida = useRef<string | null>(null);
 
   const [screen, setScreen] = useState<"home" | "sala" | "mesa">("home");
   const [conexao, setConexao] = useState<EstadoDaConexao>("ocioso");
@@ -240,8 +243,13 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     s.ao("STATE_UPDATE", (u) => {
       const eu = assento.current;
       if (eu === null) return;
+      // Partida NOVA é id novo. Um reload no meio devolve a mesma partida com o mesmo id, e a
+      // memória local de `anunciarInicioDePartida` impede que ela conte duas vezes.
+      if (u.matchId && u.matchId !== partidaMedida.current) {
+        partidaMedida.current = u.matchId;
+        anunciarInicioDePartida({ modo: "online", ...contarAssentos(s.estado()?.seats), partidaId: u.matchId });
+      }
       if (!partida.current) {
-        analytics.track("match_started", { modo: "online" });
         partida.current = new PartidaRemota(u, eu, (tipo, payload) => s.enviar(tipo, payload));
         setScreen("mesa");
         // A mesa não pode nascer no meio de uma animação: a primeira visão é sempre um salto.
@@ -336,6 +344,10 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       const s = await abrir(pedido);
       sessao.current = s;
       assinar(s);
+      // A sala só conta quando EXISTE: criar ou entrar que falhou (código errado, sala cheia,
+      // servidor fora) não é sala criada. Voltar para a própria sala não é entrar numa nova.
+      if (pedido.tipo === "criar") analytics.track("room_created", {});
+      if (pedido.tipo === "entrar") analytics.track("room_joined", {});
       setSala(s.estado());
       setConexao("conectado");
       bump();
@@ -350,14 +362,13 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
 
   const criarSala = useCallback((nick: string, avatar: string) => {
     // Nem o apelido nem o avatar viajam para a medição: um identifica pessoa, o outro é escolha
-    // estética que não muda o funil. O que se quer saber é quantas salas nascem.
-    analytics.track("room_created", {});
+    // estética que não muda o funil. O que se quer saber é quantas salas nascem — e isso é
+    // medido em `conectar`, quando a sala de fato abriu.
     void conectar({ tipo: "criar", nick, avatar });
   }, [conectar]);
   const entrarNaSala = useCallback((codigo: string, nick: string, avatar: string) => {
     // O CÓDIGO NÃO É EVENTO: quatro dígitos são a chave de entrar na partida privada de outras
-    // pessoas. Só o fato de alguém ter entrado é métrica.
-    analytics.track("room_joined", {});
+    // pessoas. Só o fato de alguém ter entrado é métrica (em `conectar`, depois de entrar).
     void conectar({ tipo: "entrar", codigo: codigo.trim().toUpperCase(), nick, avatar });
   }, [conectar]);
   const voltarParaSala = useCallback(() => {

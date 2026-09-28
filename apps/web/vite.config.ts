@@ -4,6 +4,13 @@ import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   plugins: [react()],
+  // O AMBIENTE DO ANALYTICS. A Vercel informa no build se ele é de produção, de preview ou de
+  // desenvolvimento, mas só para o processo de build — o navegador não enxerga `process.env`.
+  // Esta linha copia o valor para dentro do pacote como uma constante. Fora da Vercel fica vazio,
+  // e o analytics trata vazio como "development" (ver `src/analytics/contexto.ts`).
+  define: {
+    __KING_VERCEL_ENV__: JSON.stringify(process.env.VERCEL_ENV ?? ""),
+  },
   resolve: {
     alias: {
       // Consome o código-fonte do motor direto (Vite transpila o TS), sem build prévio.

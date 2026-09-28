@@ -18,6 +18,7 @@ import type { Seat } from "@king/engine";
 import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
+import { analytics } from "../analytics/analytics.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao } from "../game/useKingOnline.js";
 import { AVATARES, desenhoDoAvatar } from "./avatares.js";
@@ -107,7 +108,13 @@ export function Sala({
   const copiar = () => {
     sfxTap();
     void navigator.clipboard?.writeText(codigo).then(
-      () => { setCopiado(true); window.setTimeout(() => setCopiado(false), 1800); },
+      () => {
+        // O convite que existe hoje é este: copiar o código e mandar para alguém. Mede-se o
+        // GESTO, nunca o código — ele é a chave da sala.
+        analytics.track("invite_code_copied", {});
+        setCopiado(true);
+        window.setTimeout(() => setCopiado(false), 1800);
+      },
       () => { /* sem área de transferência: o código está na tela, dá para ditar */ },
     );
   };

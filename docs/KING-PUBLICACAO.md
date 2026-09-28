@@ -26,7 +26,8 @@ execuções reais, não de memória.
 | **Progresso do tutorial** | `localStorage` `king:tutorial` | Não | Não |
 | **Preferências de áudio** | `localStorage` `king.audio` | Não | Não |
 | **Mensagens sociais** | etiqueta de conjunto fechado, efêmera | Sim — a etiqueta, nunca texto livre | Não |
-| **Eventos de analytics** | camada neutra, hoje **sem destino** | **Não** (adaptador silencioso) | Não — `sanitizar` derruba apelido, código de sala e texto livre |
+| **Eventos de analytics** | instrumentados (Fase 4F); destino **PostHog** só com `VITE_POSTHOG_*` — **hoje não configurado em Production** | **Hoje não** (adaptador silencioso, SDK nem baixado). Ligado: eventos anônimos de uso, ver [KING-ANALYTICS.md](KING-ANALYTICS.md) | Não — esquema fechado por evento, id **aleatório** por aparelho, sem URL, sem apelido, sem código de sala, sem id de conta/partida; IP descartado no projeto |
+| **Memória local do analytics** | `localStorage` `king.analytics` (primeira abertura, primeiro toque já normalizado, primeira partida, ids das últimas partidas online só para não contar duas vezes) | **Não** — nunca enviada | Não |
 
 ### 1.2 Persistido em banco (Supabase, projeto de Production) — NOVO
 
@@ -105,7 +106,7 @@ publicidade, câmera, microfone, notificações push, compras.
 | **Exclusão de conta e dados** | exigida (app cria conta) | exigida dentro do app | 🔴 **não existe** | **P0** | fluxo + página | §1.3 e §6 |
 | **Retenção de dados** | declarar na política e no Data Safety | declarar | 🔴 **não definida** | **P0** | decisão do titular | §1.3 |
 | **Capturas de tela** | phone + tablet | iPhone + iPad | 🔴 ausentes | **P0** | arte | depois dos avatares |
-| **Analytics** | neutro, sem destino | idem | 🟢 não bloqueia | não | — | §7 |
+| **Analytics** | instrumentado (PostHog, anônimo), **desligado** em Production | idem (mesmo código; `VITE_KING_AMBIENTE=production` no build de loja) | 🟡 pronto, aguardando 4F-B | **P0 antes de ligar**: política nomeando o fornecedor | projeto PostHog + política | [KING-ANALYTICS.md §13](KING-ANALYTICS.md) |
 | **Error monitoring** | ausente | ausente | 🟡 recomendado | P1 | decisão | §7 |
 | **Reconnect** | testado no navegador | testado no navegador | 🟡 lacuna de lifecycle | P1 | aparelho | §8 |
 | **QA físico** | — | — | 🔴 não feito | P1 | aparelho | — |
@@ -238,8 +239,11 @@ As três primeiras precisam responder HTTP 200, sem login, **antes** da submiss�
    "por quanto tempo" do banco **ainda não está definido** (§1.3) — a política não pode ser
    publicada sem essa resposta.
 6. **Com quem compartilhamos** — nenhum terceiro para fins próprios; o **Supabase** é o operador
-   que hospeda o banco e a autenticação, e precisa ser nomeado como tal. *(Se entrar métrica,
-   captura de erro ou login Google, esta seção muda e a política precisa ser republicada ANTES.)*
+   que hospeda o banco e a autenticação, e precisa ser nomeado como tal. **A medição de uso já
+   está instrumentada (Fase 4F) com o PostHog como operador** — anônima, id aleatório por
+   aparelho, sem IP guardado; o conteúdo mínimo está em [KING-ANALYTICS.md §15](KING-ANALYTICS.md).
+   Ela **só pode ser ligada em Production depois** desta seção nomear o PostHog e a região. *(Captura
+   de erro ou login Google também mudam esta seção, e a política precisa ser republicada ANTES.)*
 7. **Crianças** — depende da classificação etária.
 8. **Direitos do titular (LGPD)** — **há conta e dado persistido**: acesso, correção e exclusão
    passam a ser pedidos reais. Exige o fluxo de exclusão da §6 e um canal de contato.
@@ -272,10 +276,16 @@ privacidade.
 
 ## 7. Analytics e error monitoring
 
-**Analytics** continua **vendor-neutral com adaptador silencioso**. Nada sai do aparelho. A
-arquitetura não depende de navegador nem de rede: `track()` não devolve promessa, envolve o
-adaptador em `try/catch` e o padrão é o silêncio — então **no build Capacitor o comportamento é
-idêntico ao da Web**, inclusive com adaptador ausente. Coberto por 29 testes.
+**Analytics** — **instrumentado na Fase 4F com PostHog, anônimo, e desligado em Production** até a
+Fase 4F-B. Documento próprio: [KING-ANALYTICS.md](KING-ANALYTICS.md) (eventos, propriedades, o que
+não é coletado, retenção, aquisição, dashboards, tráfego de teste, kill switch).
+
+A regra de sempre continua: `track()` não devolve promessa, envolve tudo em `try/catch`, e sem
+`VITE_POSTHOG_KEY` + `VITE_POSTHOG_HOST` o destino é o silêncio — **o SDK nem é baixado**. Com as
+duas, o SDK chega sob demanda, fora do pacote inicial. PostHog lento, fora do ar ou barrado por
+adblock não muda nada no jogo (provado no e2e). No build Capacitor o comportamento é o mesmo; a
+plataforma vem do runtime nativo e o build de loja precisa de `VITE_KING_AMBIENTE=production`.
+Fora de escopo por decisão: Adjust, AppsFlyer, Firebase Analytics, IDFA/ATT, Advertising ID.
 
 ### Error monitoring — comparação (não instalar agora)
 
