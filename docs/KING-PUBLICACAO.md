@@ -10,10 +10,17 @@ execuções reais, não de memória.
 
 ## 1. O que o KING coleta, de verdade
 
+> **Atualizado em 28/09/2026.** Até a identidade permanente (setembro/2026) esta seção dizia que
+> não havia conta nem banco. **Isso deixou de ser verdade.** O inventário detalhado da identidade
+> vive em [KING-IDENTIDADE-PRIVACIDADE.md §3](KING-IDENTIDADE-PRIVACIDADE.md); o que segue é o
+> retrato para as lojas.
+
+### 1.1 No aparelho e na sala (como antes)
+
 | Dado | Onde vive | Sai do aparelho? | É PII? |
 |---|---|---|---|
-| **Apelido** (até 14 caracteres, digitado) | estado da sala no servidor, em memória | Sim — os outros 3 da mesa veem | **Potencialmente sim**: a pessoa pode digitar o nome real |
-| **Avatar** (1 de 8 etiquetas fechadas) | estado da sala + `localStorage` `king:avatar` | Sim — os outros veem | Não |
+| **Apelido** (até 14 caracteres, digitado) | estado da sala no servidor, em memória; **e também `public.players.display_name`** (ver §1.2) | Sim — os outros 3 da mesa veem | **Potencialmente sim**: a pessoa pode digitar o nome real |
+| **Avatar** (1 de 8 etiquetas fechadas) | estado da sala + `localStorage` `king:avatar`; preferência em `public.players.avatar_id` | Sim — os outros veem | Não |
 | **Código da sala** (4 dígitos) | gerado pelo servidor, em memória | Sim — quem entra digita | Não, mas é **credencial de acesso** |
 | **`recoveryToken`** | `localStorage` + memória do servidor | Só entre o dono e o servidor | Não, mas é **segredo** |
 | **Progresso do tutorial** | `localStorage` `king:tutorial` | Não | Não |
@@ -21,11 +28,42 @@ execuções reais, não de memória.
 | **Mensagens sociais** | etiqueta de conjunto fechado, efêmera | Sim — a etiqueta, nunca texto livre | Não |
 | **Eventos de analytics** | camada neutra, hoje **sem destino** | **Não** (adaptador silencioso) | Não — `sanitizar` derruba apelido, código de sala e texto livre |
 
-**Não existe:** conta, login, e-mail, senha, telefone, endereço, localização, contatos,
-identificador de publicidade, câmera, microfone, notificações push, compras.
+### 1.2 Persistido em banco (Supabase, projeto de Production) — NOVO
 
-**Nada é persistido em banco.** O servidor guarda o estado da sala **em memória**; sala encerrada,
-dado evaporou. Não há banco de dados no projeto.
+**Existe conta.** Quem entra no multiplayer online recebe um **convidado anônimo do Supabase Auth**
+— uma conta de verdade, sem e-mail e sem senha —, criado só ao entrar online (quem joga apenas
+contra os bots não ganha conta nenhuma). O `playerId` da mesa é o `sub` dessa conta, e ele
+**sobrevive** à sala.
+
+| Dado | Onde vive | Quem lê | Observação |
+|---|---|---|---|
+| Conta anônima (`auth.users`) | Supabase Auth | o próprio jogador (sessão) | sem e-mail enquanto não houver vínculo; a sessão fica no `localStorage` do aparelho (`sb-…-auth-token`) |
+| Perfil (`public.players`: `id`, `display_name`, `avatar_id`, `created_at`, `updated_at`) | Postgres | o próprio jogador (RLS `auth.uid() = id`) | apelido e avatar já eram visíveis na mesa; agora persistem |
+| **Progresso** (`public.progresso`: `player_id`, `xp_total`, `atualizado_em`) | Postgres | só o próprio jogador (RLS) | escrito **só** pelo servidor da partida (papel `king_server`); o cliente não escreve |
+| **Ledger de XP** (`public.xp_eventos`: `player_id`, `partida_id`, `motivo`, `posicao`, `xp_delta`, `criado_em`) | Postgres | só o próprio jogador (RLS) | um lançamento por jogador por partida online concluída — revela **posição e horário** de cada partida jogada |
+| Partidas creditadas (`king_private.partidas`: `id`, `iniciada_em`, `terminada_em`, `humanos`, `bots`, `versao_regra`, `registrada_em`) | Postgres, schema privado | ninguém pela API | sem identificador de jogador; o vínculo jogador↔partida está no ledger |
+| Nível (`public.meu_progresso`) | view | o próprio jogador | **derivado** do `xp_total`, não armazenado |
+| Pendências de crédito (outbox) | disco da VPS (`/var/lib/king/progresso-outbox`) | só o servidor | resultado de partida (ids de jogador + posição) guardado **até** o banco confirmar; em operação normal fica vazio |
+
+**Vínculo com Google:** tecnicamente implementado (`linkIdentity` sobre a mesma conta) e validado
+em Production em 24/09/2026, mas **OCULTO** em Production (`VITE_KING_GOOGLE_LINK` ausente). Se
+for ligado, entra **e-mail** (e nome/foto do perfil Google, conforme os escopos) no Supabase Auth
+— e a política de privacidade precisa ser atualizada **antes**.
+
+**Não existe:** login por senha, telefone, endereço, localização, contatos, identificador de
+publicidade, câmera, microfone, notificações push, compras.
+
+### 1.3 Lacunas que a publicação precisa fechar
+
+- ⚠️ **Retenção: NÃO DEFINIDA.** Não há prazo nem rotina de expurgo para contas anônimas
+  inativas, perfis, progresso ou ledger. Hoje tudo fica indefinidamente.
+- ⚠️ **Exclusão de conta: NÃO EXISTE fluxo.** Tecnicamente a cascata está pronta — apagar a conta
+  em `auth.users` apaga `players`, `progresso` e `xp_eventos` (verificado no projeto de
+  homologação em 27/09/2026); `king_private.partidas` fica, sem dado de jogador. Mas não há botão,
+  página nem pedido documentado. Ver §6.
+- ⚠️ **Convidado perdido:** a conta anônima vive na sessão do aparelho. Limpar o navegador ou
+  trocar de aparelho **perde o acesso** a ela (o progresso fica órfão no banco) — o vínculo
+  Google, hoje oculto, é o mecanismo previsto de recuperação.
 
 **Permissões nativas:** só `android.permission.INTERNET`. Nenhuma no iOS. Verificado por
 `scripts/validar-mobile.mjs`, que reprova se aparecer qualquer outra.
@@ -63,7 +101,9 @@ dado evaporou. Não há banco de dados no projeto.
 | **Suporte (URL)** | recomendada | **obrigatória** | 🔴 ausente | **P0** | e-mail | §6 |
 | **Termos (URL)** | opcional | opcional | 🔴 ausente | não | titular | §6 |
 | **Classificação etária** | questionário | questionário | ⚪ não respondido | **P0** | titular | §6 |
-| **Declarações de privacidade da loja** | Data Safety | Privacy Nutrition Labels | ⚪ não preenchido | **P0** | §1 responde | preencher |
+| **Declarações de privacidade da loja** | Data Safety | Privacy Nutrition Labels | ⚪ não preenchido | **P0** | §1 responde — **inclui conta, identificador, progresso e histórico de partidas (§1.2)** | preencher |
+| **Exclusão de conta e dados** | exigida (app cria conta) | exigida dentro do app | 🔴 **não existe** | **P0** | fluxo + página | §1.3 e §6 |
+| **Retenção de dados** | declarar na política e no Data Safety | declarar | 🔴 **não definida** | **P0** | decisão do titular | §1.3 |
 | **Capturas de tela** | phone + tablet | iPhone + iPad | 🔴 ausentes | **P0** | arte | depois dos avatares |
 | **Analytics** | neutro, sem destino | idem | 🟢 não bloqueia | não | — | §7 |
 | **Error monitoring** | ausente | ausente | 🟡 recomendado | P1 | decisão | §7 |
@@ -181,28 +221,36 @@ Domínio já existente: `playkingcards.com.br`.
 | **Política de Privacidade** | App Store **e** Google Play | 🔴 não existe | `/privacidade` |
 | **Suporte** | App Store (campo obrigatório) | 🔴 não existe | `/suporte` |
 | **Termos de Uso** | recomendada | 🔴 não existe | `/termos` |
-| **Exclusão de conta/dados** | Google Play, quando há conta | ⚪ não se aplica — **não há conta** | — |
+| **Exclusão de conta/dados** | Google Play (apps que criam conta), e a App Store pede exclusão dentro do app | 🔴 **não existe — e passou a ser exigida**: o multiplayer cria conta (convidado anônimo, §1.2) | `/excluir-conta` *(sugestão)* |
 
 As três primeiras precisam responder HTTP 200, sem login, **antes** da submissão.
 
 ### Estrutura da Política de Privacidade
 
 1. **Quem somos e como falar conosco** — responsável e e-mail. *(falta)*
-2. **O que coletamos** — a tabela da §1, em linguagem simples.
+2. **O que coletamos** — as tabelas da §1.1 e §1.2, em linguagem simples.
 3. **Por que** — apelido e avatar existem para os outros jogadores saberem quem é quem; o código
-   da sala existe para entrar na partida certa. Nada é usado para publicidade.
-4. **O que NÃO coletamos** — a lista da §1. A seção mais curta e a mais tranquilizadora.
-5. **Onde ficam e por quanto tempo** — em memória no servidor, apagados ao fim da sala;
-   preferências ficam **no aparelho** e somem ao desinstalar.
-6. **Com quem compartilhamos** — hoje, ninguém. *(Se entrar métrica ou captura de erro, esta
-   seção muda e a política precisa ser republicada ANTES.)*
+   da sala existe para entrar na partida certa; a conta anônima mantém a mesma identidade entre
+   partidas; o ledger e o progresso existem para o XP e o nível. Nada é usado para publicidade.
+4. **O que NÃO coletamos** — a lista da §1.2. Continua a seção mais curta e a mais tranquilizadora.
+5. **Onde ficam e por quanto tempo** — sala em memória no servidor, apagada ao fim da partida;
+   preferências **no aparelho**; **conta, perfil, progresso e ledger no banco (Supabase)**. O
+   "por quanto tempo" do banco **ainda não está definido** (§1.3) — a política não pode ser
+   publicada sem essa resposta.
+6. **Com quem compartilhamos** — nenhum terceiro para fins próprios; o **Supabase** é o operador
+   que hospeda o banco e a autenticação, e precisa ser nomeado como tal. *(Se entrar métrica,
+   captura de erro ou login Google, esta seção muda e a política precisa ser republicada ANTES.)*
 7. **Crianças** — depende da classificação etária.
-8. **Direitos do titular (LGPD)** — simples: não há conta, e o que existe é local ao aparelho.
+8. **Direitos do titular (LGPD)** — **há conta e dado persistido**: acesso, correção e exclusão
+   passam a ser pedidos reais. Exige o fluxo de exclusão da §6 e um canal de contato.
 9. **Alterações** — data da última atualização.
 
-> *Rascunho de tom, não de texto final:* "O KING não pede cadastro, não pede e-mail e não sabe
-> quem você é. Para jogar com amigos, você escolhe um apelido e um avatar — e eles aparecem só
-> para as pessoas da sua mesa, enquanto a partida durar."
+> *Rascunho de tom, não de texto final:* "O KING não pede cadastro, não pede e-mail nem senha.
+> Quando você joga online, o jogo cria para você uma conta anônima — é ela que guarda o seu XP e o
+> seu nível entre partidas. Seu apelido e seu avatar aparecem para as pessoas da sua mesa."
+>
+> *(O rascunho anterior dizia que o KING "não sabe quem você é" e que tudo durava "enquanto a
+> partida durar" — frases que o progresso persistente tornou falsas.)*
 
 ### Página de Suporte — conteúdo mínimo
 

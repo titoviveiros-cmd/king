@@ -1125,6 +1125,15 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   font-size:calc(var(--ui)*.78);letter-spacing:.16em;text-transform:uppercase;}
 .fimdest span{font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*1.08);}
 .fimchips{display:flex;flex-wrap:wrap;gap:5px;}
+/* O XP DA PARTIDA no fim — por último na coluna de dados e em tom menor que o destaque: quem
+   venceu é o assunto. "+N XP" em turquesa (positivo, Design System) e o nível numa linha só. */
+.fimxp{display:flex;align-items:center;flex-wrap:wrap;gap:4px calc(var(--ui)*.7);font-family:var(--disp);
+  font-variant-numeric:tabular-nums;animation:riseIn .55s cubic-bezier(.34,1.4,.64,1) both;}
+.fimxp-ganho{font-size:calc(var(--ui)*1.02);font-weight:800;color:var(--turq);white-space:nowrap;}
+.fimxp-nivel{display:flex;align-items:center;gap:calc(var(--ui)*.45);font-size:calc(var(--ui)*.66);font-weight:700;color:var(--muted);white-space:nowrap;}
+.fimxp-rotulo{color:var(--gold);font-weight:800;letter-spacing:.04em;}
+.fimxp-nivel .pg-barra{width:calc(var(--ui)*4.6);}
+@media (prefers-reduced-motion: reduce){ .fimxp{animation:none;} }
 
 .fimpular{position:absolute;bottom:calc(var(--pad) + var(--sb));left:50%;transform:translateX(-50%);z-index:3;
   font-family:var(--body);font-weight:700;font-size:clamp(.56rem,1.4vh,.66rem);color:var(--faint);letter-spacing:.06em;}
@@ -1845,6 +1854,31 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   color:var(--turq);opacity:.75;margin:0;}
 .hm-conta-aviso{font-size:calc(var(--ui)*.6);opacity:.9;margin:0;max-width:34ch;text-align:center;}
 @media (max-height: 360px){.hm-conta{display:none;}}
+
+/* O PROGRESSO NA HOME — o "player card" do Design System no mínimo: badge de nível em ouro e barra
+   de XP turquesa→violeta. Uma pílula de vidro ABAIXO das ações, e menor que elas: é lembrança de
+   que cada partida conta, não painel. Números tabulares; nível e faixa vêm do banco, prontos. */
+.hm-progresso{display:inline-flex;align-items:center;gap:calc(var(--ui)*.6);margin-top:clamp(2px,.8vh,8px);
+  padding:calc(var(--ui)*.28) calc(var(--ui)*.85) calc(var(--ui)*.28) calc(var(--ui)*.28);
+  border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line);
+  font-family:var(--disp);font-variant-numeric:tabular-nums;max-width:min(92vw,420px);
+  animation:riseIn .55s cubic-bezier(.34,1.4,.64,1) both;}
+.pg-nivel{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  width:calc(var(--ui)*2.5);height:calc(var(--ui)*2.5);border-radius:50%;line-height:1;color:#2a1805;
+  background:radial-gradient(circle at 35% 30%,#fff1b0,var(--gold) 52%,var(--gold2));
+  box-shadow:0 0 0 1px rgba(255,255,255,.35) inset,0 0 12px rgba(244,197,66,.32);}
+.pg-nivel small{font-size:calc(var(--ui)*.4);font-weight:800;letter-spacing:.08em;text-transform:uppercase;}
+.pg-nivel b{font-size:calc(var(--ui)*1.05);font-weight:800;}
+.pg-meio{display:flex;flex-direction:column;gap:4px;min-width:calc(var(--ui)*7.5);}
+.pg-barra{display:block;height:6px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;}
+.pg-barra i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--turq),var(--violet));
+  transition:width .7s cubic-bezier(.2,.8,.2,1);}
+.pg-numeros{font-size:calc(var(--ui)*.66);font-weight:700;color:var(--muted);text-align:left;white-space:nowrap;}
+.pg-numeros b{color:var(--ink);}
+.pg-total{font-size:calc(var(--ui)*.58);font-weight:700;letter-spacing:.04em;color:var(--faint);white-space:nowrap;}
+/* Altura compacta: a pílula fica, o texto auxiliar cede — na ordem do Design System. */
+@media (max-height: 360px){ .hm-progresso{margin-top:0;} .pg-total{display:none;} }
+@media (prefers-reduced-motion: reduce){ .hm-progresso{animation:none;} .pg-barra i{transition:none;} }
 
 /* ══════════════════════ ALTURA COMPACTA ══════════════════════
    A segunda dimensão da responsividade, que faltava.

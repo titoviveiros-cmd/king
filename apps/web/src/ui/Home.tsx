@@ -4,6 +4,8 @@ import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
 import { AVATARES, desenhoDoAvatar, type Avatar } from "./avatares.js";
 import type { ContaDaHome } from "../auth/useConta.js";
+import type { ProgressoDoJogador } from "../auth/progresso.js";
+import { ProgressoNaHome } from "./Progresso.js";
 
 /**
  * O código da sala tem QUATRO DÍGITOS e é sempre string.
@@ -33,7 +35,7 @@ export interface OnlineDaHome {
 }
 
 export function Home({
-  onStart, onOpenAudio, online, tutorial, conta,
+  onStart, onOpenAudio, online, tutorial, conta, progresso,
 }: {
   onStart: (avatar: Avatar) => void;
   onOpenAudio: () => void;
@@ -42,6 +44,11 @@ export function Home({
   tutorial?: TutorialDaHome;
   /** Ausente = esta publicação não vincula contas. A Home continua a de sempre. */
   conta?: ContaDaHome;
+  /**
+   * O progresso LIDO do banco. Ausente/`null` = sem sessão, leitura falhou ou ainda não chegou — e
+   * a Home continua a de sempre. Nunca um "0 XP" desenhado para quem não tem conta.
+   */
+  progresso?: ProgressoDoJogador | null;
 }) {
   const [painel, setPainel] = useState(false);
   const [nick, setNick] = useState("");
@@ -95,6 +102,10 @@ export function Home({
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
       </div>
+
+      {/* O PROGRESSO FICA ABAIXO DAS AÇÕES, e é o card do jogador, não um painel: quem abre o jogo
+          veio jogar, e o XP é a lembrança de que cada partida conta — não o assunto da tela. */}
+      {progresso && <ProgressoNaHome progresso={progresso} />}
 
       {/* APRENDA KING fica FORA da fileira principal e em tom discreto: quem já sabe jogar não
           deve tropeçar nele toda vez que abre o app, e quem não sabe precisa achá-lo sem

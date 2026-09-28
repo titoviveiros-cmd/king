@@ -11,6 +11,8 @@ import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVicto
 import { analytics } from "../analytics/analytics.js";
 import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
 import { BalaoSocial, BotaoSocial, type MesaMultiplayer } from "./MesaOnline.js";
+import { useXpDaPartida, xpParaExibir } from "../game/xpDaPartida.js";
+import { XpNoFim } from "./Progresso.js";
 
 /**
  * PLACAR FINAL — o encerramento da partida. Não é "o Placar entre-mãos sem o botão":
@@ -50,6 +52,11 @@ export function PlacarFinal({
   const [etapa, setEtapa] = useState<Etapa>("entrada");
   const [pontos, setPontos] = useState<number[]>(() => saldosAntes(finais, resumo?.scores));
   const reduzido = usePrefersReducedMotion();
+
+  // O XP DESTA PARTIDA — só no multiplayer (sem `mp`, não há matchId nem leitor, e nada é
+  // buscado). A busca começa já na montagem, porque o crédito é gravado segundos depois do fim, e
+  // o resultado só aparece em "completo". Sem crédito real, não aparece nada — nunca um zero.
+  const xp = xpParaExibir(useXpDaPartida(mp?.matchId, mp?.progresso));
 
   // A partida acabou de verdade quando esta tela monta — é o único ponto do app em que isso é
   // certo nos dois modos. `useRef` porque a tela remonta a cada tique da animação de pontos.
@@ -263,11 +270,11 @@ export function PlacarFinal({
                   deixou cada um. No fim de partida a pergunta é "quem venceu", não "como foi a
                   última mão". */}
 
-              {/* AQUI ficava um bloco "Progressão" com barra vazia e o texto "XP e conquistas
-                  entram na Fase 7". Saiu inteiro: "Fase 7" é nome de etapa interna do projeto,
-                  que ninguém fora dele entende, e uma barra que nunca enche promete algo que o
-                  jogo não entrega. Espaço reservado para funcionalidade inexistente é dívida
-                  visível — quando Perfil/XP existir de verdade, entra com dado real. */}
+              {/* O XP ENTRA COM DADO REAL. Aqui já houve um bloco "Progressão" com barra vazia e
+                  "entra na Fase 7" — promessa de algo que o jogo não entregava. Agora é o crédito
+                  que o banco confirmou para ESTA partida, e o nível relido depois dele. Por último
+                  na coluna e em tom menor: quem venceu continua sendo o assunto desta tela. */}
+              {xp && <XpNoFim xp={xp} />}
             </>
           )}
         </div>

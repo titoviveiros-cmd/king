@@ -11,6 +11,8 @@ import type { Entrada } from "./modos.js";
 import { analytics } from "./analytics/analytics.js";
 import { armazenamentoLocal } from "./tutorial/persistencia.js";
 import { useConta } from "./auth/useConta.js";
+import { leitorDeProgressoConfigurado } from "./auth/progresso.js";
+import { useMeuProgresso } from "./game/useMeuProgresso.js";
 
 /**
  * Dois modos, uma Mesa.
@@ -113,6 +115,12 @@ function ModoLocal({
   // esta publicação não vincula contas — e aí a Home é exatamente a de sempre.
   const conta = useConta();
 
+  // O PROGRESSO É RELIDO CADA VEZ QUE A HOME APARECE — é assim que o XP de uma partida online
+  // aparece na volta dela. Só leitura, e só com sessão já guardada neste aparelho: quem nunca
+  // entrou online não ganha convidado novo para ver um zero.
+  const naHome = screen === "home" || !g.game;
+  const progresso = useMeuProgresso(leitorDeProgressoConfigurado(), naHome);
+
   // Lidos direto dos módulos puros: saber se há servidor configurado não exige abrir conexão
   // nenhuma — e nenhum destes dois módulos toca no cliente Colyseus.
   const servidor = servidorConfigurado();
@@ -132,6 +140,7 @@ function ModoLocal({
         online={online}
         tutorial={tutorial}
         conta={conta ?? undefined}
+        progresso={progresso}
       />
     );
   }

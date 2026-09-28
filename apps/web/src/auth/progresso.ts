@@ -34,10 +34,20 @@ export interface PortaDeProgresso {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const inteiro = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
 
-export function criarLeitorDeProgresso(porta: () => Promise<PortaDeProgresso | null>) {
+/** O `matchId` tem a forma de um id de partida? Lixo não vira consulta, nem tentativa repetida. */
+export const matchIdValido = (matchId: unknown): matchId is string => typeof matchId === "string" && UUID.test(matchId);
+
+/**
+ * `temSessao`: há uma sessão GUARDADA neste aparelho? Sem ela não existe de quem ler progresso — e
+ * a leitura NÃO cria uma. Quem só jogou contra os bots nunca entrou online, então nunca teve
+ * convidado; mostrar "0 XP" para essa pessoa exigiria criar um usuário só para desenhar um zero.
+ * Sem sessão, nem o SDK é baixado.
+ */
+export function criarLeitorDeProgresso(porta: () => Promise<PortaDeProgresso | null>, temSessao: () => boolean = () => true) {
   return {
-    /** O progresso do jogador desta sessão. `null` quando não há provedor ou a leitura falha. */
+    /** O progresso do jogador desta sessão. `null` quando não há sessão, provedor, ou a leitura falha. */
     async meuProgresso(): Promise<ProgressoDoJogador | null> {
+      if (!temSessao()) return null;
       try {
         const p = await porta();
         if (!p) return null;
@@ -58,7 +68,8 @@ export function criarLeitorDeProgresso(porta: () => Promise<PortaDeProgresso | n
      * forma assíncrona. Quem mostrar isto na tela tenta de novo algumas vezes.
      */
     async creditoDaPartida(matchId: string): Promise<CreditoDaPartida | null> {
-      if (!UUID.test(matchId)) return null; // lixo não vira consulta
+      if (!matchIdValido(matchId)) return null; // lixo não vira consulta
+      if (!temSessao()) return null;
       try {
         const p = await porta();
         if (!p) return null;
@@ -74,11 +85,33 @@ export function criarLeitorDeProgresso(porta: () => Promise<PortaDeProgresso | n
 
 export type LeitorDeProgresso = ReturnType<typeof criarLeitorDeProgresso>;
 
-/** O leitor real, sobre o cliente único. `null` quando esta publicação não tem identidade. */
+/**
+ * Onde o SDK guarda a sessão: `sb-<ref do projeto>-auth-token`, o padrão do supabase-js v2. Se um
+ * dia o SDK mudar isso, o efeito é o módulo de progresso não aparecer — nunca um convidado novo.
+ */
+export function chaveDaSessao(url: string): string | null {
+  try { return `sb-${new URL(url).hostname.split(".")[0]}-auth-token`; } catch { return null; }
+}
+
+function sessaoGuardada(url: string): boolean {
+  const chave = chaveDaSessao(url);
+  if (!chave) return false;
+  try { return !!globalThis.localStorage?.getItem(chave); } catch { return false; }
+}
+
+let leitorUnico: { url: string; leitor: LeitorDeProgresso } | null = null;
+
+/**
+ * O leitor real, sobre o cliente único. `null` quando esta publicação não tem identidade.
+ *
+ * É SEMPRE O MESMO objeto por configuração: quem o recebe usa-o como dependência de efeito, e um
+ * leitor novo a cada render reiniciaria a leitura a cada render.
+ */
 export function leitorDeProgressoConfigurado(): LeitorDeProgresso | null {
   const r = identidadeConfigurada();
   if (!r.configurado) return null;
-  return criarLeitorDeProgresso(async () => {
+  if (leitorUnico?.url === r.url) return leitorUnico.leitor;
+  const leitor = criarLeitorDeProgresso(async () => {
     const c = await clienteCompartilhado(r);
     if (!c) return null;
     return {
@@ -86,5 +119,7 @@ export function leitorDeProgressoConfigurado(): LeitorDeProgresso | null {
       creditoDaPartida: async (partidaId) =>
         await c.from("xp_eventos").select("xp_delta, posicao").eq("partida_id", partidaId).maybeSingle(),
     };
-  });
+  }, () => sessaoGuardada(r.url));
+  leitorUnico = { url: r.url, leitor };
+  return leitor;
 }

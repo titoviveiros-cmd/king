@@ -10,6 +10,7 @@ import { Mesa, type MesaMultiplayer } from "./ui/Mesa.js";
 import { Sala } from "./ui/Sala.js";
 import { useBotaoVoltar } from "./ui/useBotaoVoltar.js";
 import type { Entrada } from "./modos.js";
+import { leitorDeProgressoConfigurado } from "./auth/progresso.js";
 
 export default function ModoOnline({
   entrada, onOpenAudio, onSair,
@@ -69,6 +70,10 @@ export default function ModoOnline({
     mensagens: g.mensagens,
     onEnviarMensagem: g.enviarMensagem,
     onCancelarProximaMao: g.cancelarProximaMao,
+    // O id que o SERVIDOR deu a esta partida, e o leitor só-leitura: é o que o Placar Final usa
+    // para perguntar ao banco quanto ela rendeu. O leitor é o mesmo objeto a cada render.
+    matchId: g.game.matchId,
+    progresso: leitorDeProgressoConfigurado(),
   };
 
   return (

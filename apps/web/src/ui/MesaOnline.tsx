@@ -22,6 +22,7 @@ import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao, RelogioRecebido } from "../game/useKingOnline.js";
 import { agoraMonotonico } from "../game/monotonico.js";
 import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
+import type { LeitorDeProgresso } from "../auth/progresso.js";
 import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
 
 /** O contexto multiplayer que a Mesa e o Placar recebem. Ausente = modo local. */
@@ -43,6 +44,14 @@ export interface MesaMultiplayer {
   onEnviarMensagem: (id: string) => void;
   /** Desfaz o pedido da próxima mão. O servidor continua sendo quem decide. */
   onCancelarProximaMao: () => void;
+  /**
+   * O `matchId` AUTORITATIVO da partida corrente, como chegou na última `STATE_UPDATE`. É por ele
+   * que o fim da partida pergunta ao banco quanto XP ela rendeu. Só existe no multiplayer: o modo
+   * local não persiste nada, e por isso não mostra XP nenhum.
+   */
+  matchId?: string;
+  /** Leitor SÓ-LEITURA do progresso. `null`/ausente = publicação sem identidade: sem bloco de XP. */
+  progresso?: LeitorDeProgresso | null;
 }
 
 /**

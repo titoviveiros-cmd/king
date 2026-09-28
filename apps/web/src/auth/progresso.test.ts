@@ -10,7 +10,7 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }));
 
-import { criarLeitorDeProgresso, type PortaDeProgresso } from "./progresso.js";
+import { chaveDaSessao, criarLeitorDeProgresso, matchIdValido, type PortaDeProgresso } from "./progresso.js";
 import { clienteCompartilhado, esquecerPortaDeAutenticacao, portaDeAutenticacao } from "./clienteSupabase.js";
 
 const PARTIDA = "33333333-3333-4333-8333-333333333333";
@@ -68,6 +68,31 @@ describe("leitura do progresso", () => {
 
   it("a porta de progresso não tem caminho de escrita", () => {
     expect(Object.keys(portaFalsa()).filter((k) => k !== "consultas").sort()).toEqual(["creditoDaPartida", "meuProgresso"]);
+  });
+});
+
+describe("sem sessão guardada, nem o SDK é tocado — e nenhum convidado nasce para mostrar XP", () => {
+  it("meuProgresso e creditoDaPartida devolvem null SEM abrir a porta", async () => {
+    let abriu = 0;
+    const l = criarLeitorDeProgresso(async () => { abriu++; return portaFalsa(); }, () => false);
+    expect(await l.meuProgresso()).toBeNull();
+    expect(await l.creditoDaPartida(PARTIDA)).toBeNull();
+    expect(abriu).toBe(0);
+  });
+
+  it("com sessão guardada, a leitura segue normalmente", async () => {
+    const l = criarLeitorDeProgresso(async () => portaFalsa(), () => true);
+    expect(await l.meuProgresso()).toEqual({ xpTotal: 150, nivel: 2, xpNoNivel: 50, xpDoNivel: 150 });
+  });
+
+  it("a sessão é procurada na chave padrão do SDK, pelo ref do projeto", () => {
+    expect(chaveDaSessao("https://dwkpkpmfsqvyarjtcmjd.supabase.co")).toBe("sb-dwkpkpmfsqvyarjtcmjd-auth-token");
+    expect(chaveDaSessao("não é url")).toBeNull();
+  });
+
+  it("matchIdValido aceita só a forma de um UUID", () => {
+    expect(matchIdValido(PARTIDA)).toBe(true);
+    for (const x of ["", "abc", "' or 1=1 --", null, undefined, 42, `${PARTIDA}x`]) expect(matchIdValido(x)).toBe(false);
   });
 });
 
