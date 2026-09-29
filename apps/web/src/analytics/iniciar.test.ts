@@ -85,20 +85,25 @@ describe("contexto", () => {
     expect(analytics.contexto.traffic_type).toBe("test");
   });
 
+  it("Preview é tráfego de teste mesmo sem nenhum outro sinal", () => {
+    iniciarAnalytics({ env: {}, janela: janela(), memoria: criarMemoria(disco), vercelEnv: "preview" });
+    expect(analytics.contexto).toEqual({ platform: "web", environment: "preview", traffic_type: "test" });
+  });
+
   it("navegador automatizado é tráfego de teste", () => {
-    iniciarAnalytics({ env: {}, janela: { ...janela(), navigator: { webdriver: true } }, memoria: criarMemoria(disco) });
+    iniciarAnalytics({ env: {}, janela: { ...janela(), navigator: { webdriver: true } }, memoria: criarMemoria(disco), vercelEnv: "production" });
     expect(analytics.contexto.traffic_type).toBe("test");
   });
 
   it("?trafego=teste marca o navegador — e a marca vale nas próximas aberturas, até ?trafego=real", () => {
     const d = disco();
-    iniciarAnalytics({ env: {}, janela: janela("?trafego=teste"), memoria: criarMemoria(() => d) });
+    iniciarAnalytics({ env: {}, janela: janela("?trafego=teste"), memoria: criarMemoria(() => d), vercelEnv: "production" });
     expect(analytics.contexto.traffic_type).toBe("test");
     reiniciarParaTestes();
-    iniciarAnalytics({ env: {}, janela: janela(""), memoria: criarMemoria(() => d) });
+    iniciarAnalytics({ env: {}, janela: janela(""), memoria: criarMemoria(() => d), vercelEnv: "production" });
     expect(analytics.contexto.traffic_type).toBe("test");
     reiniciarParaTestes();
-    iniciarAnalytics({ env: {}, janela: janela("?trafego=real"), memoria: criarMemoria(() => d) });
+    iniciarAnalytics({ env: {}, janela: janela("?trafego=real"), memoria: criarMemoria(() => d), vercelEnv: "production" });
     expect(analytics.contexto.traffic_type).toBe("real");
   });
 

@@ -65,10 +65,12 @@ export function iniciarAnalytics(o: {
     // campanha. Um toque vazio também conta: é a visita direta.
     if (!m.primeiroToque) m = mem.atualizar((x) => ({ ...x, primeiroToque: toqueDestaAbertura }));
 
+    const ambiente = detectarAmbiente(env.VITE_KING_AMBIENTE, o.vercelEnv ?? vercelEnvDoBuild());
     analytics.definirContexto({
       platform: detectarPlataforma(janela),
-      environment: detectarAmbiente(env.VITE_KING_AMBIENTE, o.vercelEnv ?? vercelEnvDoBuild()),
+      environment: ambiente,
       traffic_type: detectarTrafego({
+        ambiente,
         declarado: env.VITE_KING_TRAFEGO,
         webdriver: janela.navigator?.webdriver === true,
         marcado: m.trafegoDeTeste === true,

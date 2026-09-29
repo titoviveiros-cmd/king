@@ -228,7 +228,13 @@ export function Home({
         </>
       )}
 
-      <div className="foot">1 jogador + 3 bots · 4 jogadores · 10 mãos · base jogável (motor real)</div>
+      {/* A PRIVACIDADE NA MESMA LINHA DO RODAPÉ: discreta, sempre alcançável, e sem acrescentar
+          altura a uma Home que precisa caber em 852×300. Aponta para o arquivo (e não para a URL
+          limpa `/privacidade`) porque é o único caminho que existe igual na web e dentro do app. */}
+      <div className="foot">
+        1 jogador + 3 bots · 4 jogadores · 10 mãos · base jogável (motor real) ·{" "}
+        <a className="hm-privacidade" href="/privacidade.html">Privacidade</a>
+      </div>
     </div>
   );
 }

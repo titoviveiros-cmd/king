@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#140a24" />
+  <meta name="color-scheme" content="dark" />
+  <title>Privacidade — KING</title>
+  <meta name="description" content="Como o KING trata dados: o que o jogo guarda, o que mede de forma anônima e o que nunca envia." />
+  <link rel="canonical" href="https://playkingcards.com.br/privacidade" />
+  <!--
+    PÁGINA ESTÁTICA DE PROPÓSITO: sem script, sem fonte ou recurso de terceiros. Uma página de
+    privacidade que carregasse medição ou fonte externa desmentiria o que diz. Funciona igual na
+    web (/privacidade e /privacidade.html) e dentro do app, que a leva no próprio pacote.
+    Fonte dos fatos: docs/KING-ANALYTICS.md e docs/KING-PUBLICACAO.md §1.
+  -->
+  <style>
+    :root{--night:#140a24;--surface:#241546;--violet:#9b6cff;--gold:#f4c542;--turq:#2dd4bf;
+      --ink:#f4eeff;--muted:#c3b6de;--faint:#9284b8;--line:rgba(180,150,255,.18);}
+    *{box-sizing:border-box;}
+    html,body{margin:0;background:var(--night);color:var(--ink);}
+    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.55;
+      font-size:clamp(15px,1.05rem,17px);overflow-x:hidden;
+      padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right))
+              max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));}
+    main{max-width:720px;margin:0 auto;}
+    a{color:var(--turq);}
+    .voltar{display:inline-block;margin:4px 0 12px;font-weight:700;text-decoration:none;
+      padding:10px 0;min-height:44px;}
+    .voltar::before{content:"← ";}
+    .marca{font-weight:800;letter-spacing:.08em;color:var(--gold);font-size:1.6rem;margin:0;}
+    h1{font-size:clamp(1.4rem,4vw,1.9rem);line-height:1.2;margin:.1em 0 .2em;}
+    .data{color:var(--faint);margin:0 0 1.4em;font-size:.9em;}
+    h2{font-size:1.15rem;margin:1.8em 0 .5em;color:var(--gold);}
+    p,li{color:var(--muted);}
+    strong{color:var(--ink);}
+    ul{padding-left:1.2em;margin:.4em 0 1em;}
+    li{margin:.25em 0;}
+    .caixa{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:14px;
+      padding:.9em 1.1em;margin:1em 0;}
+    .caixa > :first-child{margin-top:0;}
+    .caixa > :last-child{margin-bottom:0;}
+    .nao li::marker{content:"✕  ";color:#ff8fa3;}
+    code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88em;color:var(--ink);
+      background:rgba(255,255,255,.06);padding:.05em .35em;border-radius:6px;overflow-wrap:anywhere;}
+    footer{margin-top:2.4em;padding-top:1em;border-top:1px solid var(--line);color:var(--faint);font-size:.9em;}
+  </style>
+</head>
+<body>
+<main>
+  <a class="voltar" href="/">Voltar ao jogo</a>
+  <p class="marca">KING</p>
+  <h1>Privacidade</h1>
+  <p class="data">Atualizado em 29 de setembro de 2026.</p>
+
+  <div class="caixa">
+    <p><strong>Em resumo:</strong> o KING não pede cadastro, e-mail nem senha, e não tem
+    publicidade. Para melhorar o jogo, medimos o uso de forma <strong>anônima</strong>: eventos
+    como "abriu o jogo" ou "terminou uma partida", sem apelido, sem código de sala, sem e-mail e
+    sem nenhum identificador da sua conta de jogo.</p>
+  </div>
+
+  <h2>Quem é o responsável</h2>
+  <p>O KING é mantido por <strong>Tito Viveiros</strong> (pessoa física). Para dúvidas ou pedidos
+  sobre os seus dados, escreva para
+  <a href="mailto:titoviveiros@gmail.com">titoviveiros@gmail.com</a>.</p>
+
+  <h2>Dados do jogo</h2>
+  <ul>
+    <li><strong>Jogar contra os bots</strong> não cria conta nenhuma.</li>
+    <li><strong>Jogar online com amigos</strong> cria uma conta anônima, sem e-mail e sem senha,
+      no Supabase, o serviço de banco de dados e autenticação do KING (servidores em São Paulo).
+      Ela guarda o seu apelido, o seu avatar, o seu XP e o seu nível, e um registro por partida
+      online concluída com a sua posição e o horário.</li>
+    <li>O <strong>apelido</strong> e o <strong>avatar</strong> aparecem para as outras pessoas da
+      mesa. O apelido é o único texto que você digita: use o que quiser mostrar.</li>
+    <li>O <strong>código da sala</strong> existe só para os amigos entrarem na partida certa.</li>
+    <li>As preferências de som e o progresso do tutorial ficam <strong>só no seu aparelho</strong>.</li>
+  </ul>
+
+  <h2>Medição de uso (analytics)</h2>
+  <p><strong>Para quê:</strong> entender como o jogo é usado para melhorá-lo — por exemplo, quantas
+  pessoas chegam a terminar uma partida, se voltam a jogar em outro dia e de onde chegaram.
+  Não é usada para publicidade, e os dados não são vendidos.</p>
+  <p><strong>Fornecedor:</strong> <strong>PostHog</strong>, no PostHog Cloud, com o projeto do KING
+  hospedado na região <strong>US</strong> (Estados Unidos).</p>
+  <p><strong>Identificador anônimo:</strong> o navegador (ou o app) cria um código aleatório e o
+  guarda no próprio aparelho. Ele serve para saber que duas visitas vieram do mesmo aparelho —
+  não tem ligação com a sua conta de jogo, com o seu apelido nem com você. Se você limpar os dados
+  do site, um código novo é criado.</p>
+
+  <p><strong>O que é enviado:</strong></p>
+  <ul>
+    <li><strong>Eventos de uso:</strong> abrir o jogo (e se é a primeira vez neste aparelho);
+      começar o tutorial (e em que passo ele foi retomado) e concluí-lo; começar a primeira
+      partida; começar uma partida (modo local ou online, quantas pessoas e quantos bots);
+      concluir uma partida (modo, posição final de 1 a 4 e se houve empate); criar ou entrar numa
+      sala; copiar o código de convite (só o fato de ter copiado); compartilhar o resultado (só o
+      jeito: folha de compartilhamento ou cópia); queda e volta da conexão; pedir revanche (modo e
+      posição); enviar uma das frases prontas da mesa (qual delas).</li>
+    <li><strong>Plataforma:</strong> web, app Android ou app iOS.</li>
+    <li><strong>Ambiente:</strong> produção, prévia ou desenvolvimento, e se a visita é de teste.</li>
+    <li><strong>Dados técnicos:</strong> sistema operacional, navegador e tipo de aparelho
+      (celular, tablet ou computador), com as versões; data e hora do evento; um identificador
+      da sessão de uso.</li>
+    <li><strong>Origem da visita, reduzida:</strong> os parâmetros de campanha
+      <code>utm_source</code>, <code>utm_medium</code>, <code>utm_campaign</code> e
+      <code>utm_content</code>, e apenas o <strong>domínio</strong> do site que trouxe você
+      (<code>referrer_host</code>) — nunca o endereço completo. Os valores são reduzidos a letras
+      minúsculas, números e sinais simples; o que parecer um identificador é descartado.</li>
+  </ul>
+
+  <p><strong>Como o PostHog está configurado:</strong></p>
+  <ul>
+    <li>Descarte do endereço IP ligado (<em>Discard client IP data</em>): o IP não é guardado. No
+      recebimento, o PostHog pode usá-lo para estimar uma localização aproximada (país, região,
+      cidade) antes de descartá-lo.</li>
+    <li>Captura automática de cliques (<em>autocapture</em>): <strong>desligada</strong>.</li>
+    <li>Gravação de sessão (<em>session replay</em>): <strong>desligada</strong>.</li>
+    <li>Mapas de calor (<em>heatmaps</em>): <strong>desligados</strong>.</li>
+    <li>Métricas automáticas de desempenho (<em>web vitals</em>): <strong>desligadas</strong>.</li>
+    <li>Registro automático de páginas vistas e de saída (<em>pageview/pageleave</em>): <strong>desligado</strong>.</li>
+    <li>Captura automática de erros: <strong>desligada</strong>.</li>
+    <li>Identificação de pessoas: <strong>nenhuma</strong>. O jogo nunca liga o identificador
+      anônimo a uma pessoa e não cria perfil pessoal identificado.</li>
+  </ul>
+
+  <div class="caixa">
+    <p><strong>O que NUNCA é enviado ao PostHog:</strong></p>
+    <ul class="nao">
+      <li>apelido</li>
+      <li>código da sala e identificador da sala</li>
+      <li>identificador de jogador e identificador da conta (Supabase)</li>
+      <li>e-mail</li>
+      <li>tokens de acesso, de sessão ou de retorno à sala</li>
+      <li>endereço completo da página (URL) ou do site de origem</li>
+      <li>texto livre de qualquer tipo, inclusive o texto de um resultado compartilhado</li>
+      <li>identificador da partida e do registro de XP</li>
+    </ul>
+  </div>
+
+  <p><strong>Se você não quiser ser medido:</strong> ainda não há um botão para isso dentro do
+  jogo. Bloqueadores de rastreamento do navegador impedem o envio sem afetar o jogo, e limpar os
+  dados do site troca o identificador anônimo.</p>
+
+  <h2>Mudanças nesta página</h2>
+  <p>Quando o que o KING coleta mudar, esta página muda antes, e a data no topo é atualizada.</p>
+
+  <footer>
+    <a class="voltar" href="/">Voltar ao jogo</a>
+    <p>KING · playkingcards.com.br</p>
+  </footer>
+</main>
+</body>
+</html>

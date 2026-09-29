@@ -813,6 +813,8 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .home .tg b{color:#ff8fca;}
 .home .row{display:flex;gap:10px;align-items:center;margin-top:clamp(8px,1.6vh,14px);flex-wrap:wrap;justify-content:center;}
 .home .foot{margin-top:clamp(10px,2vh,16px);color:var(--faint);font-size:clamp(.62rem,1.6vh,.8rem);max-width:min(86vw,520px);}
+.home .foot .hm-privacidade{color:inherit;text-decoration:underline;text-underline-offset:3px;}
+.home .foot .hm-privacidade:active{color:var(--gold);}
 
 /* ---- aviso de rotação (o gameplay é landscape — Design System) ---- */
 .rotate{position:fixed;inset:0;z-index:200;display:none;flex-direction:column;align-items:center;justify-content:center;

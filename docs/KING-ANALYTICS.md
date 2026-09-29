@@ -3,10 +3,12 @@
 O que o KING mede, como, com quem, e o que ele **não** mede. Escrito a partir do código e de
 execuções reais (Fase 4F, setembro/2026).
 
-> **Estado em 28/09/2026 — FASE 4F-A.** A instrumentação está pronta e testada na branch
-> `feat/analytics-v1`. **Production continua sem destino**: sem `VITE_POSTHOG_KEY` e
-> `VITE_POSTHOG_HOST`, o adaptador é o silêncio e o SDK nem é baixado. Ligar em Production é a
-> Fase 4F-B e exige, **antes**, a política de privacidade nomeando o fornecedor (§15).
+> **Estado em 29/09/2026 — FASE 4F-B1.** O **Preview** da branch `feat/analytics-v1` está conectado
+> ao projeto PostHog **KING (US Cloud, "Discard client IP data" ligado)**: `VITE_POSTHOG_KEY` e
+> `VITE_POSTHOG_HOST` existem na Vercel **só no ambiente Preview e só para essa branch**.
+> **Production continua sem destino**: sem as duas variáveis, o adaptador é o silêncio e o SDK nem
+> é baixado. A página pública de privacidade existe (`/privacidade`, §16). Ligar em Production é a
+> Fase 4F-B2.
 >
 > ⚠️ Nada aqui é redação jurídica.
 
@@ -223,10 +225,12 @@ Três barreiras, cada uma com teste que fica vermelho sem ela (§12): **esquema 
 o pacote pelo `vite.config.ts`). Build feito à mão é `development` — nunca se passa por produção.
 **Build de loja (Capacitor) precisa de `VITE_KING_AMBIENTE=production`**, porque não passa pela Vercel.
 
-`traffic_type=test` quando **qualquer** sinal aparecer:
+`traffic_type=test` quando **qualquer** sinal aparecer. **Só Production pode ser tráfego real** — a
+primeira linha garante isso sem depender de ninguém lembrar de marcar nada:
 
 | Sinal | Quem usa |
 |---|---|
+| `environment` diferente de `production` | **todo Preview e todo build de desenvolvimento** — sempre teste |
 | `VITE_KING_TRAFEGO=test` no build | **todos os builds de e2e** (`.env.e2e`, `.env.e2e-progresso`, `.env.e2e-analytics`) |
 | `navigator.webdriver` | qualquer automação |
 | `?trafego=teste` na URL — **fica marcado** no navegador até `?trafego=real` | **provas e smoke manuais em Production** — abrir uma vez `https://playkingcards.com.br/?trafego=teste` antes de testar |
@@ -320,17 +324,19 @@ npm run test:mutacao:analytics                     # mutações (unit + e2e)
 
 ## 13. Ligar o PostHog (Fase 4F-B) — checklist
 
-1. Criar o projeto no PostHog Cloud. Região: **US** (padrão; menor latência a partir do Brasil —
-   não há região no Brasil). EU só se houver preferência por jurisdição.
-2. **Settings → Project → IP data capture → "Discard client IP data": LIGADO.** O IP não é guardado;
-   o país (GeoIP) continua sendo derivado na ingestão.
+1. ✅ *(Tito, 29/09)* Projeto **KING** no PostHog Cloud, região **US**.
+2. ✅ *(Tito, 29/09)* **Settings → Project → IP data capture → "Discard client IP data": LIGADO.** O IP
+   não é guardado; a localização aproximada (GeoIP) continua sendo derivada na ingestão.
 3. No projeto, deixar desligados autocapture, session replay, heatmaps, surveys, web vitals e
    exception autocapture (defesa em profundidade; o cliente já não pede configuração remota).
 4. Copiar o **Project token** (`phc_…`, público) e o **host de ingestão** (`https://us.i.posthog.com`).
    Nunca a *Personal API key* (`phx_…`) — o app a recusa.
-5. Vercel → projeto `king-web` → Environment Variables → **Production**: `VITE_POSTHOG_KEY` e
-   `VITE_POSTHOG_HOST`. Preview: opcional (sai marcado `environment=preview`).
-6. Publicar a política de privacidade atualizada **antes** do deploy (§14).
+5. Vercel → projeto `king-web` → Environment Variables:
+   - ✅ **Preview** *(4F-B1)*: `VITE_POSTHOG_KEY` e `VITE_POSTHOG_HOST`, tipo Config, **só para a
+     branch `feat/analytics-v1`**. Todo evento do Preview sai `environment=preview` e
+     `traffic_type=test` (§9).
+   - ⏸️ **Production** *(4F-B2)*: as mesmas duas, **só depois** do item 6.
+6. A página `/privacidade` (§16) precisa estar **no ar em Production antes** de ligar a medição lá.
 7. Deploy; abrir `https://playkingcards.com.br/?trafego=teste`; conferir no *Activity* do PostHog
    um `app_open` com `environment=production` e `traffic_type=test`.
 8. Montar o dashboard da §10.
@@ -344,6 +350,11 @@ npm run test:mutacao:analytics                     # mutações (unit + e2e)
 
 ## 15. Impacto na política de privacidade (não é texto jurídico)
 
+> **Feito na 4F-B1:** a página pública `/privacidade` já diz tudo abaixo, **menos a retenção**
+> (§16). ⚠️ **Pendência interna: o prazo de retenção dos eventos NÃO está definido** — nem no projeto
+> PostHog, nem por decisão. A página pública deliberadamente **não promete prazo** (um teste falha
+> se ela prometer). Definir antes da abertura pública.
+
 Antes de ligar em Production, a política precisa dizer: que há **medição de uso anônima**; o
 **fornecedor** (PostHog, como operador) e a **região** dos dados; que o identificador é **aleatório,
 por aparelho/navegador**, sem vínculo com a conta de jogo; que **o IP não é guardado**; o que é
@@ -351,3 +362,19 @@ medido (a lista da §4 em linguagem simples) e o que não é (§6); retenção d
 do projeto PostHog); como desligar (limpar dados do navegador/app). Nas lojas: Data Safety /
 Privacy Labels passam a declarar **uso do app / interações** e um **identificador** — sem uso para
 publicidade e sem rastreamento entre apps.
+
+## 16. Página pública de privacidade
+
+- **Onde:** `apps/web/public/privacidade.html`, servida em `/privacidade` (reescrita no
+  `vercel.json`, antes da reescrita do jogo) e em `/privacidade.html` (o arquivo, que é o que o
+  link da Home usa porque existe igual na web e dentro do app).
+- **Como se chega:** link "Privacidade" na linha do rodapé da Home — discreto e sem acrescentar
+  altura (provado nos 13 viewports da suíte, inclusive 852×300).
+- **Responsável:** Tito Viveiros (pessoa física) · contato `titoviveiros@gmail.com` (decisão do
+  Tito em 29/09/2026).
+- **Estática de propósito:** sem script, sem fonte, estilo ou imagem de terceiro. Uma página de
+  privacidade que medisse quem a lê desmentiria o próprio texto.
+- **Amarrada aos fatos:** `src/ui/privacidade.test.ts` exige cada item (fornecedor, região, IP
+  descartado, coletas automáticas desligadas, a lista do que nunca é enviado, responsável e
+  contato) e proíbe recurso externo e promessa de prazo de retenção. Mudou o que o código coleta?
+  A página muda **antes**, e o teste aponta o que ficou para trás.

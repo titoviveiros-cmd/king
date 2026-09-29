@@ -98,7 +98,7 @@ publicidade, câmera, microfone, notificações push, compras.
 | **Splash** | splash | LaunchScreen | 🔴 ausente | **P0** | arte | brief aprovado |
 | **Assinatura** | keystore | certificado + provisioning | 🔴 ausente | **P0** | contas de desenvolvedor | autorização |
 | **Conta de desenvolvedor** | Google Play (US$ 25) | Apple (US$ 99/ano) | ⚪ desconhecida | **P0** | titular | decisão |
-| **Política de privacidade (URL)** | obrigatória | obrigatória | 🔴 ausente | **P0** | e-mail + titular | §6 |
+| **Política de privacidade (URL)** | obrigatória | obrigatória | 🟡 **existe** (`/privacidade`, Fase 4F-B1, ainda só na branch/Preview); falta retenção e fluxo de exclusão | **P0** | retenção + exclusão | §6 |
 | **Suporte (URL)** | recomendada | **obrigatória** | 🔴 ausente | **P0** | e-mail | §6 |
 | **Termos (URL)** | opcional | opcional | 🔴 ausente | não | titular | §6 |
 | **Classificação etária** | questionário | questionário | ⚪ não respondido | **P0** | titular | §6 |
@@ -106,7 +106,7 @@ publicidade, câmera, microfone, notificações push, compras.
 | **Exclusão de conta e dados** | exigida (app cria conta) | exigida dentro do app | 🔴 **não existe** | **P0** | fluxo + página | §1.3 e §6 |
 | **Retenção de dados** | declarar na política e no Data Safety | declarar | 🔴 **não definida** | **P0** | decisão do titular | §1.3 |
 | **Capturas de tela** | phone + tablet | iPhone + iPad | 🔴 ausentes | **P0** | arte | depois dos avatares |
-| **Analytics** | instrumentado (PostHog, anônimo), **desligado** em Production | idem (mesmo código; `VITE_KING_AMBIENTE=production` no build de loja) | 🟡 pronto, aguardando 4F-B | **P0 antes de ligar**: política nomeando o fornecedor | projeto PostHog + política | [KING-ANALYTICS.md §13](KING-ANALYTICS.md) |
+| **Analytics** | PostHog anônimo **conectado só no Preview** (4F-B1); **desligado** em Production | idem (mesmo código; `VITE_KING_AMBIENTE=production` no build de loja) | 🟡 Preview validado, Production na 4F-B2 | **P0 antes de ligar em Production**: `/privacidade` no ar em Production | 4F-B2 | [KING-ANALYTICS.md §13](KING-ANALYTICS.md) |
 | **Error monitoring** | ausente | ausente | 🟡 recomendado | P1 | decisão | §7 |
 | **Reconnect** | testado no navegador | testado no navegador | 🟡 lacuna de lifecycle | P1 | aparelho | §8 |
 | **QA físico** | — | — | 🔴 não feito | P1 | aparelho | — |
@@ -219,7 +219,7 @@ Domínio já existente: `playkingcards.com.br`.
 
 | Página | Exigida por | Situação | URL sugerida |
 |---|---|---|---|
-| **Política de Privacidade** | App Store **e** Google Play | 🔴 não existe | `/privacidade` |
+| **Política de Privacidade** | App Store **e** Google Play | 🟡 **existe** em `/privacidade` (Fase 4F-B1): responsável, contato, dados do jogo e medição anônima. **Ainda não diz retenção nem fluxo de exclusão** — e só vai a Production junto da 4F-B2 | `/privacidade` |
 | **Suporte** | App Store (campo obrigatório) | 🔴 não existe | `/suporte` |
 | **Termos de Uso** | recomendada | 🔴 não existe | `/termos` |
 | **Exclusão de conta/dados** | Google Play (apps que criam conta), e a App Store pede exclusão dentro do app | 🔴 **não existe — e passou a ser exigida**: o multiplayer cria conta (convidado anônimo, §1.2) | `/excluir-conta` *(sugestão)* |
@@ -266,8 +266,8 @@ privacidade.
 
 | # | Decisão | O que trava |
 |---|---|---|
-| 1 | **E-mail de contato/suporte** | as três páginas e a ficha da loja |
-| 2 | **Titular** (pessoa física ou CNPJ) | quem assina a política e publica; Google Play exige conta verificada |
+| 1 | ✅ **E-mail de contato:** `titoviveiros@gmail.com` *(decidido em 29/09/2026; já na página de privacidade)* | suporte e ficha da loja ainda podem usar outro |
+| 2 | ✅ **Responsável:** Tito Viveiros, pessoa física *(29/09/2026)* | Google Play exige conta verificada; migrar para CNPJ é trocar uma linha da página |
 | 3 | **Classificação etária** | KING é jogo de cartas sem aposta, sem dinheiro e **sem chat livre** — perfil de classificação baixa, mas o questionário é por loja |
 | 4 | **Bundle identifier definitivo** | ver §4 |
 | 5 | **Contas de desenvolvedor** | assinatura e envio |

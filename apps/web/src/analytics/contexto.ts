@@ -15,6 +15,9 @@
 // dois, é "development" — um build feito à mão nunca se passa por produção.
 //
 // O TRÁFEGO é "test" quando QUALQUER sinal disser que não é uma pessoa de verdade:
+//   • o ambiente NÃO é produção. Preview e desenvolvimento são laboratório por definição: quem
+//     abre um Preview é quem está testando, com ou sem `?trafego=teste`. Só Production pode ser
+//     tráfego real — e isso não depende de ninguém lembrar de marcar nada;
 //   • o build declarou `VITE_KING_TRAFEGO=test` (todos os builds de e2e);
 //   • o navegador é automatizado (`navigator.webdriver`);
 //   • este navegador foi marcado com `?trafego=teste` (fica marcado até `?trafego=real`);
@@ -49,6 +52,7 @@ export function detectarAmbiente(...declarados: (string | undefined)[]): Ambient
 }
 
 export interface SinaisDeTrafego {
+  ambiente?: Ambiente;
   declarado?: string;
   webdriver?: boolean;
   marcado?: boolean;
@@ -56,6 +60,7 @@ export interface SinaisDeTrafego {
 }
 
 export function detectarTrafego(s: SinaisDeTrafego): Trafego {
+  if (s.ambiente !== "production") return "test";
   const declarado = s.declarado?.trim().toLowerCase();
   if (declarado === "test" || declarado === "teste") return "test";
   if (s.webdriver === true || s.marcado === true || s.ganchosDeTeste === true) return "test";

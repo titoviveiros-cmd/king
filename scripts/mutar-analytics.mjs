@@ -18,9 +18,11 @@ import { fileURLToPath } from "node:url";
 const RAIZ = fileURLToPath(new URL("..", import.meta.url));
 const WEB = join(RAIZ, "apps", "web");
 const A = (f) => join(WEB, "src", "analytics", f);
+const PAGINA = join(WEB, "public", "privacidade.html");
 const COM_E2E = process.argv.includes("--e2e");
 
 const UNIT = "npx vitest run src/analytics";
+const PRIV = "npx vitest run src/ui/privacidade.test.ts";
 const e2e = (filtro) => `npm run build:e2e-analytics && npx playwright test -c playwright.analytics.config.ts -g "${filtro}"`;
 
 /** [descrição, arquivo, trecho original, trecho mutante, comando que tem de falhar] */
@@ -78,6 +80,8 @@ const MUTACOES = [
   ["primeiro toque sobrescrito a cada abertura", A("iniciar.ts"), "if (!m.primeiroToque) m = mem.atualizar(", "m = mem.atualizar(", UNIT],
 
   // ── contexto e aquisição ──
+  ["Preview/desenvolvimento conta como tráfego real", A("contexto.ts"), `  if (s.ambiente !== "production") return "test";
+`, "", UNIT],
   ["navegador automatizado conta como real", A("contexto.ts"), "if (s.webdriver === true || s.marcado === true", "if (s.marcado === true", UNIT],
   ["build de e2e conta como real", A("contexto.ts"), `if (declarado === "test" || declarado === "teste") return "test";`, "", UNIT],
   ["build sem ambiente vira produção", A("contexto.ts"), `  return "development";\n}`, `  return "production";\n}`, UNIT],
@@ -91,6 +95,22 @@ const MUTACOES = [
   ["fim de partida online contado de novo", A("partida.ts"), `    if (p.partidaId && !mem.marcarPartida("fins", p.partidaId)) return;\n`, "", UNIT],
   ["first_match_started a cada partida", A("partida.ts"), "      mem.atualizar((m) => ({ ...m, primeiraPartida: true }));\n", "", UNIT],
 
+  // ── a página pública de privacidade ──
+  ["página não diz que o IP é descartado", PAGINA, "Descarte do endereço IP ligado (<em>Discard client IP data</em>)", "Endereço IP", PRIV],
+  ["página carrega script de terceiro", PAGINA, "</head>", `<script src="https://us-assets.i.posthog.com/static/array.js"></script>
+</head>`, PRIV],
+  ["página promete prazo de retenção não definido", PAGINA, "  <h2>Mudanças nesta página</h2>", `  <p>Os eventos são guardados por 90 dias.</p>
+  <h2>Mudanças nesta página</h2>`, PRIV],
+  ["página esquece o e-mail na lista do que nunca é enviado", PAGINA, `      <li>e-mail</li>
+`, "", PRIV],
+  ["página sem o contato do responsável", PAGINA, '<a href="mailto:titoviveiros@gmail.com">titoviveiros@gmail.com</a>', "o responsável", PRIV],
+  ["Home sem o link de privacidade", join(WEB, "src", "ui", "Home.tsx"), '<a className="hm-privacidade" href="/privacidade.html">Privacidade</a>', "Privacidade", PRIV],
+  ["reescrita /privacidade removida", join(RAIZ, "vercel.json"), `    {
+      "source": "/privacidade",
+      "destination": "/privacidade.html"
+    },
+`, "", PRIV],
+
   // ── pontos de captura ──
   ["room_created antes de a sala existir", join(WEB, "src", "game", "useKingOnline.ts"), `    void conectar({ tipo: "criar", nick, avatar });`, `    analytics.track("room_created", {});\n    void conectar({ tipo: "criar", nick, avatar });`, UNIT],
   ["invite_code_copied mesmo sem copiar", join(WEB, "src", "ui", "Sala.tsx"), `    sfxTap();\n    void navigator.clipboard?.writeText(codigo)`, `    sfxTap();\n    analytics.track("invite_code_copied", {});\n    void navigator.clipboard?.writeText(codigo)`, UNIT],
@@ -100,7 +120,9 @@ const MUTACOES_E2E = [
   ["[e2e] before_send removido: URL e referrer sairiam", A("posthogSdk.ts"), "    before_send: filtrarEventoDoPostHog,\n", "", e2e("a abertura")],
   ["[e2e] máscara de parâmetros removida: apelido/e-mail gravados no aparelho", A("posthogSdk.ts"), "    custom_personal_data_properties: PARAMETROS_MASCARADOS,\n", "", e2e("a abertura")],
   ["[e2e] /flags ligado: pedido extra ao PostHog", A("posthogSdk.ts"), "    advanced_disable_flags: true,", "    advanced_disable_flags: false,", e2e("a abertura")],
-  ["[e2e] build de e2e contaria como tráfego real", A("contexto.ts"), `if (declarado === "test" || declarado === "teste") return "test";`, "", e2e("a abertura")],
+  ["[e2e] ambiente e build de e2e ignorados: sairia como tráfego real", A("contexto.ts"), `  if (s.ambiente !== "production") return "test";
+  const declarado = s.declarado?.trim().toLowerCase();
+  if (declarado === "test" || declarado === "teste") return "test";`, `  const declarado = s.declarado?.trim().toLowerCase();`, e2e("a abertura")],
   ["[e2e] reload online conta a partida de novo", A("partida.ts"), `    if (p.partidaId && !mem.marcarPartida("inicios", p.partidaId)) return;\n`, "", e2e("online")],
 ];
 
@@ -122,7 +144,7 @@ function rodar(cmd) {
 }
 
 console.log(`Linha de base: os testes precisam estar VERDES antes de mutar.`);
-if (!rodar(UNIT)) { console.error("❌ testes unitários vermelhos sem mutação — nada a medir"); process.exit(1); }
+if (!rodar(UNIT) || !rodar(PRIV)) { console.error("❌ testes unitários vermelhos sem mutação — nada a medir"); process.exit(1); }
 if (COM_E2E && !rodar(e2e("a abertura|online"))) { console.error("❌ e2e vermelho sem mutação — nada a medir"); process.exit(1); }
 
 const resultados = [];

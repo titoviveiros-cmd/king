@@ -35,17 +35,25 @@ describe("ambiente", () => {
 });
 
 describe("tráfego", () => {
-  it("real só quando nenhum sinal de teste aparece", () => {
-    expect(detectarTrafego({})).toBe("real");
-    expect(detectarTrafego({ declarado: "", webdriver: false, marcado: false, ganchosDeTeste: false })).toBe("real");
+  const PROD = { ambiente: "production" as const };
+
+  it("real SÓ em produção, e só quando nenhum sinal de teste aparece", () => {
+    expect(detectarTrafego(PROD)).toBe("real");
+    expect(detectarTrafego({ ...PROD, declarado: "", webdriver: false, marcado: false, ganchosDeTeste: false })).toBe("real");
   });
 
-  it("QUALQUER sinal basta para ser teste", () => {
-    expect(detectarTrafego({ declarado: "test" })).toBe("test");
-    expect(detectarTrafego({ declarado: "teste" })).toBe("test");
-    expect(detectarTrafego({ webdriver: true })).toBe("test");
-    expect(detectarTrafego({ marcado: true })).toBe("test");
-    expect(detectarTrafego({ ganchosDeTeste: true })).toBe("test");
+  it("Preview e desenvolvimento são SEMPRE teste — ninguém precisa lembrar de marcar", () => {
+    expect(detectarTrafego({ ambiente: "preview" })).toBe("test");
+    expect(detectarTrafego({ ambiente: "development" })).toBe("test");
+    expect(detectarTrafego({})).toBe("test"); // ambiente desconhecido não vira real
+  });
+
+  it("em produção, QUALQUER sinal basta para ser teste", () => {
+    expect(detectarTrafego({ ...PROD, declarado: "test" })).toBe("test");
+    expect(detectarTrafego({ ...PROD, declarado: "teste" })).toBe("test");
+    expect(detectarTrafego({ ...PROD, webdriver: true })).toBe("test");
+    expect(detectarTrafego({ ...PROD, marcado: true })).toBe("test");
+    expect(detectarTrafego({ ...PROD, ganchosDeTeste: true })).toBe("test");
   });
 
   it("?trafego=teste marca, ?trafego=real desmarca, o resto não faz nada", () => {
