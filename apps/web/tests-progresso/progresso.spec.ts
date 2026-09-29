@@ -54,6 +54,12 @@ test("com sessão: o card aparece abaixo das ações, na tela, sem rolagem later
   await expect(card(page)).toBeVisible();
   await expect(card(page)).toContainText("Nível3");
   await expect(card(page)).toContainText("120 / 200 XP");
+  // MEDIR O REPOUSO, NÃO UM QUADRO. O card entra com `riseIn`: nasce 18px abaixo e sobe. Nos
+  // primeiros ~50ms ele cruza o "Aprenda KING" logo abaixo (medido: −3,6px a 852×300 e −7,6px a
+  // 667×375; em repouso a folga é +14px e +10px). Foi esse quadro que o CI fotografou em
+  // 29/09/2026 — sobreposição que não existe. Espera-se a animação ACABAR, como no placarFinal.
+  await page.waitForFunction(() =>
+    document.querySelector(".hm-progresso")!.getAnimations({ subtree: true }).every((a) => a.playState === "finished"));
 
   const vp = page.viewportSize()!;
   const cta = (await jogarAgora(page).boundingBox())!;
