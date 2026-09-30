@@ -3,7 +3,7 @@
 O que o KING mede, como, com quem, e o que ele **não** mede. Escrito a partir do código e de
 execuções reais (Fase 4F, setembro/2026).
 
-> **Estado em 29/09/2026 — FASE 4F-B1.** O **Preview** da branch `feat/analytics-v1` está conectado
+> **Estado em 30/09/2026 — FASE 4F-B1.1** (GeoIP desligado; retenção com discrepância aberta, §15). **4F-B1:** O **Preview** da branch `feat/analytics-v1` está conectado
 > ao projeto PostHog **KING (US Cloud, "Discard client IP data" ligado)**: `VITE_POSTHOG_KEY` e
 > `VITE_POSTHOG_HOST` existem na Vercel **só no ambiente Preview e só para essa branch**.
 > **Production continua sem destino**: sem as duas variáveis, o adaptador é o silêncio e o SDK nem
@@ -103,12 +103,20 @@ nome inventado dá `TS2353`).
 > **IP:** a opção `ip` do SDK **não tem efeito** (documentado no próprio tipo). O descarte de IP é
 > uma configuração do **projeto** no PostHog — ver §13, item obrigatório.
 >
-> **GeoIP (visto no PostHog real, 29/09):** com o IP descartado, a ingestão ainda grava
-> `$geoip_country/subdivision/city`, `$geoip_postal_code`, `$geoip_latitude/longitude`,
-> `$geoip_time_zone` e o raio de precisão. A página de privacidade diz isso com todas as letras.
-> ⏸️ **Decisão pendente do Tito:** manter (dá recorte por país/estado para aquisição) ou desligar por
-> completo mandando `$geoip_disable: true` em todo evento — uma linha no `before_send`, sem mexer
-> no projeto.
+> **GeoIP: DESLIGADO (decisão do Tito, 30/09/2026 — minimização de dados).** A prova real de 29/09
+> mostrou que, mesmo com o IP descartado, a ingestão gravava `$geoip_country/subdivision/city`,
+> `$geoip_postal_code`, `$geoip_latitude/longitude` e `$geoip_time_zone`. Não queremos nenhum deles.
+>
+> - **Mecanismo:** o `before_send` põe **`$geoip_disable: true` em todo evento**, forçado (um evento
+>   que tente mandar `false` sai com `true`). A transformação de GeoIP do PostHog pula o evento que
+>   traz essa propriedade.
+> - **Por que assim:** o `posthog-js` 1.434.17 **não tem opção de configuração** para GeoIP no
+>   `PostHogConfig` (conferido nos tipos instalados). O mecanismo é o mesmo que o núcleo do próprio
+>   SDK usa na opção `disableGeoip` dos outros SDKs: `@posthog/core`, `posthog-core-stateless.ts`,
+>   `prepareMessage` → `message.properties['$geoip_disable'] = true`.
+> - **Guardado por teste:** unitário (todo evento sai com `true`, inclusive contra `false`), e2e com o
+>   SDK real (todo corpo enviado traz `$geoip_disable: true` e nenhuma outra chave de localização) e
+>   três mutações.
 
 O SDK também **descarta sozinho** eventos de navegador automatizado (`navigator.webdriver` ou user
 agent `HeadlessChrome`). Automação não vira dado nem por engano — e mesmo que escape desse filtro,
@@ -189,7 +197,8 @@ Valor fora do formato é **descartado, nunca cortado**.
 
 ### O que NÃO sai — nunca
 
-`$current_url`, `$pathname`, `$host`, `$referrer`, `$referring_domain`, `$initial_*`, `$set`,
+`$current_url`, `$pathname`, `$host`, `$referrer`, `$referring_domain`, `$initial_*`, **qualquer
+`$geoip_*` (o PostHog nem calcula: `$geoip_disable: true`)**, `$set`,
 `$set_once`, `$unset`, user agent bruto, tamanho de tela, fuso, ids de clique (`gclid`, `fbclid`…),
 `utm_term`, URL completa, texto compartilhado, apelido, código de sala, qualquer id de conta,
 jogador, partida ou lançamento de XP, placar bruto, texto livre de qualquer tipo.
@@ -357,10 +366,24 @@ npm run test:mutacao:analytics                     # mutações (unit + e2e)
 
 ## 15. Impacto na política de privacidade (não é texto jurídico)
 
-> **Feito na 4F-B1:** a página pública `/privacidade` já diz tudo abaixo, **menos a retenção**
-> (§16). ⚠️ **Pendência interna: o prazo de retenção dos eventos NÃO está definido** — nem no projeto
-> PostHog, nem por decisão. A página pública deliberadamente **não promete prazo** (um teste falha
-> se ela prometer). Definir antes da abertura pública.
+> **Feito na 4F-B1/4F-B1.1:** a página pública `/privacidade` já diz tudo abaixo, **menos a
+> retenção** (§16), e declara o GeoIP desligado.
+>
+> ⚠️ **RETENÇÃO — DISCREPÂNCIA ABERTA (30/09/2026).** A decisão do Tito é **12 meses**. Mas o PostHog
+> Cloud **não oferece mecanismo que garanta esse teto**. A documentação oficial
+> ([Events data retention](https://posthog.com/docs/data/events-retention)) diz:
+> - retenção por plano: **Free = 1 ano**, pagos = 7 anos; as consultas só enxergam eventos dentro
+>   da janela;
+> - **"Retention is not a deletion tool"** — a página não afirma que o dado mais velho é apagado;
+> - **"You cannot make your retention period shorter to remove data, and a shorter period is not
+>   available on request"** — não há configuração nem pedido que encurte;
+> - nada sobre retenção **máxima**. Em outro trecho da doc, depois de 1 ano o dado "pode" ir para
+>   armazenamento frio e "pode" ser apagado.
+>
+> Ou seja: 1 ano é **piso de consulta**, não **teto de guarda**. Sem mecanismo comprovado, a página
+> **não afirma prazo** — e `src/ui/privacidade.test.ts` (constante
+> `RETENCAO_COM_MECANISMO_COMPROVADO = null`) falha se ela afirmar qualquer prazo. Caminhos possíveis
+> estão na devolutiva da 4F-B1.1; nenhum foi executado.
 
 Antes de ligar em Production, a política precisa dizer: que há **medição de uso anônima**; o
 **fornecedor** (PostHog, como operador) e a **região** dos dados; que o identificador é **aleatório,

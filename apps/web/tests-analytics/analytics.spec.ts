@@ -111,6 +111,7 @@ function chavesPermitidas(evento: string): Set<string> {
   return new Set<string>([
     ...PROPRIEDADES_DO_SDK,
     "$process_person_profile",
+    "$geoip_disable",
     ...Object.keys(ESQUEMA_DO_CONTEXTO),
     ...Object.keys((ESQUEMA as Record<string, object>)[evento] ?? {}),
   ]);
@@ -124,6 +125,8 @@ function conferirTudoQueSaiu(rede: Rede, proibidos: string[] = []) {
     expect(EVENTOS as readonly string[], `evento que não é do KING saiu: ${ev.event}`).toContain(ev.event);
     for (const k of Object.keys(ev.properties)) expect(chavesPermitidas(ev.event).has(k), `${ev.event}.${k}`).toBe(true);
     expect(ev.properties.$process_person_profile, "nenhum perfil de pessoa").toBe(false);
+    expect(ev.properties.$geoip_disable, "GeoIP desligado em todo evento").toBe(true);
+    expect(Object.keys(ev.properties).filter((k) => /geoip|latitude|longitude|postal|city|timezone|^\$ip$/i.test(k)), "nenhuma localização").toEqual(["$geoip_disable"]);
     expect(ev.properties.traffic_type, "e2e é tráfego de TESTE").toBe("test");
     expect(ev.properties.platform).toBe("web");
     expect(ev).not.toHaveProperty("$set");

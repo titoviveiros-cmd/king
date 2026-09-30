@@ -53,6 +53,8 @@ const MUTACOES = [
   ["before_send mantém URL/referrer do SDK", A("posthogSdk.ts"), "const propriedades: Record<string, unknown> = {};", "const propriedades: Record<string, unknown> = { ...original };", UNIT],
   ["before_send mantém $set/$set_once", A("posthogSdk.ts"), "return { uuid: ev.uuid, event: ev.event, properties: propriedades, timestamp: ev.timestamp };", "return { ...ev, properties: propriedades };", UNIT],
   ["before_send não força perfil de pessoa desligado", A("posthogSdk.ts"), "propriedades.$process_person_profile = false;", "", UNIT],
+  ["GeoIP religado (a linha que o desliga some)", A("posthogSdk.ts"), "    propriedades.$geoip_disable = true;\n", "", UNIT],
+  ["GeoIP negociável pelo evento ($geoip_disable:false passaria)", A("posthogSdk.ts"), "    propriedades.$geoip_disable = true;", "    propriedades.$geoip_disable = original.$geoip_disable ?? true;", UNIT],
 
   // ── a configuração do SDK ──
   ["autocapture ligado", A("posthogSdk.ts"), "    autocapture: false,", "    autocapture: true,", UNIT],
@@ -101,6 +103,10 @@ const MUTACOES = [
 </head>`, PRIV],
   ["página promete prazo de retenção não definido", PAGINA, "  <h2>Mudanças nesta página</h2>", `  <p>Os eventos são guardados por 90 dias.</p>
   <h2>Mudanças nesta página</h2>`, PRIV],
+  ["página volta a afirmar localização aproximada", PAGINA, "o IP não é guardado.</li>", "o IP não é guardado. O PostHog estima uma localização aproximada.</li>", PRIV],
+  ["página some com a declaração de GeoIP desligado", PAGINA, "nenhuma cidade, nenhum estado, nenhum", "cidade, estado,", PRIV],
+  ["página promete 12 meses de retenção sem mecanismo comprovado", PAGINA, "  <h2>Mudanças nesta página</h2>", `  <p>Os eventos analíticos são mantidos por até 12 meses.</p>
+  <h2>Mudanças nesta página</h2>`, PRIV],
   ["página esquece o e-mail na lista do que nunca é enviado", PAGINA, `      <li>e-mail</li>
 `, "", PRIV],
   ["página sem o contato do responsável", PAGINA, '<a href="mailto:titoviveiros@gmail.com">titoviveiros@gmail.com</a>', "o responsável", PRIV],
@@ -119,6 +125,7 @@ const MUTACOES = [
 const MUTACOES_E2E = [
   ["[e2e] before_send removido: URL e referrer sairiam", A("posthogSdk.ts"), "    before_send: filtrarEventoDoPostHog,\n", "", e2e("a abertura")],
   ["[e2e] máscara de parâmetros removida: apelido/e-mail gravados no aparelho", A("posthogSdk.ts"), "    custom_personal_data_properties: PARAMETROS_MASCARADOS,\n", "", e2e("a abertura")],
+  ["[e2e] GeoIP religado: o evento sairia sem $geoip_disable", A("posthogSdk.ts"), "    propriedades.$geoip_disable = true;\n", "", e2e("a abertura")],
   ["[e2e] /flags ligado: pedido extra ao PostHog", A("posthogSdk.ts"), "    advanced_disable_flags: true,", "    advanced_disable_flags: false,", e2e("a abertura")],
   ["[e2e] ambiente e build de e2e ignorados: sairia como tráfego real", A("contexto.ts"), `  if (s.ambiente !== "production") return "test";
   const declarado = s.declarado?.trim().toLowerCase();

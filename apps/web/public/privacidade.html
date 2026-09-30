@@ -51,7 +51,7 @@
   <a class="voltar" href="/">Voltar ao jogo</a>
   <p class="marca">KING</p>
   <h1>Privacidade</h1>
-  <p class="data">Atualizado em 29 de setembro de 2026.</p>
+  <p class="data">Atualizado em 30 de setembro de 2026.</p>
 
   <div class="caixa">
     <p><strong>Em resumo:</strong> o KING não pede cadastro, e-mail nem senha, e não tem
@@ -112,10 +112,10 @@
 
   <p><strong>Como o PostHog está configurado:</strong></p>
   <ul>
-    <li>Descarte do endereço IP ligado (<em>Discard client IP data</em>): o IP não é guardado. No
-      recebimento, o PostHog usa o IP para estimar uma localização aproximada — país, estado,
-      cidade, o código postal genérico da cidade e coordenadas aproximadas da região — e guarda
-      essa estimativa com o evento; o IP em si é descartado.</li>
+    <li>Descarte do endereço IP ligado (<em>Discard client IP data</em>): o IP não é guardado.</li>
+    <li>Localização pelo IP (<em>GeoIP</em>): <strong>desligada</strong>. Cada evento pede ao
+      PostHog que não estime localização a partir do IP — nenhuma cidade, nenhum estado, nenhum
+      código postal e nenhuma coordenada são registrados.</li>
     <li>Captura automática de cliques (<em>autocapture</em>): <strong>desligada</strong>.</li>
     <li>Gravação de sessão (<em>session replay</em>): <strong>desligada</strong>.</li>
     <li>Mapas de calor (<em>heatmaps</em>): <strong>desligados</strong>.</li>

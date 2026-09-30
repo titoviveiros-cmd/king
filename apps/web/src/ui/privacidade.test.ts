@@ -56,11 +56,13 @@ describe("o que a página precisa dizer", () => {
     }
   });
 
-  it("é honesta sobre o que o IP ainda permite: TUDO o que o GeoIP guarda (visto no PostHog real)", () => {
-    // Prova de 29/09/2026 no Preview: o evento recebido trazia $geoip_country/subdivision/city,
-    // $geoip_postal_code e $geoip_latitude/longitude. A página nomeia cada um.
-    expect(TEXTO).toMatch(/localização aproximada/);
-    for (const t of ["país", "estado", "cidade", "código postal genérico", "coordenadas aproximadas"]) expect(TEXTO, t).toContain(t);
+  it("declara o GeoIP DESLIGADO e nega cada dado de localização (decisão de 30/09/2026)", () => {
+    expect(TEXTO).toMatch(/Localização pelo IP \(\s*GeoIP\s*\):\s*desligada/);
+    for (const t of ["nenhuma cidade", "nenhum estado", "nenhum código postal", "nenhuma coordenada"]) expect(TEXTO, t).toContain(t);
+  });
+
+  it("não volta a afirmar coleta de localização", () => {
+    expect(TEXTO).not.toMatch(/localização aproximada|estimar uma localização|guarda essa estimativa|coordenadas aproximadas/i);
   });
 });
 
@@ -74,9 +76,21 @@ describe("o que a página não pode fazer", () => {
     expect(externos, "só o endereço canônico da própria página").toEqual(["https://playkingcards.com.br/privacidade"]);
   });
 
-  it("não promete prazo de retenção (ainda não definido — pendência interna)", () => {
-    expect(TEXTO).not.toMatch(/\b\d+\s*(dias?|mes(es)?|anos?|semanas?)\b/i);
-    expect(TEXTO).not.toMatch(/retemos|guardamos por|excluídos após|apagados após/i);
+  // RETENÇÃO: só pode aparecer na página o prazo que tiver MECANISMO TÉCNICO COMPROVADO. Em
+  // 30/09/2026 a decisão é 12 meses, mas o PostHog não impõe teto ("retention is not a deletion
+  // tool"; o período não pode ser encurtado) — não há mecanismo, e a constante fica nula. Quando
+  // houver, ela vira a frase exata: a página tem de trazer exatamente ela, e nenhum outro prazo.
+  const RETENCAO_COM_MECANISMO_COMPROVADO: string | null = null;
+
+  it("retenção: nenhuma promessa sem mecanismo comprovado", () => {
+    const prazos = [...TEXTO.matchAll(/[^.]*\b\d+\s*(dias?|mes(es)?|anos?|semanas?)\b[^.]*/gi)].map((m) => m[0].trim());
+    if (RETENCAO_COM_MECANISMO_COMPROVADO === null) {
+      expect(prazos, "prazo de retenção sem mecanismo comprovado").toEqual([]);
+      expect(TEXTO).not.toMatch(/retemos|guardamos por|mantidos por|excluídos após|apagados após|até 12 meses|1 ano/i);
+    } else {
+      expect(TEXTO).toContain(RETENCAO_COM_MECANISMO_COMPROVADO);
+      expect(prazos.every((p) => p.includes(RETENCAO_COM_MECANISMO_COMPROVADO.replace(/\.$/, ""))), "só o prazo comprovado").toBe(true);
+    }
   });
 
   it("não se apresenta como parecer jurídico nem usa promessa absoluta de segurança", () => {

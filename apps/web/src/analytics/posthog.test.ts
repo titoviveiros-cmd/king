@@ -143,6 +143,23 @@ describe("filtrarEventoDoPostHog — a última barreira", () => {
     expect((r!.properties as Record<string, unknown>).$process_person_profile).toBe(false);
   });
 
+  it("GeoIP DESLIGADO em TODO evento do KING — e ninguém consegue religar pelo evento", () => {
+    for (const nome of ["app_open", "match_started", "match_finished", "room_created", "reconnect"]) {
+      const r = filtrarEventoDoPostHog(ev(nome, { $geoip_disable: false, modo: "online" }));
+      expect((r!.properties as Record<string, unknown>).$geoip_disable, nome).toBe(true);
+    }
+  });
+
+  it("nenhuma propriedade de localização passa, venha de onde vier", () => {
+    const r = filtrarEventoDoPostHog(ev("app_open", {
+      $geoip_city_name: "Salvador", $geoip_subdivision_1_name: "Bahia", $geoip_postal_code: "40000",
+      $geoip_latitude: -12.8, $geoip_longitude: -38.4, $geoip_country_name: "Brazil", $geoip_time_zone: "America/Bahia",
+      $ip: "200.1.2.3", $timezone: "America/Bahia",
+    }));
+    const chaves = Object.keys(r!.properties as Record<string, unknown>);
+    expect(chaves.filter((k) => /geoip|^\$ip$|timezone|latitude|longitude|postal|city|subdivision/i.test(k))).toEqual(["$geoip_disable"]);
+  });
+
   it("as NOSSAS propriedades são revalidadas pelo esquema na saída", () => {
     const r = filtrarEventoDoPostHog(ev("match_finished", {
       modo: "online", posicao: 9, empate: "sim", nick: "Tito", roomCode: "0315", matchId: "ca1380b2-1111", score: -450,

@@ -78,6 +78,13 @@ export function filtrarEventoDoPostHog(ev: CaptureResult | null): CaptureResult 
       aplicarEsquema(esquema, soDoEsquema(original, esquema), `${ev.event} (saída)`),
     );
     propriedades.$process_person_profile = false;
+    // GEOIP DESLIGADO (decisão do Tito, 30/09/2026 — minimização de dados). Com o IP descartado no
+    // projeto, a ingestão ainda estimava cidade, estado, CEP e coordenadas a partir dele (visto no
+    // evento real de 29/09). O posthog-js do navegador não tem opção de config para isso; o
+    // mecanismo é o mesmo que o núcleo do próprio SDK usa na opção `disableGeoip`
+    // (@posthog/core, posthog-core-stateless.ts: `properties['$geoip_disable'] = true`), e a
+    // transformação de GeoIP do PostHog pula o evento que traz essa propriedade.
+    propriedades.$geoip_disable = true;
     return { uuid: ev.uuid, event: ev.event, properties: propriedades, timestamp: ev.timestamp };
   } catch {
     return null; // na dúvida, não sai
