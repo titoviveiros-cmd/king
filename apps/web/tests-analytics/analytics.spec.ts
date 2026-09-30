@@ -335,6 +335,33 @@ for (const cenario of ["bloqueado", "fora"] as const) {
   });
 }
 
+test("PostHog bloqueado nos DOIS aparelhos: o multiplayer cria sala, recebe amigo e começa a partida", async ({ browser }) => {
+  const { ctx: ctxA, rede: redeA } = await novoContexto(browser, { posthog: "bloqueado" });
+  const { ctx: ctxB, rede: redeB } = await novoContexto(browser, { posthog: "bloqueado" });
+  const a = await ctxA.newPage();
+  const b = await ctxB.newPage();
+  const erros: string[] = [];
+  for (const p of [a, b]) p.on("pageerror", (e) => erros.push(String(e)));
+
+  const codigo = await criarSala(a, "Tito", "Sapo");
+  await entrarNaSala(b, codigo, "Raiza", "Panda");
+  await expect(a.locator(".sl-bot.add")).toHaveCount(2, { timeout: 20_000 });
+  await a.locator(".sl-bot.add").first().click();
+  await expect(a.locator(".sl-bot.add")).toHaveCount(1, { timeout: 20_000 });
+  await a.locator(".sl-bot.add").first().click();
+  await expect(a.locator(".sl-lugar.robo")).toHaveCount(2, { timeout: 20_000 });
+  await a.getByRole("button", { name: /Estou pronto/ }).click();
+  await b.getByRole("button", { name: /Estou pronto/ }).click();
+  await expect(a.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+  await expect(b.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+
+  expect(redeA.caminhos.length + redeB.caminhos.length, "o SDK tentou enviar — e foi barrado").toBeGreaterThan(0);
+  expect(redeA.eventos.length + redeB.eventos.length, "nada chegou ao PostHog").toBe(0);
+  expect(erros).toEqual([]);
+  await ctxA.close();
+  await ctxB.close();
+});
+
 test("o pedaço do SDK não chega: o jogo segue e nada é enviado", async ({ browser }) => {
   const { ctx, rede } = await novoContexto(browser);
   await ctx.route(/\/assets\/posthogSdk-[^/]+\.js$/, (route) => route.abort("blockedbyclient"));

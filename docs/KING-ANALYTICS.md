@@ -8,7 +8,7 @@ execuções reais (Fase 4F, setembro/2026).
 > `VITE_POSTHOG_HOST` existem na Vercel **só no ambiente Preview e só para essa branch**.
 > **Production continua sem destino**: sem as duas variáveis, o adaptador é o silêncio e o SDK nem
 > é baixado. A página pública de privacidade existe (`/privacidade`, §16). Ligar em Production é a
-> Fase 4F-B2.
+> Fase 4F-B2. Prova real do Preview: §17.
 >
 > ⚠️ Nada aqui é redação jurídica.
 
@@ -102,6 +102,13 @@ nome inventado dá `TS2353`).
 
 > **IP:** a opção `ip` do SDK **não tem efeito** (documentado no próprio tipo). O descarte de IP é
 > uma configuração do **projeto** no PostHog — ver §13, item obrigatório.
+>
+> **GeoIP (visto no PostHog real, 29/09):** com o IP descartado, a ingestão ainda grava
+> `$geoip_country/subdivision/city`, `$geoip_postal_code`, `$geoip_latitude/longitude`,
+> `$geoip_time_zone` e o raio de precisão. A página de privacidade diz isso com todas as letras.
+> ⏸️ **Decisão pendente do Tito:** manter (dá recorte por país/estado para aquisição) ou desligar por
+> completo mandando `$geoip_disable: true` em todo evento — uma linha no `before_send`, sem mexer
+> no projeto.
 
 O SDK também **descarta sozinho** eventos de navegador automatizado (`navigator.webdriver` ou user
 agent `HeadlessChrome`). Automação não vira dado nem por engano — e mesmo que escape desse filtro,
@@ -378,3 +385,21 @@ publicidade e sem rastreamento entre apps.
   descartado, coletas automáticas desligadas, a lista do que nunca é enviado, responsável e
   contato) e proíbe recurso externo e promessa de prazo de retenção. Mudou o que o código coleta?
   A página muda **antes**, e o teste aponta o que ficou para trás.
+
+## 17. Prova real no Preview (Fase 4F-B1, 29/09/2026)
+
+Deployment `king-web-git-feat-analytics-v1-tito-viveiros-games.vercel.app` (commit `de90f53`),
+aberto **sem** `?trafego=teste`, no navegador embutido com a sessão da Vercel do Tito.
+
+| O que | Resultado |
+|---|---|
+| Envios | só `POST https://us.i.posthog.com/e/`, todos **HTTP 200**; nenhum `/flags`, `/decide`, `/s/` (gravação) nem script de `us-assets` |
+| Recebido pelo PostHog (projeto KING) | `app_open` ×3, `match_started` ×1, `first_match_started` ×1 — **e nada mais** |
+| Propriedades (registro bruto) | `environment: "preview"`, `traffic_type: "test"`, `platform: "web"`, `first_open`, `modo/humanos/bots` + técnicas permitidas; `$is_identified: false`, `$process_person_profile: false`; **sem** `$ip`, `$current_url`, `$referrer`, `$pathname`, `$set` |
+| Pessoas | `person_mode: "propertyless"`; tela Persons: **0 pessoas** |
+| Automáticos, depois de provocar (cliques, rage click, área morta, rolagem, troca de página, erro JS proposital) | **zero** — nenhum `$autocapture`, `$pageview`, `$pageleave`, `$rageclick`, `$dead_click`, `$exception`, `$web_vitals`, `$snapshot`; `elements_chain` vazio |
+| Gravações | nenhuma (replay nunca habilitado no projeto; o cliente nem tem o gravador) |
+| Fail-open (mesmo commit, chave e host reais, `us.i.posthog.com` bloqueado) | Home em 545 ms, solo jogando, multiplayer 2+2 começando; 11 envios barrados, 0 passaram, 0 erros de página |
+
+Observação do Preview: a Vercel injeta a barra de feedback (`vercel.live/_next-live/feedback`) em
+**todo** Preview. Não é do KING, não existe em Production e não fala com o PostHog.

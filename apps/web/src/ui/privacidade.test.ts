@@ -56,8 +56,11 @@ describe("o que a página precisa dizer", () => {
     }
   });
 
-  it("é honesta sobre o que o IP ainda permite (localização aproximada)", () => {
+  it("é honesta sobre o que o IP ainda permite: TUDO o que o GeoIP guarda (visto no PostHog real)", () => {
+    // Prova de 29/09/2026 no Preview: o evento recebido trazia $geoip_country/subdivision/city,
+    // $geoip_postal_code e $geoip_latitude/longitude. A página nomeia cada um.
     expect(TEXTO).toMatch(/localização aproximada/);
+    for (const t of ["país", "estado", "cidade", "código postal genérico", "coordenadas aproximadas"]) expect(TEXTO, t).toContain(t);
   });
 });
 

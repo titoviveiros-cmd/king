@@ -113,8 +113,9 @@
   <p><strong>Como o PostHog está configurado:</strong></p>
   <ul>
     <li>Descarte do endereço IP ligado (<em>Discard client IP data</em>): o IP não é guardado. No
-      recebimento, o PostHog pode usá-lo para estimar uma localização aproximada (país, região,
-      cidade) antes de descartá-lo.</li>
+      recebimento, o PostHog usa o IP para estimar uma localização aproximada — país, estado,
+      cidade, o código postal genérico da cidade e coordenadas aproximadas da região — e guarda
+      essa estimativa com o evento; o IP em si é descartado.</li>
     <li>Captura automática de cliques (<em>autocapture</em>): <strong>desligada</strong>.</li>
     <li>Gravação de sessão (<em>session replay</em>): <strong>desligada</strong>.</li>
     <li>Mapas de calor (<em>heatmaps</em>): <strong>desligados</strong>.</li>
