@@ -105,8 +105,17 @@ const MUTACOES = [
   <h2>Mudanças nesta página</h2>`, PRIV],
   ["página volta a afirmar localização aproximada", PAGINA, "o IP não é guardado.</li>", "o IP não é guardado. O PostHog estima uma localização aproximada.</li>", PRIV],
   ["página some com a declaração de GeoIP desligado", PAGINA, "nenhuma cidade, nenhum estado, nenhum", "cidade, estado,", PRIV],
-  ["página promete 12 meses de retenção sem mecanismo comprovado", PAGINA, "  <h2>Mudanças nesta página</h2>", `  <p>Os eventos analíticos são mantidos por até 12 meses.</p>
+  ["página promete teto de 12 meses (\"mantidos por até 12 meses\")", PAGINA, "  <h2>Mudanças nesta página</h2>", `  <p>Os eventos analíticos são mantidos por até 12 meses.</p>
   <h2>Mudanças nesta página</h2>`, PRIV],
+  // retenção factual (opção 2): 12 meses é JANELA DE CONSULTA, não teto de exclusão
+  ["A. retenção: \"janela de consulta\" vira \"retenção máxima\"", PAGINA, `cuja janela de
+  consulta dos eventos é de até 12 meses`, `cuja retenção
+  máxima dos eventos é de até 12 meses`, PRIV],
+  ["B. retenção: some a ressalva de armazenamento por período superior", PAGINA, `o PostHog pode manter esses dados
+  armazenados por período superior, conforme sua própria infraestrutura e políticas de retenção, e
+  o KING`, "o KING", PRIV],
+  ["C. retenção: página afirma exclusão automática em 12 meses", PAGINA, "  <p><strong>Se você não quiser ser medido:</strong>", `  <p>Os eventos são excluídos automaticamente após 12 meses.</p>
+  <p><strong>Se você não quiser ser medido:</strong>`, PRIV],
   ["página esquece o e-mail na lista do que nunca é enviado", PAGINA, `      <li>e-mail</li>
 `, "", PRIV],
   ["página sem o contato do responsável", PAGINA, '<a href="mailto:titoviveiros@gmail.com">titoviveiros@gmail.com</a>', "o responsável", PRIV],

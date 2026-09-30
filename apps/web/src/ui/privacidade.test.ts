@@ -76,20 +76,38 @@ describe("o que a página não pode fazer", () => {
     expect(externos, "só o endereço canônico da própria página").toEqual(["https://playkingcards.com.br/privacidade"]);
   });
 
-  // RETENÇÃO: só pode aparecer na página o prazo que tiver MECANISMO TÉCNICO COMPROVADO. Em
-  // 30/09/2026 a decisão é 12 meses, mas o PostHog não impõe teto ("retention is not a deletion
-  // tool"; o período não pode ser encurtado) — não há mecanismo, e a constante fica nula. Quando
-  // houver, ela vira a frase exata: a página tem de trazer exatamente ela, e nenhum outro prazo.
-  const RETENCAO_COM_MECANISMO_COMPROVADO: string | null = null;
+  // RETENÇÃO (decisão do Tito, 30/09/2026 — opção 2): texto FACTUAL, sem teto de exclusão. O
+  // PostHog não oferece mecanismo que garanta apagar em 12 meses ("retention is not a deletion
+  // tool"; o prazo não pode ser encurtado). O que é verdade — e só isso pode ser dito — é que o
+  // plano atual CONSULTA até 12 meses, e que o fornecedor pode GUARDAR por mais tempo. Se um dia
+  // houver garantia contratual/técnica de exclusão, estes testes mudam junto com a página.
+  const JANELA = "janela de consulta dos eventos é de até 12 meses";
 
-  it("retenção: nenhuma promessa sem mecanismo comprovado", () => {
-    const prazos = [...TEXTO.matchAll(/[^.]*\b\d+\s*(dias?|mes(es)?|anos?|semanas?)\b[^.]*/gi)].map((m) => m[0].trim());
-    if (RETENCAO_COM_MECANISMO_COMPROVADO === null) {
-      expect(prazos, "prazo de retenção sem mecanismo comprovado").toEqual([]);
-      expect(TEXTO).not.toMatch(/retemos|guardamos por|mantidos por|excluídos após|apagados após|até 12 meses|1 ano/i);
-    } else {
-      expect(TEXTO).toContain(RETENCAO_COM_MECANISMO_COMPROVADO);
-      expect(prazos.every((p) => p.includes(RETENCAO_COM_MECANISMO_COMPROVADO.replace(/\.$/, ""))), "só o prazo comprovado").toBe(true);
+  it("retenção: diz que 12 meses é a JANELA DE CONSULTA do plano atual", () => {
+    expect(TEXTO).toContain(`plano do PostHog cuja ${JANELA}`);
+  });
+
+  it("retenção: diz que NÃO é prazo de exclusão, que o fornecedor pode guardar por mais tempo e que o KING não controla isso", () => {
+    expect(TEXTO).toMatch(/Isso não é um prazo de exclusão/);
+    expect(TEXTO).toMatch(/pode manter esses dados armazenados por período superior/);
+    expect(TEXTO).toMatch(/o KING não controla esse prazo técnico de exclusão/);
+  });
+
+  it("retenção: todo prazo citado na página é a janela de consulta — nenhum outro", () => {
+    const frases = TEXTO.split(/(?<=[.!?])\s+/).filter((f) => /\b\d+\s*(dias?|mes(es)?|anos?|semanas?)\b/i.test(f));
+    expect(frases.length).toBeGreaterThan(0);
+    for (const f of frases) expect(f, "prazo fora da janela de consulta").toMatch(/janela de consulta|eventos dos últimos 12 meses/);
+  });
+
+  it("retenção: NENHUMA promessa de teto ou de exclusão em 12 meses", () => {
+    for (const proibido of [
+      /(apag|exclu|delet|remov|expurg)\w*\s+(automaticamente\s+)?(em|após|depois de|ao fim de)\s+\d+\s*(dias?|mes(es)?|anos?)/i,
+      /(no\s+)?máximo\s+(de\s+)?\d+\s*(dias?|mes(es)?|anos?)/i,
+      /retenção\s+máxima/i,
+      /(retid|mantid|guardad|armazenad)\w*\s+por\s+(até|no máximo)\s+\d+/i,
+      /retemos|guardamos por|garantimos/i,
+    ]) {
+      expect(TEXTO, String(proibido)).not.toMatch(proibido);
     }
   });
 

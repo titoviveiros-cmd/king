@@ -105,6 +105,15 @@ esperar fim de mão/fase. A fonte é `liveScores(m)` no motor = `m.cumulative` (
 4 humanos; humanos + bots; disconnect; reconnect; timeout; app em background; ação duplicada;
 ação atrasada; ação fora de turno; tentativa ilegal; host sai; jogador retorna.
 
+## Dívidas conhecidas de teste
+
+- **qaFinal tutorial — investigar ocorrência instável em 740×360.** `tests/qaFinal.spec.ts:75`
+  ("tutorial: nenhuma pontuação negativa escapa do card") falhou UMA vez no CI 36707479542
+  (348fa2d) e passou no retry: chip `−240` medido fora do `.youtag`. Primeira falha em 6 CIs;
+  não reproduziu localmente em 40 repetições, nem com animações lentas, nem com fontes atrasadas.
+  **Não é blocker da 4F.** Regra ao investigar: reproduzir de forma determinística ANTES de mudar
+  qualquer coisa; nada de aumentar retries, afrouxar a asserção ou mexer em CSS sem causa provada.
+
 ## Como rodar (após instalar o Node.js LTS)
 ```
 npm install

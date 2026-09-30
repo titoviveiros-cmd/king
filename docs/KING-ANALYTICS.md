@@ -3,7 +3,7 @@
 O que o KING mede, como, com quem, e o que ele **não** mede. Escrito a partir do código e de
 execuções reais (Fase 4F, setembro/2026).
 
-> **Estado em 30/09/2026 — FASE 4F-B1.1** (GeoIP desligado; retenção com discrepância aberta, §15). **4F-B1:** O **Preview** da branch `feat/analytics-v1` está conectado
+> **Estado em 30/09/2026 — FASE 4F-B1.1** (GeoIP desligado; retenção factual: janela de consulta de 12 meses, sem teto de exclusão, §15). **4F-B1:** O **Preview** da branch `feat/analytics-v1` está conectado
 > ao projeto PostHog **KING (US Cloud, "Discard client IP data" ligado)**: `VITE_POSTHOG_KEY` e
 > `VITE_POSTHOG_HOST` existem na Vercel **só no ambiente Preview e só para essa branch**.
 > **Production continua sem destino**: sem as duas variáveis, o adaptador é o silêncio e o SDK nem
@@ -369,7 +369,7 @@ npm run test:mutacao:analytics                     # mutações (unit + e2e)
 > **Feito na 4F-B1/4F-B1.1:** a página pública `/privacidade` já diz tudo abaixo, **menos a
 > retenção** (§16), e declara o GeoIP desligado.
 >
-> ⚠️ **RETENÇÃO — DISCREPÂNCIA ABERTA (30/09/2026).** A decisão do Tito é **12 meses**. Mas o PostHog
+> **RETENÇÃO — a discrepância encontrada (30/09/2026).** A decisão do Tito é **12 meses**. Mas o PostHog
 > Cloud **não oferece mecanismo que garanta esse teto**. A documentação oficial
 > ([Events data retention](https://posthog.com/docs/data/events-retention)) diz:
 > - retenção por plano: **Free = 1 ano**, pagos = 7 anos; as consultas só enxergam eventos dentro
@@ -380,10 +380,24 @@ npm run test:mutacao:analytics                     # mutações (unit + e2e)
 > - nada sobre retenção **máxima**. Em outro trecho da doc, depois de 1 ano o dado "pode" ir para
 >   armazenamento frio e "pode" ser apagado.
 >
-> Ou seja: 1 ano é **piso de consulta**, não **teto de guarda**. Sem mecanismo comprovado, a página
-> **não afirma prazo** — e `src/ui/privacidade.test.ts` (constante
-> `RETENCAO_COM_MECANISMO_COMPROVADO = null`) falha se ela afirmar qualquer prazo. Caminhos possíveis
-> estão na devolutiva da 4F-B1.1; nenhum foi executado.
+> Ou seja: 1 ano é **piso de consulta**, não **teto de guarda**.
+>
+> ✅ **DECISÃO FINAL (Tito, 30/09/2026 — opção 2): texto factual, SEM teto de exclusão.**
+> - **Janela consultável atual (plano Free): 12 meses.** É o que o KING consegue analisar.
+> - Isso **não** equivale a expurgo garantido: o **PostHog pode manter os dados armazenados por
+>   período superior**, conforme a infraestrutura e as políticas dele.
+> - **Nenhuma promessa** de exclusão automática em 12 meses — o KING não controla o prazo técnico de
+>   exclusão do fornecedor, e a página diz exatamente isso.
+> - Texto público (`/privacidade`, "Por quanto tempo"): *"utilizamos atualmente o plano do PostHog
+>   cuja janela de consulta dos eventos é de até 12 meses […] Isso não é um prazo de exclusão: o
+>   PostHog pode manter esses dados armazenados por período superior, conforme sua própria
+>   infraestrutura e políticas de retenção, e o KING não controla esse prazo técnico de exclusão."*
+> - Guardado por teste: `src/ui/privacidade.test.ts` exige a janela, a ressalva e o "não controla",
+>   aceita como prazo só a janela de consulta e proíbe teto ("no máximo", "retenção máxima",
+>   "excluídos após 12 meses", "mantidos por até…"). Mutações A/B/C no runner.
+> - ⚠️ **Mudar de plano muda a janela** (pagos = 7 anos): trocar o plano exige atualizar a página
+>   ANTES. Se um dia houver **garantia contratual ou técnica de exclusão**, a política pode ser
+>   endurecida (e os testes junto).
 
 Antes de ligar em Production, a política precisa dizer: que há **medição de uso anônima**; o
 **fornecedor** (PostHog, como operador) e a **região** dos dados; que o identificador é **aleatório,

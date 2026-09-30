@@ -104,7 +104,7 @@ publicidade, câmera, microfone, notificações push, compras.
 | **Classificação etária** | questionário | questionário | ⚪ não respondido | **P0** | titular | §6 |
 | **Declarações de privacidade da loja** | Data Safety | Privacy Nutrition Labels | ⚪ não preenchido | **P0** | §1 responde — **inclui conta, identificador, progresso e histórico de partidas (§1.2)** | preencher |
 | **Exclusão de conta e dados** | exigida (app cria conta) | exigida dentro do app | 🔴 **não existe** | **P0** | fluxo + página | §1.3 e §6 |
-| **Retenção de dados** | declarar na política e no Data Safety | declarar | 🔴 **analytics: decidido 12 meses, mas sem mecanismo** — o PostHog não impõe teto ("retention is not a deletion tool"); banco do jogo: não definida | **P0** | caminho técnico para o teto (ver [KING-ANALYTICS.md §15](KING-ANALYTICS.md)) | §1.3 |
+| **Retenção de dados** | declarar na política e no Data Safety | declarar | 🟡 **analytics: resolvida com texto factual** — janela de consulta de 12 meses (plano Free), **sem** promessa de exclusão; o PostHog pode guardar por mais tempo ([KING-ANALYTICS.md §15](KING-ANALYTICS.md)) · 🔴 **banco do jogo (Supabase): não definida** | **P0** (banco do jogo) | decisão do titular | §1.3 | §1.3 |
 | **Capturas de tela** | phone + tablet | iPhone + iPad | 🔴 ausentes | **P0** | arte | depois dos avatares |
 | **Analytics** | PostHog anônimo **conectado só no Preview** (4F-B1); **desligado** em Production | idem (mesmo código; `VITE_KING_AMBIENTE=production` no build de loja) | 🟡 Preview validado, Production na 4F-B2 | **P0 antes de ligar em Production**: `/privacidade` no ar em Production | 4F-B2 | [KING-ANALYTICS.md §13](KING-ANALYTICS.md) |
 | **Error monitoring** | ausente | ausente | 🟡 recomendado | P1 | decisão | §7 |
