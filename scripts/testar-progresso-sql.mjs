@@ -21,6 +21,14 @@
 // arquivo em disco nunca é tocado — e os testes que dependem dela precisam REPROVAR. Depois, a
 // migração original precisa passar em tudo.
 //
+// ══ SEQUÊNCIA (Fase 6A) ══
+//
+// Os modelos aplicam também `20261001120000_sequencia.sql`; o `modelo_sem_sequencia` é o banco de
+// Production de hoje, onde o S16 aplica a migração e o S17 o rollback. Os testes S* usam instantes
+// FIXOS com fuso explícito (março de 2026) — nenhuma conclusão depende de que horas são agora,
+// exceto o S13, que prova a view com o relógio do próprio banco. As mutações `seq-*` mexem no
+// texto da migração da sequência (`trocasSeq`) ou no do progresso (`trocas`).
+//
 // USO:
 //   node scripts/testar-progresso-sql.mjs            # suíte GREEN
 //   node scripts/testar-progresso-sql.mjs --provas   # mutações (RED) + suíte GREEN
@@ -39,6 +47,8 @@ const ler = (rel) => readFileSync(new URL(rel, RAIZ), "utf8").replace(/\r\n/g, "
 const BOOTSTRAP = ler("supabase/tests/bootstrap-supabase-local.sql");
 const IDENTIDADE = ler("supabase/migrations/20260830120000_identidade.sql");
 const PROGRESSO = ler("supabase/migrations/20260925120000_progresso.sql");
+const SEQUENCIA = ler("supabase/migrations/20261001120000_sequencia.sql");
+const ROLLBACK_SEQUENCIA = ler("supabase/rollback/20261001120000_sequencia_rollback.sql");
 
 const MARCADOR = "  -- [ponto-de-corrida]";
 const JANELA_MS = 400;
@@ -97,6 +107,55 @@ const MUTACOES = {
               "create policy progresso_leio_o_meu on public.progresso\n  for select to authenticated using (true);"]],
     alvos: ["T17"],
   },
+
+  // ── SEQUÊNCIA (Fase 6A). `trocasSeq` muta o texto da migração da sequência; `trocas`, o do
+  //    progresso. Cada uma é um defeito plausível de quem implementa streak. ──
+  "seq-sem-trava-do-dia": {
+    // conta PARTIDAS em vez de DIAS: a 2ª partida do mesmo dia viraria +1
+    trocasSeq: [["count(distinct i.dia)::integer as tamanho", "count(*)::integer as tamanho"]],
+    alvos: ["S2", "S11"],
+  },
+  "seq-qualquer-data": {
+    // "ontem" vira "qualquer dia anterior": todos os dias numa ilha só, buraco nenhum quebra
+    trocasSeq: [["d.dia - (dense_rank() over (order by d.dia))::integer as ilha", "0 as ilha"]],
+    alvos: ["S4", "S9"],
+  },
+  "seq-sem-reset": {
+    // a Home mostraria a sequência de semanas atrás como se estivesse viva
+    trocasSeq: [["select case when p_ultimo_dia >= public.dia_de_sao_paulo(p_agora) - 1 then p_atual else 0 end", "select p_atual"]],
+    alvos: ["S12", "S13"],
+  },
+  "seq-dia-de-graca": {
+    // um dia sem jogar não quebraria: congelamento disfarçado, que a regra proíbe
+    trocasSeq: [["public.dia_de_sao_paulo(p_agora) - 1 then p_atual", "public.dia_de_sao_paulo(p_agora) - 2 then p_atual"]],
+    alvos: ["S12"],
+  },
+  "seq-aceita-duplicata": {
+    // o reenvio da mesma partida passa direto: lança de novo em vez de devolver o que já existe
+    trocas: [
+      ["  constraint xp_eventos_uma_vez unique (partida_id, player_id, motivo),\n", ""],
+      ["  if not found then\n    return query", "  if false then\n    return query"],
+      ["on conflict on constraint xp_eventos_uma_vez do nothing", "on conflict do nothing"],
+    ],
+    alvos: ["S7", "S8"],
+  },
+  "seq-sem-xp": {
+    // partida que rendeu 0 (abandono, participação insuficiente, sobreposta) qualificaria o dia
+    trocasSeq: [["       and e.xp_delta > 0\n  ),", "       and e.xp_delta >= 0\n  ),"]],
+    alvos: ["S10"],
+  },
+  "seq-em-utc": {
+    trocasSeq: [["select (p_instante at time zone 'America/Sao_Paulo')::date", "select (p_instante at time zone 'UTC')::date"]],
+    alvos: ["S5", "S6", "S12"],
+  },
+  "seq-conta-solo": {
+    // partida com 1 humano (local/solo contra bots) chegaria ao crédito — e à sequência
+    trocas: [
+      ["humanos between 2 and 4 and bots between 0 and 2", "humanos between 1 and 4 and bots between 0 and 3"],
+      ["if p_humanos < 2 or p_humanos > 4", "if p_humanos < 1 or p_humanos > 4"],
+    ],
+    alvos: ["S10b"],
+  },
 };
 
 function mutar(texto, trocas) {
@@ -130,7 +189,8 @@ const conectar = async (database, user = "postgres", password = SENHA_ADMIN) => 
   return c;
 };
 
-async function criarModelo(nome, textoProgresso) {
+/** `textoSequencia` null = o banco como está em Production hoje, SEM a migração da sequência. */
+async function criarModelo(nome, textoProgresso, textoSequencia) {
   const adm = await conectar("postgres");
   await adm.query(`create database ${nome}`);
   await adm.end();
@@ -139,6 +199,7 @@ async function criarModelo(nome, textoProgresso) {
     await c.query(BOOTSTRAP);
     await c.query(IDENTIDADE);
     await c.query(textoProgresso);
+    if (textoSequencia) await c.query(textoSequencia);
   } finally {
     await c.end();
   }
@@ -203,6 +264,44 @@ const xpDe = (linhas, id) => linhas.find((l) => l.player_id === id)?.xp_delta;
 async function total(admin, id) {
   const r = await admin.query("select xp_total from public.progresso where player_id = $1", [id]);
   return r.rows[0]?.xp_total ?? 0;
+}
+
+// ── sequência: relógio CONTROLADO. Todo instante é fixo, com fuso explícito, no passado. ──
+
+/** Partida que TERMINA no instante dado, com `min` minutos de duração. */
+const terminandoEm = (iso, min = 10) => { const t = new Date(iso); return { iniciada: new Date(t.getTime() - min * 60_000), terminada: t }; };
+const dupla = (a, x) => [{ id: a, posicao: 1 }, { id: x, posicao: 2 }];
+/** O RETRATO gravado em `progresso` (sem linha = nunca creditado). */
+async function sequencia(admin, id) {
+  const r = await admin.query(
+    "select sequencia_atual as atual, sequencia_recorde as recorde, sequencia_ultimo_dia::text as dia, sequencia_partida as partida from public.progresso where player_id = $1", [id]);
+  return r.rows[0] ?? { atual: 0, recorde: 0, dia: null, partida: null };
+}
+const DIA_SP = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" });
+/** O dia de São Paulo calculado FORA do banco — o oráculo não pode usar o código que testa. */
+const diaSP = (d) => DIA_SP.format(d);
+const numeroDoDia = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86_400_000;
+
+/**
+ * O ORÁCULO: a regra escrita como o produto a descreve — "primeiro dia = 1, ontem = +1, hoje =
+ * igual, buraco = 1" — em JavaScript, sem nada do SQL. `eventos` = o ledger de UM jogador.
+ */
+function oraculo(eventos) {
+  const positivos = eventos.filter((e) => e.xp > 0);
+  if (!positivos.length) return { atual: 0, recorde: 0, dia: null, partida: null };
+  const dias = [...new Set(positivos.map((e) => e.dia))].sort();
+  let corrida = 1, recorde = 1;
+  for (let i = 1; i < dias.length; i++) {
+    corrida = numeroDoDia(dias[i]) - numeroDoDia(dias[i - 1]) === 1 ? corrida + 1 : 1;
+    recorde = Math.max(recorde, corrida);
+  }
+  const ultimo = dias.at(-1);
+  const partida = positivos.filter((e) => e.dia === ultimo).sort((p, q) => p.id - q.id)[0].partida;
+  return { atual: corrida, recorde, dia: ultimo, partida };
+}
+function mulberry32(semente) {
+  let s = semente >>> 0;
+  return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 
 function afirmar(cond, msg) { if (!cond) throw new Error(msg); }
@@ -619,6 +718,340 @@ const TESTES = [
       rmSync(dir, { recursive: true, force: true });
     }
   } },
+
+  // ═════════════════════ SEQUÊNCIA (Fase 6A) — relógio controlado ═════════════════════
+  // Os instantes são fixos (março de 2026, fuso explícito) e as conclusões não dependem de que
+  // horas são agora. A única exceção é o S13, que prova a view com o relógio do próprio banco.
+
+  { id: "S1", nome: "sequência A — primeira qualificação: 1, recorde 1, e a partida que qualificou", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    const { partida } = await creditar(s, { ...terminandoEm("2026-03-10T15:00:00-03:00"), humanos: dupla(a, x) });
+    const q = await sequencia(b.admin, a);
+    afirmar(q.atual === 1 && q.recorde === 1 && q.dia === "2026-03-10" && q.partida === partida, `A: ${JSON.stringify(q)}`);
+    const qx = await sequencia(b.admin, x);
+    afirmar(qx.atual === 1 && qx.partida === partida, `o 2º colocado (130 XP) também qualifica o dia: ${JSON.stringify(qx)}`);
+  } },
+  { id: "S2", nome: "sequência B — 2ª partida no MESMO dia: XP normal, sequência igual, a 1ª continua sendo a que qualificou", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    const p1 = await creditar(s, { ...terminandoEm("2026-03-10T15:00:00-03:00"), humanos: dupla(a, x) });
+    const p2 = await creditar(s, { ...terminandoEm("2026-03-10T21:30:00-03:00"), humanos: dupla(a, x) });
+    afirmar(xpDe(p2.linhas, a) === 150 && await total(b.admin, a) === 300, "a 2ª partida do dia deveria render XP normalmente");
+    const q = await sequencia(b.admin, a);
+    afirmar(q.atual === 1 && q.recorde === 1 && q.dia === "2026-03-10", `2 partidas no dia 10 deram sequência ${q.atual}`);
+    afirmar(q.partida === p1.partida, "a 2ª partida do dia tomou o lugar da que qualificou — o Placar dela fingiria um avanço");
+  } },
+  { id: "S3", nome: "sequência C/D — dia seguinte: 2; o outro dia seguinte: 3", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    const esperado = [["2026-03-10", 1], ["2026-03-11", 2], ["2026-03-12", 3]];
+    for (const [dia, n] of esperado) {
+      const { partida } = await creditar(s, { ...terminandoEm(`${dia}T19:00:00-03:00`), humanos: dupla(a, x) });
+      const q = await sequencia(b.admin, a);
+      afirmar(q.atual === n && q.recorde === n && q.dia === dia && q.partida === partida, `em ${dia}: ${JSON.stringify(q)}, esperado ${n}`);
+    }
+  } },
+  { id: "S4", nome: "sequência E/F — um dia sem jogar: volta a 1; o recorde fica, e só cresce quando é superado", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    const passos = [["10", 1, 1], ["11", 2, 2], ["12", 3, 3], /* 13: não jogou */ ["14", 1, 3], ["15", 2, 3], ["16", 3, 3], ["17", 4, 4]];
+    for (const [dia, atual, recorde] of passos) {
+      await creditar(s, { ...terminandoEm(`2026-03-${dia}T12:00:00-03:00`), humanos: dupla(a, x) });
+      const q = await sequencia(b.admin, a);
+      afirmar(q.atual === atual && q.recorde === recorde, `dia ${dia}: atual ${q.atual} recorde ${q.recorde}, esperado ${atual}/${recorde}`);
+    }
+  } },
+  { id: "S5", nome: "sequência G — virada 23:59 → 00:00 em São Paulo conta como dia seguinte", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    await creditar(s, { ...terminandoEm("2026-03-10T23:59:00-03:00", 19), humanos: dupla(a, x) });
+    const { partida, linhas } = await creditar(s, {
+      iniciada: new Date("2026-03-10T23:59:30-03:00"), terminada: new Date("2026-03-11T00:00:30-03:00"), humanos: dupla(a, x) });
+    afirmar(xpDe(linhas, a) === 150, "a partida da virada deveria render XP (não se sobrepõe à anterior)");
+    const q = await sequencia(b.admin, a);
+    afirmar(q.atual === 2 && q.dia === "2026-03-11" && q.partida === partida, `23:59 → 00:00:30 deu ${JSON.stringify(q)}`);
+  } },
+  { id: "S6", nome: "sequência H — 02:30 UTC ainda é o dia ANTERIOR em São Paulo", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    const p1 = await creditar(s, { ...terminandoEm("2026-03-11T12:00:00-03:00"), humanos: dupla(a, x) });
+    // 2026-03-12T02:30Z = 11/03 23:30 em São Paulo: MESMO dia da anterior
+    await creditar(s, { ...terminandoEm("2026-03-12T02:30:00Z"), humanos: dupla(a, x) });
+    let q = await sequencia(b.admin, a);
+    afirmar(q.atual === 1 && q.dia === "2026-03-11" && q.partida === p1.partida, `02:30 UTC virou dia novo: ${JSON.stringify(q)}`);
+    // 2026-03-12T03:30Z = 12/03 00:30 em São Paulo: agora sim, dia seguinte
+    await creditar(s, { ...terminandoEm("2026-03-12T03:30:00Z"), humanos: dupla(a, x) });
+    q = await sequencia(b.admin, a);
+    afirmar(q.atual === 2 && q.dia === "2026-03-12", `03:30 UTC (00:30 SP) deveria ser o dia 12: ${JSON.stringify(q)}`);
+  } },
+  { id: "S7", nome: "sequência I — o mesmo crédito repetido (mesma conexão e outra instância) não mexe em XP nem em sequência", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    const args = { partida: randomUUID(), ...terminandoEm("2026-03-10T15:00:00-03:00"), humanos: dupla(a, x) };
+    await creditar(s, args);
+    const antes = await sequencia(b.admin, a);
+    for (const c of [s, s, await b.servidor()]) {
+      const r = await creditar(c, args);
+      afirmar(r.linhas.length === 2 && r.linhas.every((l) => l.novo === false), `o reenvio deveria devolver o que já existe: ${JSON.stringify(r.linhas)}`);
+    }
+    afirmar(await total(b.admin, a) === 150, `o reenvio somou XP: ${await total(b.admin, a)}`);
+    const n = await b.admin.query("select count(*)::int n from public.xp_eventos where partida_id = $1", [args.partida]);
+    afirmar(n.rows[0].n === 2, "o ledger duplicou");
+    afirmar(JSON.stringify(await sequencia(b.admin, a)) === JSON.stringify(antes), "o reenvio mexeu na sequência");
+    await creditar(s, { ...terminandoEm("2026-03-11T15:00:00-03:00"), humanos: dupla(a, x) });
+    afirmar((await sequencia(b.admin, a)).atual === 2, "depois dos reenvios, o dia seguinte deveria dar 2");
+  } },
+  { id: "S8", nome: "sequência J — retry do outbox (crash DEPOIS do COMMIT): XP e sequência não contam duas vezes", async fn(b) {
+    // Módulos REAIS do servidor (apps/server/dist), como no T21.
+    const { OutboxDeProgresso } = await import(new URL("apps/server/dist/progresso/outbox.js", RAIZ).href);
+    const { repositorioPg } = await import(new URL("apps/server/dist/progresso/repositorio.js", RAIZ).href);
+    const { ServicoDeProgresso } = await import(new URL("apps/server/dist/progresso/servico.js", RAIZ).href);
+    const [a, x] = await b.jogadores(2);
+    const dirOutbox = mkdtempSync(join(tmpdir(), "king-outbox-seq-"));
+    const pool = new pg.Pool({ host: "127.0.0.1", port: PORTA, database: b.nome, user: "king_server", password: SENHA_SERVIDOR, max: 2 });
+    const repo = repositorioPg({ pool });
+    const semEspera = { esperas: [0], esperar: async () => {}, log: () => {} };
+    const partidaEm = (iso) => {
+      const j = terminandoEm(iso);
+      return {
+        partidaId: randomUUID(), iniciadaEm: j.iniciada, terminadaEm: j.terminada, posicoes: { 0: 1, 1: 2, 2: 3, 3: 4 },
+        assentos: [
+          { seat: 0, playerId: a, bot: false, permanente: true, conectado: true, jogadasTotais: 30, jogadasProprias: 30 },
+          { seat: 1, playerId: "bot:1", bot: true, permanente: false, conectado: true, jogadasTotais: 30, jogadasProprias: 0 },
+          { seat: 2, playerId: x, bot: false, permanente: true, conectado: true, jogadasTotais: 30, jogadasProprias: 30 },
+          { seat: 3, playerId: "bot:3", bot: true, permanente: false, conectado: true, jogadasTotais: 30, jogadasProprias: 0 },
+        ],
+      };
+    };
+    try {
+      class OutboxQueMorre extends OutboxDeProgresso { remover() { throw new Error("o processo morreu aqui"); } }
+      const primeira = new ServicoDeProgresso(new OutboxQueMorre(dirOutbox), repo, semEspera);
+      afirmar((await primeira.iniciar()).estado === "closed", "a sonda do boot não fechou o disjuntor");
+      const p1 = partidaEm("2026-03-10T15:00:00-03:00");
+      primeira.partidaEncerrada(p1);
+      await primeira.ocioso();
+      const depoisDaPrimeira = await sequencia(b.admin, a);
+      afirmar(depoisDaPrimeira.atual === 1 && depoisDaPrimeira.partida === p1.partidaId, `1ª vida: ${JSON.stringify(depoisDaPrimeira)}`);
+      afirmar(new OutboxDeProgresso(dirOutbox).pendentes().validas.length === 1, "a pendência deveria ter sobrado no outbox");
+      // 2ª vida: o boot reprocessa a MESMA partida
+      const { balanco } = await new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), repo, semEspera).iniciar();
+      afirmar(balanco?.entregues === 1 && balanco?.pendentes === 0, `boot: ${JSON.stringify(balanco)}`);
+      afirmar(await total(b.admin, a) === 150, `o reprocessamento somou XP: ${await total(b.admin, a)}`);
+      afirmar(JSON.stringify(await sequencia(b.admin, a)) === JSON.stringify(depoisDaPrimeira), "o reprocessamento mexeu na sequência");
+      // 3ª vida: a partida do dia seguinte, entregue normalmente
+      const terceira = new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), repo, semEspera);
+      await terceira.iniciar();
+      terceira.partidaEncerrada(partidaEm("2026-03-11T15:00:00-03:00"));
+      await terceira.ocioso();
+      const q = await sequencia(b.admin, a);
+      afirmar(q.atual === 2 && q.recorde === 2 && await total(b.admin, a) === 300, `dia seguinte depois do retry: ${JSON.stringify(q)}`);
+    } finally {
+      await repo.encerrar().catch(() => {});
+      rmSync(dirOutbox, { recursive: true, force: true });
+    }
+  } },
+  { id: "S9", nome: "sequência — crédito ATRASADO (outbox fora de ordem) entra no dia certo", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    const p12 = await creditar(s, { ...terminandoEm("2026-03-12T15:00:00-03:00"), humanos: dupla(a, x) });
+    await creditar(s, { ...terminandoEm("2026-03-10T15:00:00-03:00"), humanos: dupla(a, x) });
+    let q = await sequencia(b.admin, a);
+    afirmar(q.atual === 1 && q.recorde === 1 && q.dia === "2026-03-12" && q.partida === p12.partida, `10 e 12 (buraco no 11): ${JSON.stringify(q)}`);
+    await creditar(s, { ...terminandoEm("2026-03-11T15:00:00-03:00"), humanos: dupla(a, x) }); // chegou por último
+    q = await sequencia(b.admin, a);
+    afirmar(q.atual === 3 && q.recorde === 3 && q.dia === "2026-03-12" && q.partida === p12.partida, `o dia 11 atrasado deveria fechar 10-11-12: ${JSON.stringify(q)}`);
+  } },
+  { id: "S10", nome: "elegibilidade — partida sem XP (abandono / participação insuficiente) não qualifica o dia", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    // `participou: false` é como o servidor entrega abandono E participação insuficiente (<60%)
+    const fora = (dia) => creditar(s, { ...terminandoEm(`2026-03-${dia}T15:00:00-03:00`), humanos: [{ id: a, posicao: 1, participou: false }, { id: x, posicao: 2 }] });
+    const dentro = (dia) => creditar(s, { ...terminandoEm(`2026-03-${dia}T15:00:00-03:00`), humanos: dupla(a, x) });
+    await fora("10");
+    let q = await sequencia(b.admin, a);
+    afirmar(q.atual === 0 && q.recorde === 0 && q.dia === null && q.partida === null, `0 XP qualificou o dia: ${JSON.stringify(q)}`);
+    afirmar((await sequencia(b.admin, x)).atual === 1, "quem jogou de verdade na mesma mesa qualifica");
+    await dentro("11");
+    await fora("12");
+    q = await sequencia(b.admin, a);
+    afirmar(q.atual === 1 && q.dia === "2026-03-11", `o dia 12 sem XP mexeu na sequência: ${JSON.stringify(q)}`);
+    await dentro("13");
+    q = await sequencia(b.admin, a);
+    afirmar(q.atual === 1 && q.recorde === 1, `o dia 12 sem XP deveria ser buraco: ${JSON.stringify(q)}`);
+  } },
+  { id: "S10b", nome: "elegibilidade — partida local/solo (1 humano + bots) e bot não chegam ao crédito nem à sequência", async fn(b) {
+    const [a] = await b.jogadores(1);
+    const s = await b.servidor();
+    await reprova(creditar(s, { ...terminandoEm("2026-03-10T15:00:00-03:00"), humanos: [{ id: a, posicao: 1 }], bots: 3 }), /composição/, "uma partida solo (1 humano + 3 bots) foi creditada");
+    await reprova(creditar(s, { ...terminandoEm("2026-03-10T16:00:00-03:00"), humanos: [{ id: a, posicao: 1 }, { id: "bot:1", posicao: 2 }] }), /player_id inválido/, "um bot entrou no crédito");
+    const q = await sequencia(b.admin, a);
+    afirmar(q.atual === 0 && q.recorde === 0 && await total(b.admin, a) === 0, `solo/bot deixou rastro: ${JSON.stringify(q)}`);
+  } },
+  { id: "S11", nome: "concorrência — duas partidas simultâneas do mesmo jogador: o dia conta uma vez; dias seguidos somam", async fn(b) {
+    const [a, w, x, y, z, v] = await b.jogadores(6);
+    const [s0, s1, s2] = [await b.servidor(), await b.servidor(), await b.servidor()];
+    await creditar(s0, { ...terminandoEm("2026-03-09T15:00:00-03:00"), humanos: dupla(a, w) }); // A já tem linha (caso difícil do T4)
+    await corridaSobATrava(b, a, [
+      [s1, { ...terminandoEm("2026-03-10T15:00:00-03:00"), humanos: dupla(a, x) }],
+      [s2, { ...terminandoEm("2026-03-10T18:00:00-03:00"), humanos: dupla(a, y) }],
+    ]);
+    let q = await sequencia(b.admin, a);
+    const primeira = (await b.admin.query(
+      "select e.partida_id from public.xp_eventos e join king_private.partidas p on p.id = e.partida_id where e.player_id = $1 and p.terminada_em >= '2026-03-10T00:00:00-03:00' order by e.id limit 1", [a])).rows[0].partida_id;
+    afirmar(q.atual === 2 && q.recorde === 2 && q.dia === "2026-03-10" && q.partida === primeira, `duas simultâneas no dia 10: ${JSON.stringify(q)}`);
+    await corridaSobATrava(b, a, [
+      [s1, { ...terminandoEm("2026-03-11T15:00:00-03:00"), humanos: dupla(a, z) }],
+      [s2, { ...terminandoEm("2026-03-12T15:00:00-03:00"), humanos: dupla(a, v) }],
+    ]);
+    q = await sequencia(b.admin, a);
+    afirmar(q.atual === 4 && q.recorde === 4 && q.dia === "2026-03-12", `dias 11 e 12 simultâneos: ${JSON.stringify(q)}`);
+  } },
+  { id: "S12", nome: "valor EFETIVO com relógio fixo: viva até o fim de ontem, quebrada no primeiro segundo de anteontem, em SP", async fn(b) {
+    const [a] = await b.jogadores(1);
+    const c = await b.como(a); // roda como o JOGADOR: é assim que a view as chama
+    const casos = [
+      [3, "2026-03-11", "2026-03-11T15:00:00-03:00", 3],  // qualificou hoje
+      [3, "2026-03-11", "2026-03-12T15:00:00-03:00", 3],  // qualificou ontem: viva, esperando hoje
+      [3, "2026-03-11", "2026-03-12T23:59:59-03:00", 3],  // último segundo de "ontem"
+      [3, "2026-03-11", "2026-03-13T00:00:00-03:00", 0],  // virou o dia sem jogar: quebrou
+      [3, "2026-03-11", "2026-03-20T12:00:00-03:00", 0],  // semanas depois
+      [3, "2026-03-11", "2026-03-13T02:30:00Z", 3],       // 02:30 UTC do dia 13 = 23:30 do dia 12 em SP
+      [0, null, "2026-03-11T15:00:00-03:00", 0],          // nunca qualificou
+    ];
+    for (const [atual, dia, agora, esperado] of casos) {
+      const r = (await c.query("select public.sequencia_efetiva($1, $2::date, $3::timestamptz) as v", [atual, dia, agora])).rows[0].v;
+      afirmar(r === esperado, `efetiva(${atual}, ${dia}, ${agora}) = ${r}, esperado ${esperado}`);
+    }
+    const hoje = [
+      ["2026-03-11", "2026-03-11T00:00:00-03:00", true],
+      ["2026-03-11", "2026-03-11T23:59:59-03:00", true],
+      ["2026-03-11", "2026-03-12T00:00:00-03:00", false],
+      ["2026-03-11", "2026-03-12T01:00:00Z", true],       // 22:00 do dia 11 em SP
+      [null, "2026-03-11T12:00:00-03:00", false],
+    ];
+    for (const [dia, agora, esperado] of hoje) {
+      const r = (await c.query("select public.sequencia_qualificada_hoje($1::date, $2::timestamptz) as v", [dia, agora])).rows[0].v;
+      afirmar(r === esperado, `qualificada_hoje(${dia}, ${agora}) = ${r}, esperado ${esperado}`);
+    }
+  } },
+  { id: "S13", nome: "meu_progresso com o relógio DO BANCO: efetiva, recorde, hoje, último dia e partida; colunas antigas intactas", async fn(b) {
+    const [a, x, c, y, d] = await b.jogadores(5);
+    const s = await b.servidor();
+    for (const dia of ["10", "11", "12"]) await creditar(s, { ...terminandoEm(`2026-03-${dia}T15:00:00-03:00`), humanos: dupla(c, y) });
+    const fim = new Date(Date.now() - 1000);
+    const { partida } = await creditar(s, { iniciada: new Date(fim.getTime() - 10 * 60_000), terminada: fim, humanos: dupla(a, x) });
+    const ler = async (id) => (await (await b.como(id)).query(
+      "select sequencia_atual, sequencia_recorde, sequencia_hoje, sequencia_ultimo_dia::text as dia, sequencia_partida from public.meu_progresso")).rows[0];
+    const va = await ler(a);
+    afirmar(va.sequencia_atual === 1 && va.sequencia_recorde === 1 && va.dia === diaSP(fim) && va.sequencia_partida === partida, `quem acabou de jogar: ${JSON.stringify(va)}`);
+    if (diaSP(fim) === diaSP(new Date())) afirmar(va.sequencia_hoje === true, "jogou hoje e a view diz que não");
+    const vc = await ler(c);
+    afirmar(vc.sequencia_atual === 0 && vc.sequencia_recorde === 3 && vc.sequencia_hoje === false && vc.dia === "2026-03-12",
+      `corrida de março vista hoje deveria estar QUEBRADA (0), com recorde 3: ${JSON.stringify(vc)}`);
+    afirmar((await sequencia(b.admin, c)).atual === 3, "o retrato guardado é o da corrida (3); quem zera é a leitura efetiva");
+    const vd = await ler(d);
+    afirmar(vd.sequencia_atual === 0 && vd.sequencia_recorde === 0 && vd.sequencia_hoje === false && vd.dia === null && vd.sequencia_partida === null,
+      `nunca jogou online: ${JSON.stringify(vd)}`);
+    const cols = (await b.admin.query(
+      "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'meu_progresso' order by ordinal_position")).rows.map((r) => r.column_name);
+    afirmar(cols.join(",") === "player_id,xp_total,nivel,xp_no_nivel,xp_do_nivel,sequencia_atual,sequencia_recorde,sequencia_hoje,sequencia_ultimo_dia,sequencia_partida",
+      `colunas de meu_progresso: ${cols.join(",")}`);
+  } },
+  { id: "S14", nome: "sequência gravada = ORÁCULO independente, para todo mundo (60 partidas, 6 jogadores, chegada fora de ordem)", async fn(b) {
+    const ids = await b.jogadores(6);
+    const s = await b.servidor();
+    const rnd = mulberry32(0x6a);
+    for (let k = 0; k < 60; k++) {
+      const mesa = [...ids];
+      for (let i = mesa.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [mesa[i], mesa[j]] = [mesa[j], mesa[i]]; }
+      const n = 2 + Math.floor(rnd() * 3);
+      const dia = 1 + Math.floor(rnd() * 24), hora = Math.floor(rnd() * 24), minuto = Math.floor(rnd() * 50);
+      const fim = new Date(Date.UTC(2026, 2, dia, hora + 3, minuto)); // hora de SP = UTC−3; 21h–23h já é o dia seguinte em UTC
+      await creditar(s, { iniciada: new Date(fim.getTime() - 8 * 60_000), terminada: fim,
+        humanos: mesa.slice(0, n).map((id, i) => ({ id, posicao: i + 1, participou: rnd() < 0.85 })) });
+    }
+    const ev = (await b.admin.query(
+      "select e.id::text as id, e.player_id, e.partida_id, e.xp_delta, q.terminada_em from public.xp_eventos e join king_private.partidas q on q.id = e.partida_id")).rows;
+    let buracos = 0, maior = 0, zeros = 0;
+    for (const id of ids) {
+      const meus = ev.filter((e) => e.player_id === id).map((e) => ({ id: Number(e.id), partida: e.partida_id, dia: diaSP(e.terminada_em), xp: e.xp_delta }));
+      const esperado = oraculo(meus);
+      const real = await sequencia(b.admin, id);
+      afirmar(JSON.stringify(real) === JSON.stringify(esperado), `${id.slice(0, 8)}: gravado ${JSON.stringify(real)} ≠ oráculo ${JSON.stringify(esperado)}`);
+      if (esperado.atual < esperado.recorde) buracos++;
+      maior = Math.max(maior, esperado.recorde);
+      zeros += meus.filter((e) => e.xp === 0).length;
+    }
+    // o instrumento: o sorteio precisa ter produzido os casos que importam
+    afirmar(buracos > 0 && maior >= 3 && zeros > 0, `sorteio pobre demais: buracos=${buracos} maior=${maior} zeros=${zeros}`);
+  } },
+  { id: "S15", nome: "segurança — ninguém escreve a sequência; funções com search_path vazio, dono dedicado e EXECUTE mínimo", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    await creditar(s, { ...terminandoEm("2026-03-10T15:00:00-03:00"), humanos: dupla(a, x) });
+    const c = await b.como(a);
+    try { await c.query("update public.progresso set sequencia_atual = 99, sequencia_recorde = 99 where player_id = $1", [a]); } catch { /* recusado: ótimo */ }
+    afirmar((await sequencia(b.admin, a)).atual === 1, "o jogador alterou a própria sequência");
+    await reprova(c.query("select * from king_private.sequencia_de($1)", [a]), /permission denied/, "o jogador chamou o cálculo do ledger");
+    await reprova(s.query("select * from king_private.sequencia_de($1)", [a]), /permission denied/, "king_server chamou o cálculo do ledger");
+    await reprova(s.query("update public.progresso set sequencia_atual = 9"), /permission denied/, "king_server escreveu a sequência direto");
+    const funcs = ["public.dia_de_sao_paulo(timestamptz)", "public.sequencia_efetiva(integer, date, timestamptz)",
+      "public.sequencia_qualificada_hoje(date, timestamptz)", "king_private.sequencia_de(uuid)", "king_private.sequencia_apos_lancamento()"];
+    for (const f of funcs) {
+      const { rows: [r] } = await b.admin.query(
+        "select pg_get_userbyid(p.proowner) as dono, p.prosecdef, p.proconfig, p.proacl is not null as acl_explicita, " +
+        "exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0) as publico, " +
+        "has_function_privilege('anon', p.oid, 'execute') as anon, has_function_privilege('king_server', p.oid, 'execute') as servidor, " +
+        "has_function_privilege('authenticated', p.oid, 'execute') as autenticado " +
+        "from pg_proc p where p.oid = $1::regprocedure", [f]);
+      afirmar(r.dono === "king_progress_owner", `${f}: dono ${r.dono}`);
+      afirmar(r.prosecdef === false, `${f}: SECURITY DEFINER sem necessidade`);
+      afirmar(JSON.stringify(r.proconfig) === JSON.stringify(['search_path=""']), `${f}: search_path ${JSON.stringify(r.proconfig)}`);
+      afirmar(r.acl_explicita && !r.publico && !r.anon && !r.servidor, `${f}: EXECUTE aberto demais ${JSON.stringify(r)}`);
+      afirmar(r.autenticado === f.startsWith("public."), `${f}: authenticated ${r.autenticado ? "PODE" : "não pode"} executar`);
+    }
+    const t = await b.admin.query("select tgenabled from pg_trigger where tgname = 'xp_eventos_sequencia' and tgrelid = 'public.xp_eventos'::regclass");
+    afirmar(t.rows.length === 1 && t.rows[0].tgenabled === "O", "o gatilho da sequência não está ativo");
+    const cred = await b.admin.query("select has_function_privilege('king_server', 'king_private.creditar_partida(uuid, timestamptz, timestamptz, smallint, smallint, jsonb)', 'execute') as ok");
+    afirmar(cred.rows[0].ok, "a migração tirou do servidor a única porta que ele tinha");
+  } },
+  { id: "S16", semSequencia: true, nome: "aplicação sobre o banco de HOJE: o retrato nasce igual ao ledger, e o crédito seguinte continua dele", async fn(b, ctx) {
+    const [a, x, z] = await b.jogadores(3);
+    const s = await b.servidor();
+    let ultima = null;
+    for (const dia of ["10", "11", "12"]) ultima = (await creditar(s, { ...terminandoEm(`2026-03-${dia}T15:00:00-03:00`), humanos: dupla(a, x) })).partida;
+    await creditar(s, { ...terminandoEm("2026-03-10T18:00:00-03:00"), humanos: [{ id: z, posicao: 1, participou: false }, { id: x, posicao: 2 }] });
+    await b.admin.query(ctx.sequencia); // a migração, como o Tito a aplicaria
+    const q = await sequencia(b.admin, a);
+    afirmar(q.atual === 3 && q.recorde === 3 && q.dia === "2026-03-12" && q.partida === ultima, `retrato inicial de A: ${JSON.stringify(q)}`);
+    const qz = await sequencia(b.admin, z);
+    afirmar(qz.atual === 0 && qz.dia === null, `quem só abandonou: ${JSON.stringify(qz)}`);
+    afirmar(await total(b.admin, a) === 450, "a migração mexeu no XP");
+    await creditar(await b.servidor(), { ...terminandoEm("2026-03-13T15:00:00-03:00"), humanos: dupla(a, x) });
+    const depois = await sequencia(b.admin, a);
+    afirmar(depois.atual === 4 && depois.recorde === 4, `crédito depois da migração: ${JSON.stringify(depois)}`);
+  } },
+  { id: "S17", nome: "rollback preparado: volta ao banco de antes sem tocar no XP, e reaplicar refaz o retrato do ledger", async fn(b, ctx) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    for (const dia of ["10", "11"]) await creditar(s, { ...terminandoEm(`2026-03-${dia}T15:00:00-03:00`), humanos: dupla(a, x) });
+    await b.admin.query(ROLLBACK_SEQUENCIA);
+    const cols = async (tabela) => (await b.admin.query(
+      "select column_name from information_schema.columns where table_schema = 'public' and table_name = $1 order by ordinal_position", [tabela])).rows.map((r) => r.column_name).join(",");
+    afirmar(await cols("meu_progresso") === "player_id,xp_total,nivel,xp_no_nivel,xp_do_nivel", `view depois do rollback: ${await cols("meu_progresso")}`);
+    afirmar(await cols("progresso") === "player_id,xp_total,atualizado_em", `progresso depois do rollback: ${await cols("progresso")}`);
+    const sobras = await b.admin.query(
+      "select (select count(*)::int from pg_trigger where tgname = 'xp_eventos_sequencia') + (select count(*)::int from pg_proc where proname in ('dia_de_sao_paulo','sequencia_efetiva','sequencia_qualificada_hoje','sequencia_de','sequencia_apos_lancamento')) as n");
+    afirmar(sobras.rows[0].n === 0, "o rollback deixou gatilho ou função para trás");
+    afirmar(await total(b.admin, a) === 300, "o rollback mexeu no XP");
+    await creditar(s, { ...terminandoEm("2026-03-12T15:00:00-03:00"), humanos: dupla(a, x) });
+    const mp = (await (await b.como(a)).query("select * from public.meu_progresso")).rows[0];
+    afirmar(mp.xp_total === 450 && Object.keys(mp).length === 5, `crédito e leitura sem a sequência: ${JSON.stringify(mp)}`);
+    await b.admin.query(ctx.sequencia);
+    const q = await sequencia(b.admin, a);
+    afirmar(q.atual === 3 && q.recorde === 3 && q.dia === "2026-03-12", `reaplicada, a sequência sai do ledger: ${JSON.stringify(q)}`);
+  } },
 ];
 
 // ─────────────────────────── execução ───────────────────────────
@@ -626,9 +1059,9 @@ const TESTES = [
 async function rodar(testes, modelos, { esperaReprovar = false } = {}) {
   const resultados = [];
   for (const t of testes) {
-    const b = await bancoDeTeste(t.janela ? modelos.janela : modelos.plano);
+    const b = await bancoDeTeste(t.semSequencia ? modelos.semSequencia : t.janela ? modelos.janela : modelos.plano);
     let erro = null;
-    try { await t.fn(b); } catch (e) { erro = e; } finally { await b.fechar(); }
+    try { await t.fn(b, { sequencia: modelos.textoSequencia }); } catch (e) { erro = e; } finally { await b.fechar(); }
     resultados.push({ t, erro });
     const marca = esperaReprovar ? (erro ? "🔴 RED" : "⚠️  PASSOU") : (erro ? "✗" : "✓");
     console.log(`   ${marca} ${t.id} ${t.nome}${erro ? `\n        → ${String(erro.message).split("\n")[0]}` : ""}`);
@@ -658,9 +1091,11 @@ try {
   await v.end();
   console.log(`\nPROGRESSO — testes SQL em Postgres ${versao} descartável (porta ${PORTA})\n`);
 
-  // Modelos: a migração ORIGINAL e a mesma com a janela de corrida alargada.
-  await criarModelo("modelo_plano", PROGRESSO);
-  await criarModelo("modelo_janela", comJanela(PROGRESSO));
+  // Modelos: as migrações ORIGINAIS, a mesma com a janela de corrida alargada, e o banco como está
+  // em Production hoje (sem a sequência), onde a migração da sequência é aplicada pelo próprio teste.
+  await criarModelo("modelo_plano", PROGRESSO, SEQUENCIA);
+  await criarModelo("modelo_janela", comJanela(PROGRESSO), SEQUENCIA);
+  await criarModelo("modelo_sem_sequencia", PROGRESSO, null);
   // O LOGIN do servidor existe SÓ neste banco descartável, com senha aleatória desta execução.
   const adm = await conectar("postgres");
   await adm.query(`alter role king_server login password '${SENHA_SERVIDOR}'`);
@@ -669,13 +1104,16 @@ try {
   if (PROVAS) {
     console.log("RED — cada proteção removida em memória; os testes que dependem dela PRECISAM reprovar\n");
     for (const [nome, m] of Object.entries(MUTACOES)) {
-      const mutado = mutar(PROGRESSO, m.trocas);
+      const mutado = mutar(PROGRESSO, m.trocas ?? []);
+      const mutadoSeq = mutar(SEQUENCIA, m.trocasSeq ?? []);
       const sufixo = nome.replace(/-/g, "_");
-      await criarModelo(`modelo_plano_${sufixo}`, mutado);
-      await criarModelo(`modelo_janela_${sufixo}`, comJanela(mutado));
+      await criarModelo(`modelo_plano_${sufixo}`, mutado, mutadoSeq);
+      await criarModelo(`modelo_janela_${sufixo}`, comJanela(mutado), mutadoSeq);
       console.log(`  mutação: ${nome}`);
       const alvos = TESTES.filter((t) => m.alvos.includes(t.id));
-      const r = await rodar(alvos, { plano: `modelo_plano_${sufixo}`, janela: `modelo_janela_${sufixo}` }, { esperaReprovar: true });
+      if (alvos.length !== m.alvos.length) throw new Error(`mutação ${nome}: alvo inexistente em ${m.alvos.join(",")}`);
+      const r = await rodar(alvos, { plano: `modelo_plano_${sufixo}`, janela: `modelo_janela_${sufixo}`,
+        semSequencia: "modelo_sem_sequencia", textoSequencia: mutadoSeq }, { esperaReprovar: true });
       const passaram = r.filter((x) => !x.erro).map((x) => x.t.id);
       if (passaram.length) { falhou = true; console.log(`   ✗ MUTAÇÃO NÃO DETECTADA por: ${passaram.join(", ")}`); }
     }
@@ -683,7 +1121,7 @@ try {
   }
 
   console.log("GREEN — migração original\n");
-  const r = await rodar(TESTES, { plano: "modelo_plano", janela: "modelo_janela" });
+  const r = await rodar(TESTES, { plano: "modelo_plano", janela: "modelo_janela", semSequencia: "modelo_sem_sequencia", textoSequencia: SEQUENCIA });
   const falhas = r.filter((x) => x.erro).length;
   if (falhas) falhou = true;
   console.log(`\n${falhou ? "❌ REPROVADO" : "✅ APROVADO"} — ${r.length - falhas}/${r.length} testes verdes${PROVAS ? `, ${Object.keys(MUTACOES).length} mutações` : ""}`);

@@ -83,3 +83,15 @@ describe("o resultado do crédito", () => {
     expect(r.humanos.map((h) => h.posicao)).toEqual([1, 1]);
   });
 });
+
+describe("partida SOLO não chega ao banco (decisão de produto da Fase 6A)", () => {
+  // Sem crédito não há XP — e, portanto, não há sequência: ela anda só com XP positivo gravado
+  // pelo banco. O modo local nem passa pelo servidor; este é o caso online com UM humano.
+  it("um humano e três bots → nada a gravar: sem XP e sem sequência", () => {
+    expect(resultadoParaCredito(partida([humano(0, A), assento(1), assento(2), assento(3)]))).toBeNull();
+  });
+
+  it("dois humanos é o mínimo que chega ao crédito", () => {
+    expect(resultadoParaCredito(partida([humano(0, A), assento(1), humano(2, B), assento(3)]))?.humanos).toHaveLength(2);
+  });
+});
