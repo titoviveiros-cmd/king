@@ -6,6 +6,12 @@
 > `feat/streak-v1`, **sem merge na `main` e sem publicação**. Nada do que está descrito abaixo
 > existe em Production até o Tito aplicar a migração e publicar a web (§11).
 
+> **Sem backfill histórico. A sequência passa a existir apenas a partir do rollout da feature.**
+> Partidas e XP anteriores à aplicação da migração não criam sequência nem recorde, não definem
+> último dia e não são reinterpretados nem reconstruídos a partir do ledger. Logo depois da
+> migração, todo jogador está com sequência 0, recorde 0, sem dia e sem partida. O primeiro
+> crédito elegível depois dela dá 1 (§5.1).
+
 ## 1. Definição
 
 **Sequência** = número de **dias consecutivos** do calendário de São Paulo em que o jogador
@@ -92,10 +98,11 @@ fim (S13).
 
 ## 5. Idempotência e ordem de chegada
 
-A sequência é **derivada do ledger** (`xp_eventos` ⨝ `king_private.partidas`), e não um contador
-"+1". O crédito chega pelo outbox do servidor, que pode atrasar e reordenar: a partida de ontem pode
-chegar depois da de hoje. Por isso ela é recalculada a partir de **todos** os dias com XP positivo
-do jogador, como "ilhas" de dias consecutivos. Daí decorre:
+A sequência é **derivada do ledger posterior ao rollout** (`xp_eventos` ⨝ `king_private.partidas`,
+a partir do marco do §5.1), e não um contador "+1". O crédito chega pelo outbox do servidor, que
+pode atrasar e reordenar: a partida de ontem pode chegar depois da de hoje. Por isso ela é
+recalculada a partir dos dias com XP positivo **desde o rollout**, como "ilhas" de dias
+consecutivos. Daí decorre:
 
 - **mesmo evento duas vezes, retry do outbox, reconexão:** a partida já existe →
   `creditar_partida` devolve o que já foi gravado e não insere nada → o gatilho não roda → nada
@@ -108,6 +115,30 @@ do jogador, como "ilhas" de dias consecutivos. Daí decorre:
 - **conferência geral:** 60 partidas sorteadas, 6 jogadores, chegada fora de ordem. O retrato
   gravado é igual a um **oráculo independente em JavaScript** que aplica a regra do produto
   (S14).
+
+### 5.1 O marco do rollout — por que não há backfill
+
+Havia dois caminhos de backfill na primeira versão. **Os dois foram removidos.**
+
+1. **Explícito:** um `UPDATE` no fim da migração preenchia a sequência pelo ledger. Saiu.
+2. **Implícito:** o gatilho recalcula pelo ledger. Mesmo sem o `UPDATE`, o primeiro crédito
+   pós-rollout de quem já jogou reconstruiria o histórico. Remover só o `UPDATE` **não bastaria**.
+
+A migração grava um **marco** em `king_private.sequencia_inicio` (uma linha, privada):
+
+- `inicio`: o instante da aplicação (`now()`);
+- `ultimo_evento_anterior`: o maior id do ledger naquele instante.
+
+Um lançamento só qualifica dia se, ao mesmo tempo:
+
+| Condição | O que ela barra |
+|---|---|
+| `id > ultimo_evento_anterior` | XP lançado antes do rollout, inclusive de partida com início marcado depois do marco (relógio do servidor adiantado) |
+| `iniciada_em >= inicio` | partida **anterior** ao rollout: crédito **atrasado** (outbox) de partida que já tinha terminado, e partida que **atravessou** o rollout (começou antes, terminou depois). O XP entra normalmente, a sequência não |
+| `motivo = 'partida_concluida'` e partida com `humanos >= 2` | qualquer origem de XP que não seja partida online (§8.1) |
+
+Sem marco, não há sequência: a ausência dele falha **fechado**. O que acontece depois do rollout
+segue a regra normal, sem mudança (S1–S15).
 
 ## 6. Relação com o XP
 
@@ -126,11 +157,12 @@ do jogador, como "ilhas" de dias consecutivos. Daí decorre:
 |---|---|
 | `public.progresso` + 4 colunas | `sequencia_atual`, `sequencia_recorde`, `sequencia_ultimo_dia`, `sequencia_partida`. Checks: não negativa; recorde ≥ atual; "nunca qualificou" é um estado só |
 | `public.dia_de_sao_paulo(timestamptz)` | o dia de São Paulo, definição única |
-| `king_private.sequencia_de(uuid)` | sequência derivada do ledger (atual, recorde, último dia, partida) |
+| `king_private.sequencia_inicio` | o **marco** do rollout (§5.1): uma linha, privada, com RLS, sem GRANT para ninguém |
+| `king_private.sequencia_de(uuid)` | sequência derivada do ledger **pós-marco** (atual, recorde, último dia, partida) |
 | `king_private.sequencia_apos_lancamento()` + gatilho `xp_eventos_sequencia` | recalcula quem foi lançado |
 | `public.sequencia_efetiva(...)`, `public.sequencia_qualificada_hoje(...)` | puras e com o instante como parâmetro: os testes fixam o relógio |
 | `public.meu_progresso` | + 5 colunas no fim (§4) |
-| backfill | quem já tem XP nasce com o retrato igual ao ledger (S16) |
+| **sem backfill** | nenhum `UPDATE` retrospectivo: as colunas nascem 0, 0, NULL, NULL para todo mundo (S16) |
 
 **Nenhuma** tabela pública nova, nenhuma política RLS nova e nenhum GRANT de escrita.
 
@@ -148,6 +180,36 @@ do jogador, como "ilhas" de dias consecutivos. Daí decorre:
 - Escrita: o jogador não altera a própria sequência, e `king_server` não escreve em tabela
   nenhuma (S15).
 - `king_server` continua com a **única** porta que tinha: EXECUTE em `creditar_partida`.
+- O marco (`king_private.sequencia_inicio`) é do dono, com RLS e sem nenhum privilégio para
+  `anon`, `authenticated`, `service_role` ou `king_server`.
+
+### 8.1 Quem escreve no ledger (a sequência nasce dele) — S18, S19
+
+**Invariante de hoje: o único escritor do ledger é `creditar_partida`**, e o único `motivo` é
+`'partida_concluida'`. Provado no Postgres real (S18):
+
+- nenhuma escrita direta (INSERT, UPDATE, DELETE, TRUNCATE) em `xp_eventos` para `anon`,
+  `authenticated`, `service_role` ou `king_server`;
+- uma única função insere no ledger: `king_private.creditar_partida`;
+- a lista de funções `SECURITY DEFINER` é fechada: `creditar_partida` e `criar_player`, o gatilho
+  da identidade, que só cria o perfil. Uma função privilegiada nova derruba o teste;
+- só `king_server` executa o crédito;
+- **varredura de TODAS as migrações do repositório**, inclusive as futuras: um `INSERT` novo no
+  ledger, um GRANT de escrita ou um motivo novo derruba o teste e obriga a revisar a sequência.
+
+A sequência **não depende só dessa invariante**. Ela exige motivo de partida **e** partida com
+2+ humanos (§5.1). O S19 simula uma origem futura (um bônus com motivo novo) e uma partida solo
+gravada por um escritor futuro: nenhuma qualifica dia. As mutações `seq-qualquer-origem` e
+`seq-solo-no-recalculo` morrem ali.
+
+Quem tem o papel `postgres` (o SQL Editor do Dashboard) pode escrever em qualquer tabela. Isso
+é acesso de operação, fora do caminho da aplicação. Para conferir em Production, só leitura:
+
+```sql
+select grantee, privilege_type from information_schema.role_table_grants
+ where table_schema = 'public' and table_name = 'xp_eventos' order by 1, 2;
+-- esperado: só SELECT para authenticated (além do dono king_progress_owner)
+```
 
 ## 9. Interface
 
@@ -213,15 +275,26 @@ Conferências **somente leitura** depois de aplicar (todas devem dar o indicado)
 ```sql
 -- 1. o gatilho está ativo → 'O'
 select tgenabled from pg_trigger where tgname = 'xp_eventos_sequencia';
--- 2. retrato = ledger, para todo mundo → 0
+-- 2. SEM BACKFILL: ninguém com sequência logo depois da migração → 0
+select count(*) from public.progresso
+ where sequencia_atual <> 0 or sequencia_recorde <> 0
+    or sequencia_ultimo_dia is not null or sequencia_partida is not null;
+-- 3. o marco gravado → uma linha: o instante da aplicação e o último lançamento anterior
+select inicio, ultimo_evento_anterior, (select max(id) from public.xp_eventos) as maior_id_agora
+  from king_private.sequencia_inicio;
+-- 4. a view mantém as colunas antigas na frente → player_id, xp_total, nivel, xp_no_nivel, xp_do_nivel, sequencia_…
+select column_name from information_schema.columns
+ where table_schema = 'public' and table_name = 'meu_progresso' order by ordinal_position;
+```
+
+Mais tarde, a qualquer momento, o retrato deve bater com o ledger pós-marco (esperado 0):
+
+```sql
 select count(*) from public.progresso g
  cross join lateral king_private.sequencia_de(g.player_id) s
  where (g.sequencia_atual, g.sequencia_ultimo_dia, g.sequencia_partida)
        is distinct from (s.atual, s.ultimo_dia, s.partida)
     or g.sequencia_recorde < s.recorde;
--- 3. a view mantém as colunas antigas na frente → player_id, xp_total, nivel, xp_no_nivel, xp_do_nivel, sequencia_…
-select column_name from information_schema.columns
- where table_schema = 'public' and table_name = 'meu_progresso' order by ordinal_position;
 ```
 
 ### 11.3 Rollback
@@ -229,18 +302,22 @@ select column_name from information_schema.columns
 `supabase/rollback/20261001120000_sequencia_rollback.sql` fica fora de `migrations/`, então
 nenhum `db push` o aplica.
 
-- O que ele faz: devolve a view às 5 colunas, remove o gatilho, as funções e as colunas.
-- O que ele **não** toca: XP e ledger.
-- Reaplicar a migração depois refaz o retrato a partir do ledger.
+- O que ele faz: devolve a view às 5 colunas, remove o gatilho, as funções, o marco e as
+  colunas. Só objetos da sequência.
+- O que ele **não** toca: XP e ledger. Ele não recalcula nada.
+- **Reaplicar a migração depois NÃO reconstrói nada.** Ela grava um marco novo. Tudo o que veio
+  antes dele vira histórico: o histórico de antes da 1ª aplicação, o que contou durante ela e o
+  que foi creditado com a sequência fora do ar. Todo mundo volta a 0, e o 1º crédito seguinte
+  dá 1.
 
-Tudo isso está provado no S17.
+Tudo isso está provado no S17 (migração → rollback → migração).
 
 ## 12. Testes
 
 | Onde | O quê |
 |---|---|
-| `scripts/testar-progresso-sql.mjs` (Postgres 17 real) | S1–S17, descritos abaixo; mais T1–T23 de XP, inalterados e verdes |
-| `scripts/testar-progresso-sql.mjs --provas` | 18 mutações (10 de XP + 8 de sequência), todas mortas |
+| `scripts/testar-progresso-sql.mjs` (Postgres 17 real) | S1–S19, descritos abaixo; mais T1–T23 de XP, inalterados e verdes |
+| `scripts/testar-progresso-sql.mjs --provas` | 26 mutações (10 de XP + 16 de sequência e do ledger), todas mortas |
 | `apps/server/src/progresso/resultado.test.ts` | partida solo não chega ao crédito |
 | `apps/web/src/auth/progresso.test.ts` | leitura com e sem a migração, dado estranho, relógio adulterado, `select=*` |
 | `apps/web/src/game/xpDaPartida.test.ts` | o Placar só mostra a sequência da partida que qualificou; reload e duas abas dão o mesmo número |
@@ -260,10 +337,17 @@ Os testes SQL de sequência, um a um:
 - **S12–S13:** valor efetivo, com relógio fixo e com o relógio do banco;
 - **S14:** oráculo independente;
 - **S15:** segurança;
-- **S16:** aplicação sobre o banco de hoje;
-- **S17:** rollback.
+- **S16:** **sem backfill**: a migração é aplicada de verdade sobre um banco com XP histórico.
+  Todos ficam zerados, o 1º crédito depois dá 1, e nada anterior ao rollout entra (nem crédito
+  atrasado, nem XP lançado antes);
+- **S17:** migração → rollback → migração, sem tocar XP nem ledger e **sem reconstruir nada**;
+- **S18:** escritores do ledger, no catálogo e em todas as migrações do repositório;
+- **S19:** XP que não vem de partida online (bônus futuro, solo) não qualifica dia.
 
-As 8 mutações SQL de sequência, uma a uma:
+Nos testes de calendário (S1–S15), o banco foi "lançado" em 01/01/2026 e as partidas são de
+março. É preciso, porque o crédito não aceita fim no futuro. S16 e S17 usam o relógio real.
+
+As 16 mutações SQL de sequência e do ledger, uma a uma:
 
 | Mutação | Defeito que ela simula | Morre em |
 |---|---|---|
@@ -275,10 +359,23 @@ As 8 mutações SQL de sequência, uma a uma:
 | `seq-sem-xp` | 0 XP qualifica o dia | S10 |
 | `seq-em-utc` | o dia calculado em UTC | S5, S6, S12 |
 | `seq-conta-solo` | crédito com 1 humano | S10b |
+| `seq-backfill` | a migração volta a preencher pelo histórico (marco no começo dos tempos + `UPDATE` retroativo) | S16, S17 |
+| `seq-historico-no-recalculo` | o gatilho ignora o marco e reconstrói o histórico no 1º crédito | S16 |
+| `seq-xp-anterior-ao-rollout` | XP lançado antes do rollout passa a contar | S16 |
+| `seq-partida-anterior-ao-rollout` | crédito atrasado de partida pré-rollout passa a contar | S16 |
+| `seq-qualquer-origem` | XP que não é de partida qualifica o dia | S19 |
+| `seq-solo-no-recalculo` | partida solo gravada por outro escritor qualifica o dia | S19 |
+| `ledger-segundo-escritor` | nasce outra função que insere no ledger | S18 |
+| `ledger-escrita-service-role` | `service_role` ganha INSERT no ledger | S18 |
 
 Sobre `seq-aceita-duplicata`: mesmo com o reenvio lançando de novo no ledger, a sequência não
 dobraria, porque conta dias distintos. Quem reprova é o invariante completo (XP + ledger +
 sequência) dos testes S7 e S8.
+
+Sobre `seq-backfill`: um `UPDATE` retroativo **sozinho** já não reconstruiria nada, porque o
+marco o neutraliza. Por isso a mutação faz as duas coisas: põe o marco no começo dos tempos e
+acrescenta o `UPDATE`. É assim que um backfill de verdade teria de ser escrito, e é isso que o
+S16 pega.
 
 ## 13. Red team
 
@@ -294,21 +391,27 @@ sequência) dos testes S7 e S8.
 | relógio do cliente adulterado | não entra em lugar nenhum; o dia vem de `terminada_em` (servidor) e o "hoje" de `now()` (banco) | `progresso.test.ts`, `progresso.test.tsx` |
 | cliente tenta escrever a sequência | sem GRANT, sem política, sem RPC | S15, T14–T16 |
 | solo / bots | não chegam ao crédito | S10b, `resultado.test.ts` |
+| XP histórico "virar" sequência | não vira: marco do rollout | S16, S17 |
+| outra origem de XP no futuro | não qualifica dia sem mudança explícita | S18, S19 |
 
 ## 14. Riscos residuais
 
-1. **Defeito no gatilho bloqueia créditos** (§10), sem perda de dado. Mitigação: S1–S17, 18
+1. **Defeito no gatilho bloqueia créditos** (§10), sem perda de dado. Mitigação: S1–S19, 26
    mutações SQL, rollback testado.
 2. **Relógio do servidor da partida.** O dia vem de `terminada_em`, que o servidor da partida
    marca. Um relógio de VPS muito errado deslocaria dias. O banco já recusa fim no futuro
    (> 5 min).
-3. **Custo do recálculo.** Ele percorre o histórico de XP positivo do jogador a cada crédito, e
-   o índice `xp_eventos_por_jogador` cobre a busca. Com milhares de partidas por jogador continua
-   na casa dos milissegundos, mas vale medir se algum dia houver contas com dezenas de milhares.
-4. **Backfill conta o passado.** Quem já jogou online em dias seguidos antes do rollout aparece
-   com a sequência real desde o primeiro acesso. Isso é coerente com a definição, porque o
-   ledger é a verdade, e o próximo crédito recalcularia do ledger de qualquer forma.
-5. **Placar online medido por injeção.** O bloco XP + sequência é medido no Placar local com o
+3. **Custo do recálculo.** Ele percorre os lançamentos do jogador a cada crédito (os
+   pré-rollout são lidos e descartados pelo marco). O índice `xp_eventos_por_jogador` cobre a
+   busca. Com milhares de partidas por jogador continua na casa dos milissegundos, mas vale
+   medir se algum dia houver contas com dezenas de milhares.
+4. **Recomeço do zero no rollout.** Quem jogou online em dias seguidos antes do rollout começa
+   em 0, como decidido. A Home mostra o convite até o 1º crédito depois do rollout. Não há texto
+   que sugira perda.
+5. **Partida que atravessa o rollout não conta.** Quem estiver no meio de uma partida no
+   instante da migração recebe o XP dela normalmente, mas a sequência só começa na partida
+   seguinte. É a leitura estrita de "partida anterior ao rollout não cria sequência" (S16).
+6. **Placar online medido por injeção.** O bloco XP + sequência é medido no Placar local com o
    markup real do componente. A coluna de dados é a mesma nos dois modos, mas uma partida online
    inteira com crédito real não está na suíte de layout. Antes do rollout, vale uma conferência
    visual numa partida online de Preview.

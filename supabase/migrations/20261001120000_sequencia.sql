@@ -17,15 +17,31 @@
 --
 -- Nada de congelamento, dia de graça, recuperação paga, bônus, moeda, prêmio ou notificação.
 --
+-- ══ SEM BACKFILL HISTÓRICO (decisão de produto) ══
+--
+-- A sequência passa a existir só a partir do ROLLOUT desta migração. Partidas e XP anteriores a
+-- ela não criam sequência nem recorde, não definem último dia e não são reinterpretados. A
+-- migração grava um MARCO (`king_private.sequencia_inicio`): o instante em que foi aplicada e o
+-- último lançamento do ledger naquele momento. Conta para a sequência só o lançamento POSTERIOR
+-- ao marco, de partida INICIADA depois dele — um crédito atrasado de partida pré-rollout e a
+-- partida que atravessou o rollout ficam fora. Depois da migração, todo mundo começa com 0, 0, sem dia e sem partida. Sem marco, não
+-- há sequência: a ausência dele falha FECHADO.
+--
 -- ══ POR QUE DERIVADA DO LEDGER, E NÃO "+1" ══
 --
 -- O crédito chega pelo outbox do servidor, que pode atrasar e reordenar: a partida de ontem pode
 -- ser creditada depois da de hoje. Um contador incremental erraria nesse caso, e erraria de novo a
--- cada retry mal deduplicado. Aqui a sequência é RECALCULADA a partir de `xp_eventos`, que é a
--- verdade do XP. Isso torna o resultado independente da ordem de chegada e idempotente por
--- construção: processar o mesmo fato de novo dá o mesmo número. `progresso` guarda só o retrato
--- (atual, recorde, último dia, partida que qualificou esse dia), conferível contra o ledger, como
--- o `xp_total`.
+-- cada retry mal deduplicado. Aqui a sequência é RECALCULADA a partir de `xp_eventos` posteriores
+-- ao marco. Isso torna o resultado independente da ordem de chegada e idempotente por construção:
+-- processar o mesmo fato de novo dá o mesmo número. `progresso` guarda só o retrato (atual,
+-- recorde, último dia, partida que qualificou esse dia), conferível contra o ledger pós-marco.
+--
+-- ══ SÓ CRÉDITO DE PARTIDA ══
+--
+-- Hoje o único escritor do ledger é `creditar_partida`, e o único `motivo` é
+-- 'partida_concluida'. A sequência não confia nisso de olhos fechados: ela exige o motivo de
+-- partida E uma partida registrada com 2+ humanos. Uma origem futura de XP (bônus, evento, modo
+-- solo) não qualifica dia sem uma mudança EXPLÍCITA aqui — e os testes S18/S19 falham antes.
 --
 -- ══ QUEM ESCREVE ══
 --
@@ -58,6 +74,20 @@ alter table public.progresso
     and (sequencia_ultimo_dia is null) = (sequencia_atual = 0)
   );
 
+-- ══ O MARCO DO ROLLOUT — uma linha só, gravada AGORA ════════════════════════════════════════
+-- `inicio`: o instante da aplicação. `ultimo_evento_anterior`: o maior id do ledger nesse instante.
+-- Quem estava creditando durante a migração esperou a trava do ALTER acima; quem chegar depois
+-- ganha id maior. Sem acesso pela API, sem GRANT para ninguém.
+create table king_private.sequencia_inicio (
+  unica                  boolean     primary key default true,
+  inicio                 timestamptz not null,
+  ultimo_evento_anterior bigint      not null,
+  constraint sequencia_inicio_unica check (unica)
+);
+alter table king_private.sequencia_inicio enable row level security;
+insert into king_private.sequencia_inicio (inicio, ultimo_evento_anterior)
+values (now(), (select coalesce(max(e.id), 0) from public.xp_eventos as e));
+
 reset role;
 
 -- As funções públicas abaixo nascem do dono dedicado, como `nivel_de`. Ele precisa, só durante
@@ -74,12 +104,15 @@ as $$
   select (p_instante at time zone 'America/Sao_Paulo')::date
 $$;
 
--- ══ A SEQUÊNCIA DE UM JOGADOR, A PARTIR DO LEDGER ═══════════════════════════════════════════
+-- ══ A SEQUÊNCIA DE UM JOGADOR, A PARTIR DO LEDGER PÓS-ROLLOUT ═══════════════════════════════
+-- Qualifica o dia: lançamento de PARTIDA ('partida_concluida', partida com 2+ humanos), com XP
+-- positivo, lançado DEPOIS do marco e de partida INICIADA depois do marco. Nada anterior ao
+-- rollout entra (sem backfill), e nenhuma outra origem de XP entra.
 -- Ilhas de dias consecutivos: com os dias numerados por `dense_rank` (o mesmo dia, o mesmo
 -- número), `dia - número` é constante dentro de uma corrida e muda a cada buraco. Cada corrida
 -- mede DIAS DISTINTOS, nunca partidas: a 2ª partida do dia cai na mesma ilha e no mesmo dia.
 --   atual      — tamanho da corrida que termina no último dia qualificado
---   recorde    — a maior corrida do histórico
+--   recorde    — a maior corrida desde o rollout
 --   ultimo_dia — o último dia qualificado
 --   partida    — a PRIMEIRA partida creditada (ordem do ledger) que qualificou esse dia; a 2ª
 --                partida do mesmo dia nunca toma o lugar dela
@@ -92,8 +125,13 @@ as $$
     select public.dia_de_sao_paulo(q.terminada_em) as dia, e.id, e.partida_id
       from public.xp_eventos as e
       join king_private.partidas as q on q.id = e.partida_id
+      cross join king_private.sequencia_inicio as m
      where e.player_id = p_player
        and e.xp_delta > 0
+       and e.motivo = 'partida_concluida'
+       and q.humanos >= 2
+       and e.id > m.ultimo_evento_anterior
+       and q.iniciada_em >= m.inicio
   ),
   ilhas as (
     select d.dia, d.dia - (dense_rank() over (order by d.dia))::integer as ilha from qualificadas as d
@@ -155,18 +193,9 @@ reset role;
 
 revoke create on schema public from king_progress_owner;
 
--- ══ O RETRATO DE QUEM JÁ JOGOU ══════════════════════════════════════════════════════════════
--- Quem já tem XP antes desta migração tem os dias no ledger. Sem este passo a Home mostraria 0 até
--- o próximo crédito, e o próximo crédito recalcularia do ledger de qualquer jeito. O retrato nasce
--- já igual ao que o ledger diz.
-update public.progresso as g
-   set sequencia_atual      = s.atual,
-       sequencia_recorde    = greatest(g.sequencia_recorde, s.recorde),
-       sequencia_ultimo_dia = s.ultimo_dia,
-       sequencia_partida    = s.partida
-  from public.progresso as p
-  cross join lateral king_private.sequencia_de(p.player_id) as s
- where g.player_id = p.player_id;
+-- ══ SEM BACKFILL ════════════════════════════════════════════════════════════════════════════
+-- Nenhum UPDATE retrospectivo aqui, de propósito: as colunas novas nascem 0, 0, NULL, NULL para
+-- todo mundo (os defaults acima), e o marco garante que o histórico também não volte pelo gatilho.
 
 -- ══ LEITURA DO PRÓPRIO PROGRESSO, AGORA COM A SEQUÊNCIA ═════════════════════════════════════
 -- As colunas antigas ficam iguais, em nome, tipo e ordem; as novas entram no fim. Um cliente que
@@ -209,11 +238,14 @@ grant execute on function public.dia_de_sao_paulo(timestamptz)                  
 grant execute on function public.sequencia_efetiva(integer, date, timestamptz)  to authenticated;
 grant execute on function public.sequencia_qualificada_hoje(date, timestamptz)  to authenticated;
 
--- Leem o ledger: só o dono, pelo gatilho.
+-- Leem o ledger e o marco: só o dono, pelo gatilho.
 revoke all on function king_private.sequencia_de(uuid)           from public, anon, authenticated, king_server;
 revoke all on function king_private.sequencia_apos_lancamento()  from public, anon, authenticated, king_server;
+revoke all on table king_private.sequencia_inicio                from public, anon, authenticated, king_server;
 
 comment on column public.progresso.sequencia_atual is
   'Retrato: tamanho da corrida que termina em sequencia_ultimo_dia. O valor EFETIVO de hoje está em meu_progresso.';
 comment on function king_private.sequencia_de(uuid) is
-  'Sequência derivada do ledger (dias de São Paulo com XP positivo). Idempotente e independente da ordem de chegada.';
+  'Sequência derivada do ledger PÓS-ROLLOUT (dias de São Paulo com XP positivo de partida online). Sem backfill; idempotente e independente da ordem de chegada.';
+comment on table king_private.sequencia_inicio is
+  'Marco do rollout da sequência: nada anterior a ele (instante ou lançamento) conta. Sem backfill histórico.';

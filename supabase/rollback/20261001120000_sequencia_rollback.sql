@@ -2,9 +2,11 @@
 -- nenhum `db push` aplica isto. Só se roda à mão, no SQL Editor do Dashboard, se a sequência
 -- precisar sair do ar.
 --
--- O que ele faz: devolve `meu_progresso` às 5 colunas de antes, remove o gatilho, as funções e as
--- colunas da sequência. O XP e o ledger NÃO são tocados: a sequência é derivada deles, e reaplicar a
--- migração refaz o retrato a partir do ledger. Provado em `scripts/testar-progresso-sql.mjs` (S17).
+-- O que ele faz: devolve `meu_progresso` às 5 colunas de antes, remove o gatilho, as funções, o
+-- marco do rollout e as colunas da sequência. O XP e o ledger NÃO são tocados. Reaplicar a
+-- migração grava um marco NOVO: tudo o que veio antes dele — inclusive o que contou na primeira
+-- aplicação — vira histórico, e a sequência recomeça do zero, sem reconstrução. Provado em
+-- `scripts/testar-progresso-sql.mjs` (S17).
 
 begin;
 
@@ -34,6 +36,7 @@ drop function king_private.sequencia_de(uuid);
 drop function public.sequencia_qualificada_hoje(date, timestamptz);
 drop function public.sequencia_efetiva(integer, date, timestamptz);
 drop function public.dia_de_sao_paulo(timestamptz);
+drop table king_private.sequencia_inicio;
 
 alter table public.progresso
   drop constraint progresso_sequencia_coerente,

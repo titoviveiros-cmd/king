@@ -34,7 +34,7 @@
 //   node scripts/testar-progresso-sql.mjs --provas   # mutações (RED) + suíte GREEN
 import EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -141,8 +141,58 @@ const MUTACOES = {
   },
   "seq-sem-xp": {
     // partida que rendeu 0 (abandono, participação insuficiente, sobreposta) qualificaria o dia
-    trocasSeq: [["       and e.xp_delta > 0\n  ),", "       and e.xp_delta >= 0\n  ),"]],
+    trocasSeq: [["       and e.xp_delta > 0\n", "       and e.xp_delta >= 0\n"]],
     alvos: ["S10"],
+  },
+  // ── SEM BACKFILL (correção final da 6A): nada anterior ao rollout conta ──
+  "seq-backfill": {
+    // a migração volta a "preencher pelo histórico": marco no começo dos tempos + UPDATE retroativo
+    trocasSeq: [
+      ["values (now(), (select coalesce(max(e.id), 0) from public.xp_eventos as e));", "values ('-infinity', 0);"],
+      ["-- todo mundo (os defaults acima), e o marco garante que o histórico também não volte pelo gatilho.\n",
+       "-- todo mundo (os defaults acima), e o marco garante que o histórico também não volte pelo gatilho.\n" +
+       "update public.progresso as g set sequencia_atual = s.atual, sequencia_recorde = greatest(g.sequencia_recorde, s.recorde),\n" +
+       "  sequencia_ultimo_dia = s.ultimo_dia, sequencia_partida = s.partida\n" +
+       "  from public.progresso as p cross join lateral king_private.sequencia_de(p.player_id) as s where g.player_id = p.player_id;\n"],
+    ],
+    alvos: ["S16", "S17"],
+  },
+  "seq-historico-no-recalculo": {
+    // sem o marco no cálculo: o primeiro crédito pós-rollout reconstrói o histórico pelo gatilho
+    trocasSeq: [["       and e.id > m.ultimo_evento_anterior\n       and q.iniciada_em >= m.inicio\n", ""]],
+    alvos: ["S16"],
+  },
+  "seq-xp-anterior-ao-rollout": {
+    // XP lançado ANTES do rollout passaria a contar (aqui, de partida com início marcado depois do marco)
+    trocasSeq: [["       and e.id > m.ultimo_evento_anterior\n", ""]],
+    alvos: ["S16"],
+  },
+  "seq-partida-anterior-ao-rollout": {
+    // crédito ATRASADO de partida pré-rollout, ou partida que ATRAVESSOU o rollout, passaria a contar
+    trocasSeq: [["       and q.iniciada_em >= m.inicio\n", ""]],
+    alvos: ["S16"],
+  },
+  "seq-qualquer-origem": {
+    // uma origem futura de XP que não é partida (bônus, evento) qualificaria o dia
+    trocasSeq: [["       and e.motivo = 'partida_concluida'\n", ""]],
+    alvos: ["S19"],
+  },
+  // ── QUEM ESCREVE NO LEDGER: um escritor novo ou um GRANT de escrita precisam ser vistos ──
+  "ledger-segundo-escritor": {
+    trocasSeq: [["comment on table king_private.sequencia_inicio is",
+      "create function king_private.bonus_de_boas_vindas(p uuid) returns void language sql security definer set search_path = '' as $$\n" +
+      "  insert into public.xp_eventos (player_id, partida_id, motivo, posicao, xp_delta) select p, q.id, 'partida_concluida', 1, 50 from king_private.partidas as q limit 1\n$$;\n" +
+      "comment on table king_private.sequencia_inicio is"]],
+    alvos: ["S18"],
+  },
+  "ledger-escrita-service-role": {
+    trocasSeq: [["comment on table king_private.sequencia_inicio is", "grant insert on table public.xp_eventos to service_role;\ncomment on table king_private.sequencia_inicio is"]],
+    alvos: ["S18"],
+  },
+  "seq-solo-no-recalculo": {
+    // uma partida solo gravada por um escritor futuro qualificaria o dia
+    trocasSeq: [["       and q.humanos >= 2\n", ""]],
+    alvos: ["S19"],
   },
   "seq-em-utc": {
     trocasSeq: [["select (p_instante at time zone 'America/Sao_Paulo')::date", "select (p_instante at time zone 'UTC')::date"]],
@@ -163,7 +213,7 @@ function mutar(texto, trocas) {
   for (const [de, para] of trocas) {
     const n = t.split(de).length - 1;
     if (n !== 1) throw new Error(`âncora de mutação encontrada ${n}x: ${de.slice(0, 70)}`);
-    t = t.replace(de, para);
+    t = t.replace(de, () => para); // literal: `$$` do SQL não é padrão de substituição
   }
   return t;
 }
@@ -189,6 +239,14 @@ const conectar = async (database, user = "postgres", password = SENHA_ADMIN) => 
   return c;
 };
 
+/**
+ * O ROLLOUT DOS TESTES DE CALENDÁRIO. A migração grava o marco com `now()`, e o crédito não aceita
+ * fim no futuro — então os testes S1–S15 vivem num banco cujo rollout aconteceu em 01/01/2026 e
+ * usam partidas de março. Os testes de NÃO-BACKFILL (S16, S17) não usam isto: aplicam a migração de
+ * verdade, com o relógio real, sobre um banco que já tem histórico.
+ */
+const ROLLOUT_DOS_TESTES = "2026-01-01T00:00:00-03:00";
+
 /** `textoSequencia` null = o banco como está em Production hoje, SEM a migração da sequência. */
 async function criarModelo(nome, textoProgresso, textoSequencia) {
   const adm = await conectar("postgres");
@@ -199,7 +257,10 @@ async function criarModelo(nome, textoProgresso, textoSequencia) {
     await c.query(BOOTSTRAP);
     await c.query(IDENTIDADE);
     await c.query(textoProgresso);
-    if (textoSequencia) await c.query(textoSequencia);
+    if (textoSequencia) {
+      await c.query(textoSequencia);
+      await c.query("update king_private.sequencia_inicio set inicio = $1", [ROLLOUT_DOS_TESTES]);
+    }
   } finally {
     await c.end();
   }
@@ -302,6 +363,24 @@ function oraculo(eventos) {
 function mulberry32(semente) {
   let s = semente >>> 0;
   return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+/** O dia de São Paulo `k` dias antes de `iso` (AAAA-MM-DD). */
+const diaMenos = (iso, k) => new Date((numeroDoDia(iso) - k) * 86_400_000).toISOString().slice(0, 10);
+/** O marco do rollout que a migração gravou. */
+async function marco(admin) {
+  const r = await admin.query("select inicio, ultimo_evento_anterior::int as ultimo from king_private.sequencia_inicio");
+  return r.rows[0] ?? null;
+}
+const ZERADO = JSON.stringify({ atual: 0, recorde: 0, dia: null, partida: null });
+/** Quantos jogadores têm QUALQUER traço de sequência. */
+async function naoZerados(admin) {
+  const r = await admin.query("select count(*)::int n from public.progresso where sequencia_atual <> 0 or sequencia_recorde <> 0 " +
+    "or sequencia_ultimo_dia is not null or sequencia_partida is not null");
+  return r.rows[0].n;
+}
+async function resumoDoLedger(admin) {
+  return (await admin.query("select count(*)::int n, coalesce(sum(xp_delta), 0)::int soma, coalesce(max(id), 0)::int ultimo from public.xp_eventos")).rows[0];
 }
 
 function afirmar(cond, msg) { if (!cond) throw new Error(msg); }
@@ -1015,42 +1094,204 @@ const TESTES = [
     afirmar(t.rows.length === 1 && t.rows[0].tgenabled === "O", "o gatilho da sequência não está ativo");
     const cred = await b.admin.query("select has_function_privilege('king_server', 'king_private.creditar_partida(uuid, timestamptz, timestamptz, smallint, smallint, jsonb)', 'execute') as ok");
     afirmar(cred.rows[0].ok, "a migração tirou do servidor a única porta que ele tinha");
+    // o MARCO do rollout: privado, com RLS, do dono dedicado, sem acesso para ninguém da API
+    const { rows: [mk] } = await b.admin.query(
+      "select pg_get_userbyid(c.relowner) as dono, c.relrowsecurity as rls, " +
+      "(select bool_or(has_table_privilege(r, 'king_private.sequencia_inicio', p)) from unnest(array['anon','authenticated','service_role','king_server']) as r, " +
+      "unnest(array['SELECT','INSERT','UPDATE','DELETE']) as p) as alguem " +
+      "from pg_class c where c.oid = 'king_private.sequencia_inicio'::regclass");
+    afirmar(mk.dono === "king_progress_owner" && mk.rls === true && mk.alguem === false, `marco do rollout exposto: ${JSON.stringify(mk)}`);
+    for (const f of funcs) {
+      const r = await b.admin.query("select has_function_privilege('service_role', $1::regprocedure, 'execute') as ok", [f]);
+      afirmar(!r.rows[0].ok, `service_role executa ${f}`);
+    }
   } },
-  { id: "S16", semSequencia: true, nome: "aplicação sobre o banco de HOJE: o retrato nasce igual ao ledger, e o crédito seguinte continua dele", async fn(b, ctx) {
-    const [a, x, z] = await b.jogadores(3);
+  // ═══════════════ SEM BACKFILL HISTÓRICO (correção final da 6A) ═══════════════
+  // S16/S17 aplicam a migração DE VERDADE — relógio real, marco real — sobre o banco de Production
+  // de hoje, que já tem XP. Nada anterior ao rollout pode virar sequência.
+
+  { id: "S16", semSequencia: true, nome: "SEM BACKFILL — sobre banco COM XP histórico: todos zerados; o 1º crédito depois dá 1; nada pré-rollout entra", async fn(b, ctx) {
+    const [a, x, y, z, w, v, u] = await b.jogadores(7);
     const s = await b.servidor();
-    let ultima = null;
-    for (const dia of ["10", "11", "12"]) ultima = (await creditar(s, { ...terminandoEm(`2026-03-${dia}T15:00:00-03:00`), humanos: dupla(a, x) })).partida;
-    await creditar(s, { ...terminandoEm("2026-03-10T18:00:00-03:00"), humanos: [{ id: z, posicao: 1, participou: false }, { id: x, posicao: 2 }] });
-    await b.admin.query(ctx.sequencia); // a migração, como o Tito a aplicaria
-    const q = await sequencia(b.admin, a);
-    afirmar(q.atual === 3 && q.recorde === 3 && q.dia === "2026-03-12" && q.partida === ultima, `retrato inicial de A: ${JSON.stringify(q)}`);
-    const qz = await sequencia(b.admin, z);
-    afirmar(qz.atual === 0 && qz.dia === null, `quem só abandonou: ${JSON.stringify(qz)}`);
-    afirmar(await total(b.admin, a) === 450, "a migração mexeu no XP");
-    await creditar(await b.servidor(), { ...terminandoEm("2026-03-13T15:00:00-03:00"), humanos: dupla(a, x) });
-    const depois = await sequencia(b.admin, a);
-    afirmar(depois.atual === 4 && depois.recorde === 4, `crédito depois da migração: ${JSON.stringify(depois)}`);
+    // A. O HISTÓRICO, antes da migração: A e X jogaram nos 3 dias anteriores e hoje mais cedo. Se o
+    //    histórico entrasse, o 1º crédito de depois daria 4 ou 5 — nunca 1.
+    const hoje = diaSP(new Date());
+    for (const k of [3, 2, 1]) await creditar(s, { ...terminandoEm(`${diaMenos(hoje, k)}T12:00:00-03:00`), humanos: dupla(a, x) });
+    const cedo = new Date(Date.now() - 2 * 3_600_000);
+    await creditar(s, { iniciada: new Date(cedo.getTime() - 10 * 60_000), terminada: cedo, humanos: dupla(a, x) });
+    // Z e W: XP lançado ANTES da migração, de partida com início E fim marcados à frente (relógio do
+    //    servidor adiantado; o crédito aceita fim até 5 min no futuro). Só o id do marco a barra.
+    const adiantada = { iniciada: new Date(Date.now() + 60_000), terminada: new Date(Date.now() + 4 * 60_000) };
+    await creditar(s, { ...adiantada, humanos: dupla(z, w) });
+    const antes = await resumoDoLedger(b.admin);
+    const xpAntes = { a: await total(b.admin, a), z: await total(b.admin, z) };
+
+    // B. a migração, como o Tito a aplicaria
+    await b.admin.query(ctx.sequencia);
+
+    // C. todo mundo zerado — retrato e leitura. É AQUI que um backfill tem de ser pego.
+    afirmar(await naoZerados(b.admin) === 0, "a migração preencheu sequência a partir do histórico");
+    for (const id of [a, x, z, w]) {
+      const q = await sequencia(b.admin, id);
+      afirmar(JSON.stringify(q) === ZERADO, `${id.slice(0, 8)} depois da migração: ${JSON.stringify(q)}`);
+    }
+    const m = await marco(b.admin);
+    afirmar(m && m.inicio instanceof Date && m.ultimo === antes.ultimo, `marco ${JSON.stringify(m)}; o ledger terminava no lançamento ${antes.ultimo}`);
+    const va = (await (await b.como(a)).query(
+      "select sequencia_atual, sequencia_recorde, sequencia_hoje, sequencia_ultimo_dia, sequencia_partida from public.meu_progresso")).rows[0];
+    afirmar(va.sequencia_atual === 0 && va.sequencia_recorde === 0 && va.sequencia_hoje === false && va.sequencia_ultimo_dia === null && va.sequencia_partida === null,
+      `meu_progresso de A depois da migração: ${JSON.stringify(va)}`);
+    const depois = await resumoDoLedger(b.admin);
+    afirmar(depois.n === antes.n && depois.soma === antes.soma && await total(b.admin, a) === xpAntes.a, "a migração mexeu no XP ou no ledger");
+
+    // D/E. o PRIMEIRO crédito elegível depois da migração (partida iniciada depois do marco)
+    const fim = new Date(m.inicio.getTime() + 61_000);
+    const { partida } = await creditar(s, { iniciada: new Date(m.inicio.getTime() + 1_000), terminada: fim, humanos: dupla(a, y) });
+    const qa = await sequencia(b.admin, a);
+    afirmar(qa.atual === 1 && qa.recorde === 1 && qa.dia === diaSP(fim) && qa.partida === partida,
+      `1º crédito pós-migração de quem tinha 4 dias de histórico: ${JSON.stringify(qa)}`);
+    afirmar((await sequencia(b.admin, y)).atual === 1, "quem nunca tinha jogado também começa em 1");
+
+    // F. o histórico não participa — nem do recálculo, nem de quem só tem histórico
+    const rec = (await b.admin.query("select atual, recorde from king_private.sequencia_de($1)", [a])).rows[0];
+    afirmar(rec.atual === 1 && rec.recorde === 1, `o recálculo do ledger enxergou o histórico: ${JSON.stringify(rec)}`);
+    afirmar(JSON.stringify(await sequencia(b.admin, x)) === ZERADO, "X só tem histórico e ganhou sequência");
+
+    // crédito ATRASADO (outbox) de partida que terminou ANTES do marco: o XP entra; a sequência, não.
+    // E o recálculo que ele dispara também não pode aproveitar o lançamento de Z feito antes do marco.
+    const atrasada = new Date(m.inicio.getTime() - 30 * 60_000);
+    const { linhas } = await creditar(s, { iniciada: new Date(atrasada.getTime() - 10 * 60_000), terminada: atrasada, humanos: dupla(z, w) });
+    afirmar(xpDe(linhas, z) === 150 && await total(b.admin, z) === xpAntes.z + 150, "o XP do crédito atrasado deveria entrar normalmente");
+    // partida que ATRAVESSOU o rollout (começou antes, terminou depois): partida anterior, não conta
+    const atravessou = await creditar(s, { iniciada: new Date(m.inicio.getTime() - 5 * 60_000), terminada: new Date(m.inicio.getTime() + 20_000), humanos: dupla(v, u) });
+    afirmar(xpDe(atravessou.linhas, v) === 150, "o XP da partida que atravessou o rollout deveria entrar normalmente");
+    for (const id of [z, w, v, u]) {
+      const q = await sequencia(b.admin, id);
+      afirmar(JSON.stringify(q) === ZERADO, `XP ou partida anterior ao rollout contou para ${id.slice(0, 8)}: ${JSON.stringify(q)}`);
+    }
   } },
-  { id: "S17", nome: "rollback preparado: volta ao banco de antes sem tocar no XP, e reaplicar refaz o retrato do ledger", async fn(b, ctx) {
+  { id: "S17", semSequencia: true, nome: "rollback remove só a sequência (XP e ledger intactos) e REAPLICAR não reconstrói nada", async fn(b, ctx) {
     const [a, x] = await b.jogadores(2);
     const s = await b.servidor();
-    for (const dia of ["10", "11"]) await creditar(s, { ...terminandoEm(`2026-03-${dia}T15:00:00-03:00`), humanos: dupla(a, x) });
+    const hoje = diaSP(new Date());
+    for (const k of [2, 1]) await creditar(s, { ...terminandoEm(`${diaMenos(hoje, k)}T12:00:00-03:00`), humanos: dupla(a, x) });
+    await b.admin.query(ctx.sequencia);
+    afirmar(await naoZerados(b.admin) === 0, "a 1ª aplicação preencheu sequência a partir do histórico");
+    const m1 = await marco(b.admin);
+    afirmar(m1 && m1.inicio instanceof Date, `marco da 1ª aplicação: ${JSON.stringify(m1)}`);
+    await creditar(s, { iniciada: new Date(m1.inicio.getTime() + 1_000), terminada: new Date(m1.inicio.getTime() + 31_000), humanos: dupla(a, x) });
+    afirmar((await sequencia(b.admin, a)).atual === 1, "o 1º crédito depois da 1ª aplicação deveria dar 1");
+    const ledger1 = await resumoDoLedger(b.admin);
+    const xp1 = await total(b.admin, a);
+
+    // G. rollback
     await b.admin.query(ROLLBACK_SEQUENCIA);
     const cols = async (tabela) => (await b.admin.query(
       "select column_name from information_schema.columns where table_schema = 'public' and table_name = $1 order by ordinal_position", [tabela])).rows.map((r) => r.column_name).join(",");
     afirmar(await cols("meu_progresso") === "player_id,xp_total,nivel,xp_no_nivel,xp_do_nivel", `view depois do rollback: ${await cols("meu_progresso")}`);
     afirmar(await cols("progresso") === "player_id,xp_total,atualizado_em", `progresso depois do rollback: ${await cols("progresso")}`);
     const sobras = await b.admin.query(
-      "select (select count(*)::int from pg_trigger where tgname = 'xp_eventos_sequencia') + (select count(*)::int from pg_proc where proname in ('dia_de_sao_paulo','sequencia_efetiva','sequencia_qualificada_hoje','sequencia_de','sequencia_apos_lancamento')) as n");
-    afirmar(sobras.rows[0].n === 0, "o rollback deixou gatilho ou função para trás");
-    afirmar(await total(b.admin, a) === 300, "o rollback mexeu no XP");
-    await creditar(s, { ...terminandoEm("2026-03-12T15:00:00-03:00"), humanos: dupla(a, x) });
+      "select (select count(*)::int from pg_trigger where tgname = 'xp_eventos_sequencia')" +
+      " + (select count(*)::int from pg_proc where proname in ('dia_de_sao_paulo','sequencia_efetiva','sequencia_qualificada_hoje','sequencia_de','sequencia_apos_lancamento'))" +
+      " + (select count(*)::int from pg_class where oid = to_regclass('king_private.sequencia_inicio')) as n");
+    afirmar(sobras.rows[0].n === 0, "o rollback deixou gatilho, função ou marco para trás");
+    const ledgerR = await resumoDoLedger(b.admin);
+    afirmar(JSON.stringify(ledgerR) === JSON.stringify(ledger1) && await total(b.admin, a) === xp1, "o rollback mexeu no XP ou no ledger");
+    // com a sequência fora do ar, o crédito e a leitura seguem como antes dela
+    const f2 = new Date(Date.now() + 2 * 60_000);
+    await creditar(s, { iniciada: new Date(f2.getTime() - 30_000), terminada: f2, humanos: dupla(a, x) });
     const mp = (await (await b.como(a)).query("select * from public.meu_progresso")).rows[0];
-    afirmar(mp.xp_total === 450 && Object.keys(mp).length === 5, `crédito e leitura sem a sequência: ${JSON.stringify(mp)}`);
+    afirmar(mp.xp_total === xp1 + 150 && Object.keys(mp).length === 5, `crédito e leitura sem a sequência: ${JSON.stringify(mp)}`);
+
+    // H. reaplicar
     await b.admin.query(ctx.sequencia);
+    // I. sem reconstrução: nem o histórico, nem o que contou na 1ª aplicação, nem o crédito durante o rollback
+    afirmar(await naoZerados(b.admin) === 0, "reaplicar reconstruiu sequência a partir do ledger");
+    for (const id of [a, x]) afirmar(JSON.stringify(await sequencia(b.admin, id)) === ZERADO, "reaplicar devolveu sequência antiga");
+    const m2 = await marco(b.admin);
+    afirmar(m2.inicio > m1.inicio && m2.ultimo > m1.ultimo, `o marco não foi renovado: ${JSON.stringify({ m1, m2 })}`);
+    // e o fluxo normal recomeça do 1
+    const f3 = new Date(m2.inicio.getTime() + 4 * 60_000);
+    await creditar(s, { iniciada: new Date(f3.getTime() - 30_000), terminada: f3, humanos: dupla(a, x) });
     const q = await sequencia(b.admin, a);
-    afirmar(q.atual === 3 && q.recorde === 3 && q.dia === "2026-03-12", `reaplicada, a sequência sai do ledger: ${JSON.stringify(q)}`);
+    afirmar(q.atual === 1 && q.recorde === 1, `1º crédito depois da reaplicação: ${JSON.stringify(q)}`);
+    const div = await b.admin.query(
+      "select count(*)::int n from public.progresso g where g.xp_total <> (select coalesce(sum(e.xp_delta), 0) from public.xp_eventos e where e.player_id = g.player_id)");
+    afirmar(div.rows[0].n === 0, "XP total divergiu do ledger depois do ciclo migração → rollback → migração");
+  } },
+
+  // ═══════════════ QUEM ESCREVE NO LEDGER (a sequência nasce dele) ═══════════════
+
+  { id: "S18", nome: "escritores do ledger: só creditar_partida lança XP — no catálogo e em TODAS as migrações do repositório", async fn(b) {
+    // 1. escrita direta no ledger: ninguém da API, nem service_role, nem o servidor da partida
+    for (const papel of ["anon", "authenticated", "service_role", "king_server"]) {
+      for (const priv of ["INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
+        const r = await b.admin.query("select has_table_privilege($1, 'public.xp_eventos', $2) as ok", [papel, priv]);
+        afirmar(!r.rows[0].ok, `${papel} tem ${priv} em xp_eventos`);
+      }
+    }
+    // 2. função que INSERE no ledger: uma só, a do crédito
+    const escritoras = (await b.admin.query(
+      "select n.nspname || '.' || p.proname as f from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
+      "where n.nspname not in ('pg_catalog', 'information_schema') and p.prosrc ~* $1 order by 1", ["insert\\s+into\\s+(public\\.)?xp_eventos\\M"])).rows.map((r) => r.f);
+    afirmar(escritoras.join(",") === "king_private.creditar_partida", `funções que escrevem no ledger: ${escritoras.join(", ")}`);
+    // 3. SECURITY DEFINER: lista FECHADA e justificada. Uma nova derruba o teste e obriga revisão.
+    //    creditar_partida — a porta do crédito; criar_player — gatilho da identidade, só cria o perfil.
+    const definidoras = (await b.admin.query(
+      "select n.nspname || '.' || p.proname as f from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
+      "where p.prosecdef and n.nspname not in ('pg_catalog', 'information_schema') order by 1")).rows.map((r) => r.f);
+    afirmar(definidoras.join(",") === "king_private.creditar_partida,public.criar_player", `funções SECURITY DEFINER: ${definidoras.join(", ")}`);
+    // 4. quem executa o crédito: só king_server
+    for (const [papel, pode] of [["anon", false], ["authenticated", false], ["service_role", false], ["king_server", true]]) {
+      const r = await b.admin.query("select has_function_privilege($1, 'king_private.creditar_partida(uuid, timestamptz, timestamptz, smallint, smallint, jsonb)', 'execute') as ok", [papel]);
+      afirmar(r.rows[0].ok === pode, `${papel} ${pode ? "não executa" : "executa"} creditar_partida`);
+    }
+    // 5. o ledger só aceita o motivo de partida
+    const motivo = (await b.admin.query("select pg_get_constraintdef(oid) as d from pg_constraint where conname = 'xp_eventos_motivo'")).rows[0].d;
+    afirmar(/'partida_concluida'/.test(motivo) && (motivo.match(/'[^']+'/g) ?? []).length === 1, `motivos aceitos no ledger: ${motivo}`);
+    // 6. ESTÁTICO: todas as migrações do repositório, inclusive as que ainda vão ser escritas.
+    //    Um escritor novo, um GRANT de escrita ou um motivo novo derruba ESTE teste — e obriga a
+    //    revisar o discriminador da sequência (ver S19) antes de seguir.
+    const dirMig = new URL("supabase/migrations/", RAIZ);
+    const arquivos = readdirSync(dirMig).filter((n) => n.endsWith(".sql")).sort();
+    const insercoes = [], grants = [], motivos = [];
+    for (const n of arquivos) {
+      const t = readFileSync(new URL(n, dirMig), "utf8").replace(/--[^\n]*/g, "");
+      for (const _ of t.matchAll(/insert\s+into\s+(public\.)?xp_eventos\b/gi)) insercoes.push(n);
+      if (/grant\s+[^;]*\b(insert|update|delete|truncate|all)\b[^;]*\bon\s+(table\s+)?public\.xp_eventos\b/i.test(t)) grants.push(n);
+      for (const _ of t.matchAll(/xp_eventos_motivo/gi)) motivos.push(n);
+    }
+    afirmar(insercoes.join() === "20260925120000_progresso.sql", `INSERT no ledger nas migrações: ${insercoes.join(", ")}`);
+    afirmar(grants.length === 0, `GRANT de escrita no ledger em: ${grants.join(", ")}`);
+    afirmar(motivos.join() === "20260925120000_progresso.sql", `o conjunto de motivos do ledger mudou em: ${motivos.join(", ")}`);
+  } },
+  { id: "S19", nome: "origem: XP que não é de partida online (bônus futuro, partida solo de um escritor futuro) não qualifica dia", async fn(b) {
+    const [a, x, w] = await b.jogadores(3);
+    const s = await b.servidor();
+    // A já tem linha de progresso (abandono, 0 XP): o gatilho tem onde gravar se errar
+    await creditar(s, { ...terminandoEm("2026-03-09T15:00:00-03:00"), humanos: [{ id: a, posicao: 1, participou: false }, { id: x, posicao: 2 }] });
+    const { partida } = await creditar(s, { ...terminandoEm("2026-03-10T15:00:00-03:00"), humanos: dupla(x, w) });
+    const confere = async (quando) => {
+      const q = await sequencia(b.admin, a);
+      const r = (await b.admin.query("select atual, recorde from king_private.sequencia_de($1)", [a])).rows[0];
+      afirmar(JSON.stringify(q) === ZERADO && r.atual === 0 && r.recorde === 0, `${quando}: ${JSON.stringify({ q, r })}`);
+    };
+    // (a) uma ORIGEM NOVA de XP, como uma migração futura poderia criar
+    await b.admin.query("alter table public.xp_eventos drop constraint xp_eventos_motivo, " +
+      "add constraint xp_eventos_motivo check (motivo in ('partida_concluida', 'bonus_futuro'))");
+    await b.admin.query("insert into public.xp_eventos (player_id, partida_id, motivo, posicao, xp_delta) values ($1, $2, 'bonus_futuro', 1, 50)", [a, partida]);
+    await confere("um bônus que não é partida qualificou o dia");
+    // (b) uma partida SOLO gravada por um escritor futuro (a composição do banco relaxada à força)
+    await b.admin.query("alter table king_private.partidas drop constraint partidas_composicao");
+    const solo = randomUUID();
+    await b.admin.query("insert into king_private.partidas (id, iniciada_em, terminada_em, humanos, bots, versao_regra) " +
+      "values ($1, '2026-03-11T14:50:00-03:00', '2026-03-11T15:00:00-03:00', 1, 3, 1)", [solo]);
+    await b.admin.query("insert into public.xp_eventos (player_id, partida_id, motivo, posicao, xp_delta) values ($1, $2, 'partida_concluida', 1, 150)", [a, solo]);
+    await confere("uma partida solo qualificou o dia");
+    // controle: partida online de verdade continua contando — e só ela
+    await creditar(s, { ...terminandoEm("2026-03-12T15:00:00-03:00"), humanos: dupla(a, x) });
+    const q = await sequencia(b.admin, a);
+    afirmar(q.atual === 1 && q.recorde === 1 && q.dia === "2026-03-12", `a partida online depois das origens falsas: ${JSON.stringify(q)}`);
   } },
 ];
 

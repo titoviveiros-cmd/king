@@ -108,10 +108,11 @@ ação atrasada; ação fora de turno; tentativa ilegal; host sai; jogador retor
 ## Sequência (streak v1, Fase 6A)
 Regra, elegibilidade e rollout em `docs/KING-SEQUENCIA.md`. **Production ainda está sem streak.**
 
-- Banco (Postgres 17 real): `npm run test:progresso-sql:provas` — S1–S17 (calendário com relógio
+- Banco (Postgres 17 real): `npm run test:progresso-sql:provas` — S1–S19 (calendário com relógio
   fixo, elegibilidade, duplicata, retry do outbox com os módulos reais do servidor, crédito
-  atrasado, concorrência, valor efetivo, oráculo independente, segurança, aplicação e rollback) +
-  8 mutações de sequência, além das 10 de XP.
+  atrasado, concorrência, valor efetivo, oráculo independente, segurança, **sem backfill**
+  sobre banco com histórico, migração → rollback → migração, escritores do ledger e origem do
+  XP) + 16 mutações de sequência e do ledger, além das 10 de XP.
 - Web e servidor: `npm run test:mutacao:sequencia` — 13 mutações unitárias + 4 de layout
   (Playwright), todas precisam morrer.
 - Layout: `tests-progresso/progresso.spec.ts` (Home com a sequência no pior caso, inclusive

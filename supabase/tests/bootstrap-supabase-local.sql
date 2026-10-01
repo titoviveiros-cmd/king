@@ -4,7 +4,7 @@
 -- As migrações de `supabase/migrations/` NÃO dependem deste arquivo; ele só fornece a um Postgres
 -- puro o que o Supabase fornece de fábrica:
 --
---   • papéis `anon` e `authenticated`;
+--   • papéis `anon`, `authenticated` e `service_role` (este com BYPASSRLS, como no Supabase);
 --   • schema `auth`, com `auth.users` (só o id) e `auth.uid()` lendo `request.jwt.claims`,
 --     o mesmo mecanismo do Supabase;
 --   • os PRIVILÉGIOS PADRÃO permissivos do Supabase em `public` — tabelas, funções e sequências
@@ -22,6 +22,9 @@ begin
   if not exists (select 1 from pg_catalog.pg_roles where rolname = 'authenticated') then
     create role authenticated nologin noinherit;
   end if;
+  if not exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role') then
+    create role service_role nologin noinherit bypassrls;
+  end if;
 end $$;
 
 create schema if not exists auth;
@@ -38,6 +41,7 @@ grant execute on function auth.uid() to anon, authenticated;
 grant usage on schema public to anon, authenticated;
 
 -- Os padrões do Supabase, reproduzidos para o papel que aplica as migrações.
-alter default privileges in schema public grant all on tables    to anon, authenticated;
-alter default privileges in schema public grant all on sequences to anon, authenticated;
-alter default privileges in schema public grant execute on functions to anon, authenticated;
+alter default privileges in schema public grant all on tables    to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
+grant usage on schema public to service_role;
