@@ -105,6 +105,18 @@ esperar fim de mão/fase. A fonte é `liveScores(m)` no motor = `m.cumulative` (
 4 humanos; humanos + bots; disconnect; reconnect; timeout; app em background; ação duplicada;
 ação atrasada; ação fora de turno; tentativa ilegal; host sai; jogador retorna.
 
+## Sequência (streak v1, Fase 6A)
+Regra, elegibilidade e rollout em `docs/KING-SEQUENCIA.md`. **Production ainda está sem streak.**
+
+- Banco (Postgres 17 real): `npm run test:progresso-sql:provas` — S1–S17 (calendário com relógio
+  fixo, elegibilidade, duplicata, retry do outbox com os módulos reais do servidor, crédito
+  atrasado, concorrência, valor efetivo, oráculo independente, segurança, aplicação e rollback) +
+  8 mutações de sequência, além das 10 de XP.
+- Web e servidor: `npm run test:mutacao:sequencia` — 13 mutações unitárias + 4 de layout
+  (Playwright), todas precisam morrer.
+- Layout: `tests-progresso/progresso.spec.ts` (Home com a sequência no pior caso, inclusive
+  740×360) e `tests/placarFinal.spec.ts` (bloco XP + sequência no Placar, 13 viewports).
+
 ## Dívidas conhecidas de teste
 
 - **qaFinal tutorial — investigar ocorrência instável em 740×360.** `tests/qaFinal.spec.ts:75`
