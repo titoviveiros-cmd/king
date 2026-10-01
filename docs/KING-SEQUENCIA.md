@@ -197,12 +197,16 @@ Recomendado: **migração primeiro, web depois**.
 
 ### 11.2 Aplicar a migração
 
-O Tito aplica pelo **SQL Editor do Dashboard**, colando o arquivo inteiro.
+O Tito aplica pelo **SQL Editor do Dashboard**: cola `begin;`, o arquivo inteiro e `commit;`.
+Assim a aplicação é tudo ou nada; o arquivo em si não traz `begin`/`commit`, como a migração do
+progresso, porque o `db push` já abre a própria transação.
 
 - A migração usa `ALTER TABLE ... ADD COLUMN` com default constante, que no Postgres 11+ não
   reescreve a tabela.
 - A trava de `progresso` dura só a migração: segundos, com a base atual. O crédito que chegar
   durante esse tempo espera e segue.
+- O Supabase recarrega sozinho o cache de esquema da API depois de DDL. Se as colunas novas não
+  aparecerem em `meu_progresso` pela API, rodar `notify pgrst, 'reload schema';`.
 
 Conferências **somente leitura** depois de aplicar (todas devem dar o indicado):
 
