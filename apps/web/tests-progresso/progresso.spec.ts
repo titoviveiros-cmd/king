@@ -6,7 +6,9 @@
  *   - com sessão e progresso: o card aparece, ABAIXO das ações, dentro da tela, sem rolagem
  *     lateral e sem sobrepor nada — e a única requisição é a LEITURA de `meu_progresso`;
  *   - sem sessão: NENHUMA requisição ao Supabase e nenhum convidado criado — só para desenhar XP;
- *   - Supabase fora do ar ou lento: a Home é a de sempre, na hora, e jogar funciona.
+ *   - Supabase fora do ar ou lento: a Home é a de sempre, na hora, e jogar funciona;
+ *   - a SEQUÊNCIA (Fase 6A): com as colunas da migração, o card ganha a pilha lateral SEM crescer
+ *     nem sair da tela; num banco SEM a migração (Production hoje), o card é o de antes.
  */
 import { expect, test, type Page } from "@playwright/test";
 
@@ -14,6 +16,12 @@ const REF = "abcdefghijklmnopqrst";
 const HOST = `https://${REF}.supabase.co`;
 const CHAVE_DA_SESSAO = `sb-${REF}-auth-token`;
 const PROGRESSO = { xp_total: 370, nivel: 3, xp_no_nivel: 120, xp_do_nivel: 200 };
+const PARTIDA = "33333333-3333-4333-8333-333333333333";
+/** A linha de `meu_progresso` DEPOIS da migração — os casos mais LARGOS de cada estado. */
+const COM_SEQUENCIA = {
+  viva: { ...PROGRESSO, player_id: "x", sequencia_atual: 364, sequencia_recorde: 365, sequencia_hoje: true, sequencia_ultimo_dia: "2026-10-01", sequencia_partida: PARTIDA },
+  convite: { ...PROGRESSO, player_id: "x", sequencia_atual: 0, sequencia_recorde: 365, sequencia_hoje: false, sequencia_ultimo_dia: "2026-03-12", sequencia_partida: PARTIDA },
+};
 
 const b64url = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
 function sessaoGuardada() {
@@ -29,15 +37,16 @@ async function comSessao(page: Page) {
 }
 
 /** Intercepta TUDO que for ao projeto fictício e registra. `meu_progresso` responde como mandado. */
-async function supabaseFicticio(page: Page, { status = 200, atrasoMs = 0 } = {}) {
+async function supabaseFicticio(page: Page, { status = 200, atrasoMs = 0, linha = PROGRESSO as Record<string, unknown>, consultas = [] as string[] } = {}) {
   const chamadas: string[] = [];
   await page.route(`${HOST}/**`, async (route) => {
     const req = route.request();
     const url = new URL(req.url());
     chamadas.push(`${req.method()} ${url.pathname}`);
     if (url.pathname === "/rest/v1/meu_progresso") {
+      consultas.push(url.search);
       if (atrasoMs) await new Promise((r) => setTimeout(r, atrasoMs));
-      return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(status === 200 ? [PROGRESSO] : { message: "indisponível" }) });
+      return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(status === 200 ? [linha] : { message: "indisponível" }) });
     }
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
   });
@@ -47,13 +56,8 @@ async function supabaseFicticio(page: Page, { status = 200, atrasoMs = 0 } = {})
 const card = (page: Page) => page.locator(".hm-progresso");
 const jogarAgora = (page: Page) => page.getByRole("button", { name: /jogar agora/i });
 
-test("com sessão: o card aparece abaixo das ações, na tela, sem rolagem lateral nem sobreposição", async ({ page }) => {
-  await comSessao(page);
-  const chamadas = await supabaseFicticio(page);
-  await page.goto("/");
-  await expect(card(page)).toBeVisible();
-  await expect(card(page)).toContainText("Nível3");
-  await expect(card(page)).toContainText("120 / 200 XP");
+/** O card em repouso: abaixo das ações, na tela, sem rolagem lateral e sem nada cruzando. */
+async function cardCabe(page: Page, cenario: string) {
   // MEDIR O REPOUSO, NÃO UM QUADRO. O card entra com `riseIn`: nasce 18px abaixo e sobe. Nos
   // primeiros ~50ms ele cruza o "Aprenda KING" logo abaixo (medido: −3,6px a 852×300 e −7,6px a
   // 667×375; em repouso a folga é +14px e +10px). Foi esse quadro que o CI fotografou em
@@ -84,11 +88,64 @@ test("com sessão: o card aparece abaixo das ações, na tela, sem rolagem later
       return cruza ? el.className || el.tagName : null;
     }).filter(Boolean);
   });
-  expect(cruzamentos).toEqual([]);
+  expect(cruzamentos, cenario).toEqual([]);
+  // o conteúdo do card não vaza da pílula (white-space:nowrap esconderia isso de um olho apressado)
+  const vaza = await card(page).evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(vaza, `[${cenario}] o conteúdo vaza ${vaza}px da pílula`).toBeLessThanOrEqual(0);
+  return c;
+}
+
+test("com sessão: o card aparece abaixo das ações, na tela, sem rolagem lateral nem sobreposição", async ({ page }) => {
+  await comSessao(page);
+  const consultas: string[] = [];
+  const chamadas = await supabaseFicticio(page, { consultas });
+  await page.goto("/");
+  await expect(card(page)).toBeVisible();
+  await expect(card(page)).toContainText("Nível3");
+  await expect(card(page)).toContainText("120 / 200 XP");
+  await cardCabe(page, "sem sequência");
+  // BANCO SEM A MIGRAÇÃO (Production hoje): nenhuma linha de sequência, nem convite, nem zero
+  await expect(page.locator(".pg-lado, .pg-seq, .pg-recorde")).toHaveCount(0);
+  // a leitura pede `*`: é o que deixa o banco sem a migração responder sem erro
+  expect(consultas.every((q) => new URLSearchParams(q).get("select") === "*"), consultas.join(" | ")).toBe(true);
   // só LEITURA: uma consulta a meu_progresso, e nenhuma chamada de autenticação/criação
   expect(chamadas.filter((c2) => !c2.startsWith("GET /rest/v1/meu_progresso"))).toEqual([]);
   expect(chamadas.length).toBeGreaterThanOrEqual(1);
 });
+
+for (const [estado, linha, seq, recorde] of [
+  ["viva", COM_SEQUENCIA.viva, "🔥 Sequência 364 dias", "Recorde: 365 dias"],
+  ["convite", COM_SEQUENCIA.convite, "🔥 Comece hoje: jogue online", "Recorde: 365 dias"],
+] as const) {
+  test(`com a sequência (${estado}, pior caso): o card cabe e NÃO cresce`, async ({ page }, ti) => {
+    await comSessao(page);
+    const chamadas = await supabaseFicticio(page, { linha });
+    await page.goto("/");
+    await expect(page.locator(".pg-seq")).toHaveText(seq);
+    await expect(page.locator(".pg-recorde")).toHaveText(recorde);
+    const c = await cardCabe(page, estado);
+    // a pilha lateral inteira DENTRO da pílula
+    for (const sel of [".pg-seq", ".pg-recorde"]) {
+      const b = (await page.locator(sel).boundingBox())!;
+      expect(b.x + b.width, `${sel} sai pela direita do card`).toBeLessThanOrEqual(c.x + c.width + 1);
+      expect(b.y >= c.y - 1 && b.y + b.height <= c.y + c.height + 1, `${sel} sai do card na vertical`).toBe(true);
+    }
+    // NÃO CRESCE: a mesma altura do card sem sequência, no mesmo viewport
+    const outra = await page.context().newPage();
+    await outra.addInitScript(([k, v]) => { localStorage.setItem(k, v); }, [CHAVE_DA_SESSAO, JSON.stringify(sessaoGuardada())] as const);
+    await supabaseFicticio(outra);
+    await outra.goto("/");
+    await expect(card(outra)).toBeVisible();
+    await outra.waitForFunction(() =>
+      document.querySelector(".hm-progresso")!.getAnimations({ subtree: true }).every((a) => a.playState === "finished"));
+    const semSeq = (await card(outra).boundingBox())!;
+    expect(Math.abs(c.height - semSeq.height), `o card cresceu de ${semSeq.height}px para ${c.height}px`).toBeLessThanOrEqual(1);
+    await outra.close();
+    // continua sendo só leitura
+    expect(chamadas.filter((c2) => !c2.startsWith("GET /rest/v1/meu_progresso"))).toEqual([]);
+    if (process.env.KING_SHOTS) await page.screenshot({ path: `${process.env.KING_SHOTS}/home-sequencia-${estado}-${ti.project.name}.png` });
+  });
+}
 
 test("sem sessão: nenhuma requisição ao Supabase, nenhum convidado criado, nenhum card", async ({ page }) => {
   const chamadas = await supabaseFicticio(page);

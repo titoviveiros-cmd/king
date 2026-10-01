@@ -24,7 +24,8 @@
     "test:progresso-sql:provas": "node scripts/testar-progresso-sql.mjs --provas",
     "test:progresso-sql:ci": "npm run build:server && node scripts/testar-progresso-sql.mjs --provas",
     "test:ops": "npm run build:server && node --test \"scripts/ops/*.test.mjs\"",
-    "test:mutacao:analytics": "node scripts/mutar-analytics.mjs --e2e"
+    "test:mutacao:analytics": "node scripts/mutar-analytics.mjs --e2e",
+    "test:mutacao:sequencia": "node scripts/mutar-sequencia.mjs --e2e"
   },
   "engines": {
     "node": ">=22"

@@ -16,6 +16,24 @@ export interface ProgressoDoJogador {
   xpNoNivel: number;
   /** XP que o nível atual exige para subir — a barra vai de 0 a isto. */
   xpDoNivel: number;
+  /**
+   * Ausente quando o banco ainda não tem a sequência (migração não aplicada) ou mandou dado
+   * estranho. Ausente, a tela é exatamente a de antes.
+   */
+  sequencia?: SequenciaDoJogador;
+}
+
+/**
+ * A SEQUÊNCIA (dias seguidos de São Paulo com XP), como o BANCO a calcula. O cliente não conta
+ * dia, não olha relógio e não decide se quebrou: `atual` já chega EFETIVA — zero para quem
+ * deixou passar um dia —, e `hoje` diz se o dia de hoje já conta, pelo relógio do banco.
+ */
+export interface SequenciaDoJogador {
+  atual: number;
+  recorde: number;
+  hoje: boolean;
+  /** A partida que qualificou o último dia. O Placar Final só mostra a sequência se for a dele. */
+  partida: string | null;
 }
 
 export interface CreditoDaPartida {
@@ -25,9 +43,21 @@ export interface CreditoDaPartida {
 
 type Resposta<T> = Promise<{ data: T | null; error: unknown }>;
 
+/** A linha de `meu_progresso`. As colunas da sequência só existem depois da migração dela. */
+export interface LinhaDoMeuProgresso {
+  xp_total: number;
+  nivel: number;
+  xp_no_nivel: number;
+  xp_do_nivel: number;
+  sequencia_atual?: unknown;
+  sequencia_recorde?: unknown;
+  sequencia_hoje?: unknown;
+  sequencia_partida?: unknown;
+}
+
 /** O que a leitura precisa do banco. Duas consultas, nenhuma escrita. */
 export interface PortaDeProgresso {
-  meuProgresso(): Resposta<{ xp_total: number; nivel: number; xp_no_nivel: number; xp_do_nivel: number }>;
+  meuProgresso(): Resposta<LinhaDoMeuProgresso>;
   creditoDaPartida(partidaId: string): Resposta<{ xp_delta: number; posicao: number }>;
 }
 
@@ -36,6 +66,14 @@ const inteiro = (v: unknown): v is number => typeof v === "number" && Number.isI
 
 /** O `matchId` tem a forma de um id de partida? Lixo não vira consulta, nem tentativa repetida. */
 export const matchIdValido = (matchId: unknown): matchId is string => typeof matchId === "string" && UUID.test(matchId);
+
+/** A sequência só passa se vier INTEIRA e coerente; senão a tela fica como era antes dela. */
+function lerSequencia(d: LinhaDoMeuProgresso): SequenciaDoJogador | null {
+  const { sequencia_atual: atual, sequencia_recorde: recorde, sequencia_hoje: hoje, sequencia_partida: partida } = d;
+  if (!inteiro(atual) || !inteiro(recorde) || recorde < atual || typeof hoje !== "boolean") return null;
+  if (partida !== null && !matchIdValido(partida)) return null;
+  return { atual, recorde, hoje, partida: partida === null ? null : partida.toLowerCase() };
+}
 
 /**
  * `temSessao`: há uma sessão GUARDADA neste aparelho? Sem ela não existe de quem ler progresso — e
@@ -55,7 +93,8 @@ export function criarLeitorDeProgresso(porta: () => Promise<PortaDeProgresso | n
         if (error || !data) return null;
         const { xp_total, nivel, xp_no_nivel, xp_do_nivel } = data;
         if (![xp_total, nivel, xp_no_nivel, xp_do_nivel].every(inteiro) || nivel < 1) return null;
-        return { xpTotal: xp_total, nivel, xpNoNivel: xp_no_nivel, xpDoNivel: xp_do_nivel };
+        const sequencia = lerSequencia(data);
+        return { xpTotal: xp_total, nivel, xpNoNivel: xp_no_nivel, xpDoNivel: xp_do_nivel, ...(sequencia ? { sequencia } : {}) };
       } catch {
         return null;
       }
@@ -115,7 +154,10 @@ export function leitorDeProgressoConfigurado(): LeitorDeProgresso | null {
     const c = await clienteCompartilhado(r);
     if (!c) return null;
     return {
-      meuProgresso: async () => await c.from("meu_progresso").select("xp_total, nivel, xp_no_nivel, xp_do_nivel").maybeSingle(),
+      // `*` DE PROPÓSITO: num banco sem a migração da sequência, pedir as colunas novas pelo nome
+      // derrubaria a leitura inteira — e o card de XP junto. Com `*`, banco velho devolve as 5
+      // colunas de sempre e a sequência simplesmente não aparece. A ordem do rollout não importa.
+      meuProgresso: async () => await c.from("meu_progresso").select("*").maybeSingle<LinhaDoMeuProgresso>(),
       creditoDaPartida: async (partidaId) =>
         await c.from("xp_eventos").select("xp_delta, posicao").eq("partida_id", partidaId).maybeSingle(),
     };

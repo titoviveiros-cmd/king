@@ -25,6 +25,7 @@
  * contra a própria caixa (`scrollHeight` × `clientHeight`). É a segunda que pega este defeito, e
  * é a que faltava.
  */
+import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import { fmt, insideViewport, intersects, type Box } from "./helpers/geometry.js";
 import { boxOf, SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
@@ -263,6 +264,50 @@ test.describe("o placar final cabe na tela", () => {
 
     if (process.env.KING_SHOTS) {
       await page.screenshot({ path: `${process.env.KING_SHOTS}/fim-social-${ti.project.name}.png` });
+    }
+  });
+
+  /**
+   * O XP E A SEQUÊNCIA, QUE SÓ EXISTEM NO FIM DE UMA PARTIDA ONLINE (Fase 6A).
+   *
+   * Mesmo raciocínio do botão social: chegar ao placar online com crédito no banco custa uma
+   * partida multiplayer inteira, e a pergunta é de GEOMETRIA. A coluna de dados (`.fimdados`) é a
+   * mesma nos dois modos. O bloco entra no fim dela com o markup REAL do `XpNoFim` no pior caso
+   * (nível 49, "2450 / 2500 XP", "🔥 Sequência: 365 dias") — `src/ui/fimxpPiorCaso.test.tsx` garante
+   * que o arquivo é o que o componente desenha hoje.
+   */
+  test("com o XP e a sequência no pior caso, a coluna de resultado continua cabendo", async ({ page }, ti) => {
+    test.setTimeout(180_000);
+    await telaFinal(page);
+    const vp = page.viewportSize()!;
+
+    const bloco = readFileSync(new URL("./fixtures/fimxp-pior-caso.html", import.meta.url), "utf8").trim();
+    await page.locator(".fimdados").evaluate((dados, html) => { dados.insertAdjacentHTML("beforeend", html); }, bloco);
+    // O bloco entra com `riseIn` — mede-se o repouso, não o quadro em que ele ainda sobe.
+    await page.waitForFunction(() =>
+      document.querySelector(".fimxp")!.getAnimations({ subtree: true }).every((a) => a.playState === "finished"));
+
+    await expect(page.locator(".fimdados .fimxp-seq")).toHaveText("🔥 Sequência: 365 dias");
+    await cabeInteira(page, vp, "XP + sequência");
+
+    const dados = await boxOf(page.locator(".fimdados"), ".fimdados");
+    for (const sel of [".fimxp", ".fimxp-ganho", ".fimxp-nivel", ".fimxp-seq"]) {
+      const c = await boxOf(page.locator(sel), sel);
+      expect(insideViewport(c as Box, vp, SUBPIXEL), `${sel} fora da tela: ${JSON.stringify(c)}`).toBe(true);
+      expect(c.x + c.width, `${sel} saiu pela direita da coluna de resultado`).toBeLessThanOrEqual(dados.x + dados.width + SUBPIXEL);
+    }
+    // nada da coluna cruza o bloco novo, e ele não cruza os CTAs da revanche
+    const xp = await boxOf(page.locator(".fimxp"), ".fimxp");
+    for (const sel of [".fimchips", ".fimdest", ".fimrank", ".fimacoes"]) {
+      if (!(await page.locator(sel).count())) continue;
+      const o = await boxOf(page.locator(sel), sel);
+      expect(intersects(o as Box, xp as Box, SUBPIXEL), `${sel} cruza o bloco de XP: ${fmt(o as Box)} × ${fmt(xp as Box)}`).toBe(false);
+    }
+    const lateral = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+    expect(lateral, "rolagem lateral com o bloco de XP").toBeLessThanOrEqual(0);
+
+    if (process.env.KING_SHOTS) {
+      await page.screenshot({ path: `${process.env.KING_SHOTS}/fim-xp-sequencia-${ti.project.name}.png` });
     }
   });
 

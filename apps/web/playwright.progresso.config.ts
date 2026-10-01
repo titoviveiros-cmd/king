@@ -8,13 +8,15 @@ import { defineConfig } from "@playwright/test";
  * apareceria, e um teste de layout passaria verde sem ter medido nada. Aqui o build aponta para um
  * Supabase fictício (`.env.e2e-progresso`) e o teste intercepta a rede.
  *
- * Viewports: os dois landscape de celular pedidos, a altura útil mais baixa que o KING promete,
+ * Viewports: os landscape de celular pedidos (740×360 entrou com a sequência, Fase 6A: é a altura
+ * em que o card esconde o total), a altura útil mais baixa que o KING promete,
  * um desktop, e um aparelho de TOQUE (`hasTouch` + `isMobile`).
  */
 const CI = !!process.env.CI;
 
 const PROJETOS = [
   { nome: "667x375", w: 667, h: 375 },
+  { nome: "740x360", w: 740, h: 360 },
   { nome: "852x393", w: 852, h: 393 },
   { nome: "852x300", w: 852, h: 300 },
   { nome: "1600x900", w: 1600, h: 900 },

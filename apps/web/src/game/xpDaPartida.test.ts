@@ -2,7 +2,7 @@
 // depois de a tela sair. Relógio falso: nenhum teste espera segundos de verdade.
 import { describe, expect, it } from "vitest";
 import type { CreditoDaPartida, ProgressoDoJogador } from "../auth/progresso.js";
-import { buscarXpDaPartida, ESPERAS_DO_CREDITO_MS, xpParaExibir } from "./xpDaPartida.js";
+import { buscarXpDaPartida, ESPERAS_DO_CREDITO_MS, sequenciaDaPartida, xpParaExibir } from "./xpDaPartida.js";
 
 const PARTIDA = "33333333-3333-4333-8333-333333333333";
 const CREDITO: CreditoDaPartida = { xpDelta: 115, posicao: 3 };
@@ -110,5 +110,34 @@ describe("xpParaExibir — o que a tela do fim mostra", () => {
 
   it("partida da 7ª em diante (XP reduzido pelo servidor) aparece com o valor REAL, sem recálculo", () => {
     expect(xpParaExibir({ credito: { xpDelta: 37, posicao: 1 }, progresso: PROGRESSO })?.credito.xpDelta).toBe(37);
+  });
+});
+
+describe("sequenciaDaPartida — o Placar só mostra a sequência que ESTA partida fez andar", () => {
+  const OUTRA = "44444444-4444-4444-8444-444444444444";
+  const com = (sequencia: ProgressoDoJogador["sequencia"]) => ({ credito: CREDITO, progresso: { ...PROGRESSO, sequencia } });
+
+  it("esta partida qualificou o dia: mostra o número que o banco gravou", () => {
+    expect(sequenciaDaPartida(com({ atual: 3, recorde: 7, hoje: true, partida: PARTIDA }), PARTIDA)).toBe(3);
+    expect(sequenciaDaPartida(com({ atual: 1, recorde: 1, hoje: true, partida: PARTIDA }), PARTIDA.toUpperCase())).toBe(1);
+  });
+
+  it("2ª partida do MESMO dia (o dia já tinha sido qualificado por outra): nada — nenhum avanço fingido", () => {
+    expect(sequenciaDaPartida(com({ atual: 3, recorde: 7, hoje: true, partida: OUTRA }), PARTIDA)).toBeNull();
+  });
+
+  it("sem sequência (banco sem a migração), sem releitura, sem matchId ou com zero: nada", () => {
+    expect(sequenciaDaPartida(com(undefined), PARTIDA)).toBeNull();
+    expect(sequenciaDaPartida({ credito: CREDITO, progresso: null }, PARTIDA)).toBeNull();
+    expect(sequenciaDaPartida(com({ atual: 3, recorde: 3, hoje: true, partida: PARTIDA }), undefined)).toBeNull();
+    expect(sequenciaDaPartida(com({ atual: 0, recorde: 3, hoje: false, partida: PARTIDA }), PARTIDA)).toBeNull();
+    expect(sequenciaDaPartida(com({ atual: 0, recorde: 0, hoje: false, partida: null }), PARTIDA)).toBeNull();
+    expect(sequenciaDaPartida(null, PARTIDA)).toBeNull();
+  });
+
+  it("RELOAD do Placar / duas abas: a mesma leitura dá o mesmo número — nada se soma no cliente", async () => {
+    const leitor = leitorFalso({ progresso: { ...PROGRESSO, sequencia: { atual: 4, recorde: 4, hoje: true, partida: PARTIDA } } });
+    const vezes = await Promise.all([1, 2, 3].map(() => buscarXpDaPartida(leitor, PARTIDA, { cancelado: () => false, esperar: async () => {} })));
+    expect(vezes.map((x) => sequenciaDaPartida(x, PARTIDA))).toEqual([4, 4, 4]);
   });
 });

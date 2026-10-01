@@ -72,3 +72,15 @@ export function useXpDaPartida(matchId: string | undefined, leitor: LeitorDeProg
 export function xpParaExibir(xp: XpDaPartida | null): XpDaPartida | null {
   return xp && xp.credito.xpDelta > 0 ? xp : null;
 }
+
+/**
+ * "🔥 Sequência: N dias" no fim da partida — SÓ se foi ESTA partida que qualificou o dia. Quem
+ * decide é o banco (`sequencia_partida`, gravado na mesma transação do XP); aqui só se compara o
+ * id. Por isso a 2ª partida do dia não finge um avanço, o reload do Placar mostra o mesmo, e o
+ * relógio do aparelho não entra na conta.
+ */
+export function sequenciaDaPartida(xp: XpDaPartida | null, matchId: string | undefined): number | null {
+  const s = xp?.progresso?.sequencia;
+  if (!s || !s.partida || !matchId || s.partida !== matchId.toLowerCase() || s.atual < 1) return null;
+  return s.atual;
+}

@@ -286,7 +286,7 @@ export function PlacarFinal({
                   "entra na Fase 7" — promessa de algo que o jogo não entregava. Agora é o crédito
                   que o banco confirmou para ESTA partida, e o nível relido depois dele. Por último
                   na coluna e em tom menor: quem venceu continua sendo o assunto desta tela. */}
-              {xp && <XpNoFim xp={xp} />}
+              {xp && <XpNoFim xp={xp} matchId={mp?.matchId} />}
             </>
           )}
         </div>

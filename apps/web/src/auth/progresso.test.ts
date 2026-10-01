@@ -71,6 +71,65 @@ describe("leitura do progresso", () => {
   });
 });
 
+describe("a sequência — lida do banco, nunca calculada aqui", () => {
+  const BASE = { xp_total: 150, nivel: 2, xp_no_nivel: 50, xp_do_nivel: 150 };
+  const SEQ = { sequencia_atual: 3, sequencia_recorde: 7, sequencia_hoje: true, sequencia_partida: PARTIDA };
+  const ler = (linha: Record<string, unknown>) =>
+    criarLeitorDeProgresso(async () => portaFalsa({ meuProgresso: async () => ({ data: linha as never, error: null }) })).meuProgresso();
+
+  it("com as colunas da migração: a sequência chega pronta, ao lado do XP", async () => {
+    expect(await ler({ ...BASE, ...SEQ, sequencia_ultimo_dia: "2026-10-01", player_id: "x" })).toEqual({
+      xpTotal: 150, nivel: 2, xpNoNivel: 50, xpDoNivel: 150, sequencia: { atual: 3, recorde: 7, hoje: true, partida: PARTIDA },
+    });
+  });
+
+  it("banco SEM a migração (Production hoje): o XP de sempre e NENHUMA sequência — nem zero inventado", async () => {
+    const p = await ler(BASE);
+    expect(p).toEqual({ xpTotal: 150, nivel: 2, xpNoNivel: 50, xpDoNivel: 150 });
+    expect(p && "sequencia" in p).toBe(false);
+  });
+
+  it("nunca qualificou: zeros e partida nula são um estado válido", async () => {
+    expect((await ler({ ...BASE, sequencia_atual: 0, sequencia_recorde: 0, sequencia_hoje: false, sequencia_partida: null }))?.sequencia)
+      .toEqual({ atual: 0, recorde: 0, hoje: false, partida: null });
+  });
+
+  it("dado estranho na sequência derruba SÓ a sequência; o XP continua aparecendo", async () => {
+    for (const ruim of [
+      { sequencia_atual: -1 }, { sequencia_atual: 2.5 }, { sequencia_atual: "3" }, { sequencia_recorde: 2 }, // recorde < atual
+      { sequencia_hoje: "true" }, { sequencia_partida: "não-é-uuid" }, { sequencia_partida: undefined },
+    ]) {
+      const p = await ler({ ...BASE, ...SEQ, ...ruim });
+      expect(p?.xpTotal, JSON.stringify(ruim)).toBe(150);
+      expect(p?.sequencia, JSON.stringify(ruim)).toBeUndefined();
+    }
+  });
+
+  it("o id da partida vem normalizado em minúsculas, como o matchId do servidor", async () => {
+    expect((await ler({ ...BASE, ...SEQ, sequencia_partida: PARTIDA.toUpperCase() }))?.sequencia?.partida).toBe(PARTIDA);
+  });
+
+  it("RELÓGIO DO APARELHO ADULTERADO não muda nada: o cliente não olha a hora", async () => {
+    const certo = await ler({ ...BASE, ...SEQ });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      for (const t of ["2030-01-01T00:00:00Z", "1999-12-31T23:59:59Z", "2026-10-03T03:00:00Z"]) {
+        vi.setSystemTime(new Date(t));
+        expect(await ler({ ...BASE, ...SEQ }), t).toEqual(certo);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a leitura real pede `*`: banco sem a migração não derruba o card de XP (ordem do rollout livre)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const codigo = readFileSync(new URL("./progresso.ts", import.meta.url), "utf8");
+    expect(codigo).toContain('c.from("meu_progresso").select("*")');
+    expect(codigo).not.toMatch(/select\("[^"]*sequencia_/);
+  });
+});
+
 describe("sem sessão guardada, nem o SDK é tocado — e nenhum convidado nasce para mostrar XP", () => {
   it("meuProgresso e creditoDaPartida devolvem null SEM abrir a porta", async () => {
     let abriu = 0;

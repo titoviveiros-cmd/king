@@ -1135,6 +1135,8 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .fimxp-nivel{display:flex;align-items:center;gap:calc(var(--ui)*.45);font-size:calc(var(--ui)*.66);font-weight:700;color:var(--muted);white-space:nowrap;}
 .fimxp-rotulo{color:var(--gold);font-weight:800;letter-spacing:.04em;}
 .fimxp-nivel .pg-barra{width:calc(var(--ui)*4.6);}
+/* A sequência no fim: mesma linha, mesmo tom menor, em ouro — só quando ESTA partida qualificou o dia. */
+.fimxp-seq{font-size:calc(var(--ui)*.66);font-weight:800;letter-spacing:.02em;color:var(--gold);white-space:nowrap;}
 @media (prefers-reduced-motion: reduce){ .fimxp{animation:none;} }
 
 .fimpular{position:absolute;bottom:calc(var(--pad) + var(--sb));left:50%;transform:translateX(-50%);z-index:3;
@@ -1878,6 +1880,13 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .pg-numeros{font-size:calc(var(--ui)*.66);font-weight:700;color:var(--muted);text-align:left;white-space:nowrap;}
 .pg-numeros b{color:var(--ink);}
 .pg-total{font-size:calc(var(--ui)*.58);font-weight:700;letter-spacing:.04em;color:var(--faint);white-space:nowrap;}
+/* A SEQUÊNCIA, na lateral do card: uma pilha curta (total, sequência, recorde) que cabe na altura
+   do badge — o card não cresce. Ouro quando o dia de hoje já conta; tom neutro enquanto não conta,
+   sem alarme: é lembrança, não cobrança. */
+.pg-lado{display:flex;flex-direction:column;align-items:flex-start;gap:2px;line-height:1.15;min-width:0;}
+.pg-seq{font-size:calc(var(--ui)*.58);font-weight:800;letter-spacing:.02em;color:var(--muted);white-space:nowrap;}
+.pg-seq.hoje{color:var(--gold);}
+.pg-recorde{font-size:calc(var(--ui)*.52);font-weight:700;letter-spacing:.03em;color:var(--faint);white-space:nowrap;}
 /* Altura compacta: a pílula fica, o texto auxiliar cede — na ordem do Design System. */
 @media (max-height: 360px){ .hm-progresso{margin-top:0;} .pg-total{display:none;} }
 @media (prefers-reduced-motion: reduce){ .hm-progresso{animation:none;} .pg-barra i{transition:none;} }

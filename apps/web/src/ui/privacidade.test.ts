@@ -27,6 +27,11 @@ describe("o que a página precisa dizer", () => {
     expect(TEXTO).toMatch(/região US/);
   });
 
+  it("dados do jogo online: XP, nível e a sequência DERIVADA deles (Fase 6A); contra os bots, nenhuma conta", () => {
+    expect(TEXTO).toMatch(/o seu XP e o seu nível — e, calculada a partir deles, a sua sequência de dias com XP/);
+    expect(TEXTO).toMatch(/Jogar contra os bots não cria conta nenhuma/);
+  });
+
   it("identificador anônimo guardado no aparelho, sem ligação com a conta", () => {
     expect(TEXTO).toMatch(/Identificador anônimo/);
     expect(TEXTO).toMatch(/guarda no próprio aparelho/);
