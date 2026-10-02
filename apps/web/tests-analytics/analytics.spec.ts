@@ -294,6 +294,11 @@ test("online, 2 humanos + 2 bots: sala, convite, partida — e o reload NÃO con
   expect(contar(redeB, "room_created")).toBe(0);
   for (const rede of [redeA, redeB]) {
     expect(ultimo(rede, "match_started")!.properties).toMatchObject({ modo: "online", humanos: 2, bots: 2 });
+    // `first_match_started` sai numa requisição PRÓPRIA (`request_batching: false`), emitida logo
+    // DEPOIS de `match_started`: ter visto um não garante ter visto o outro. Conferir na hora deu
+    // `undefined` na CI 36933634241 (852×393), e atrasar só essa requisição em 400 ms reproduz a
+    // falha toda vez. Espera-se pelo evento — exatamente UM — antes de conferir o que ele traz.
+    await expect.poll(() => contar(rede, "first_match_started"), { timeout: 15_000 }).toBe(1);
     expect(ultimo(rede, "first_match_started")!.properties).toMatchObject({ modo: "online" });
   }
 
