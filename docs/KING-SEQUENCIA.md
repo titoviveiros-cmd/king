@@ -124,21 +124,41 @@ Havia dois caminhos de backfill na primeira versão. **Os dois foram removidos.*
 2. **Implícito:** o gatilho recalcula pelo ledger. Mesmo sem o `UPDATE`, o primeiro crédito
    pós-rollout de quem já jogou reconstruiria o histórico. Remover só o `UPDATE` **não bastaria**.
 
-A migração grava um **marco** em `king_private.sequencia_inicio` (uma linha, privada):
+A migração grava um **marco** em `king_private.sequencia_inicio`: uma linha, privada, **imutável**.
 
-- `inicio`: o instante da aplicação (`now()`);
-- `ultimo_evento_anterior`: o maior id do ledger naquele instante.
+| Campo | O que é |
+|---|---|
+| `aplicado_em` | o relógio do banco no instante do marco, `clock_timestamp()` lido **depois** da trava do `ALTER`; não é `now()`, que é o início da transação |
+| `ultimo_evento_anterior` | o maior id do ledger naquele instante |
+| `partidas_a_partir_de` | `aplicado_em` + **5 minutos**: a margem de relógio (§5.2) |
 
 Um lançamento só qualifica dia se, ao mesmo tempo:
 
 | Condição | O que ela barra |
 |---|---|
-| `id > ultimo_evento_anterior` | XP lançado antes do rollout, inclusive de partida com início marcado depois do marco (relógio do servidor adiantado) |
-| `iniciada_em >= inicio` | partida **anterior** ao rollout: crédito **atrasado** (outbox) de partida que já tinha terminado, e partida que **atravessou** o rollout (começou antes, terminou depois). O XP entra normalmente, a sequência não |
+| `id > ultimo_evento_anterior` | XP lançado antes do rollout, inclusive de partida com início e fim marcados à frente (relógio do servidor adiantado) |
+| `iniciada_em >= partidas_a_partir_de` | partida **anterior** ao rollout: crédito **atrasado** (outbox) de partida que já tinha terminado, partida que **atravessou** o rollout (começou antes, terminou depois) e partida que começou pouco antes do rollout mas chegou carimbada depois (VPS adiantada). O XP entra normalmente, a sequência não |
 | `motivo = 'partida_concluida'` e partida com `humanos >= 2` | qualquer origem de XP que não seja partida online (§8.1) |
 
 Sem marco, não há sequência: a ausência dele falha **fechado**. O que acontece depois do rollout
 segue a regra normal, sem mudança (S1–S15).
+
+### 5.2 Auditoria do marco (6B): as janelas reais e como foram fechadas
+
+| # | Janela | Era real? | Fechamento | Prova |
+|---|---|---|---|---|
+| 1 | o marco usava `now()`, o **início** da transação: se a migração esperasse pela trava, uma partida iniciada nesse meio-tempo contaria | sim | `clock_timestamp()`, lido depois da trava | S21 (mutação `seq-marco-com-now`) |
+| 2 | relógio da VPS × relógio do banco: com a VPS adiantada em Δ, uma partida iniciada até Δ **antes** do rollout chegaria carimbada depois | sim, até 5 min (a tolerância que o crédito já aceita) | margem de 5 min: só conta partida iniciada a partir de `aplicado_em + 5 min`. Com qualquer Δ que o crédito aceita, toda partida que conta começou, no tempo real, depois do marco | S16 (mutação `seq-sem-margem-de-relogio`) |
+| 3 | o marco era alterável pelo dono ou pelo `postgres` | sim | gatilhos que recusam UPDATE, DELETE e TRUNCATE (até para o dono); uma 2ª linha esbarra na chave primária; reaplicar sem rollback falha inteiro | S20 (mutação `seq-marco-mutavel`) |
+| T1 | crédito confirmado imediatamente antes do marco | não | o id dele é ≤ `ultimo_evento_anterior` | S16, S22 |
+| T2 | crédito confirmado imediatamente depois (de partida antiga) | não | id maior, mas a partida começou antes do marco | S16, S22 |
+| T3 | partida começou antes e terminou depois | não | `iniciada_em` antes do marco | S16, S22 |
+| T4 | partida começou depois e o crédito chegou depois | é o caso normal: **conta** | — | S16, S22, prova online |
+| T5 | transação de crédito concorrente durante a criação do marco | não | `creditar_partida` grava em `progresso` antes de lançar no ledger, e o `ALTER` da migração pede trava exclusiva em `progresso`: espera todo crédito em curso terminar, e os novos esperam a migração. Quando o marco lê o maior id, não existe id alocado e não confirmado | S21, S21b |
+
+**O custo da margem:** partida iniciada nos 5 primeiros minutos depois da migração não conta para a
+sequência (o XP conta normalmente). No rollout, a partida de validação começa depois de
+`partidas_a_partir_de` (roteiro, checkpoint 4).
 
 ## 6. Relação com o XP
 
@@ -157,7 +177,7 @@ segue a regra normal, sem mudança (S1–S15).
 |---|---|
 | `public.progresso` + 4 colunas | `sequencia_atual`, `sequencia_recorde`, `sequencia_ultimo_dia`, `sequencia_partida`. Checks: não negativa; recorde ≥ atual; "nunca qualificou" é um estado só |
 | `public.dia_de_sao_paulo(timestamptz)` | o dia de São Paulo, definição única |
-| `king_private.sequencia_inicio` | o **marco** do rollout (§5.1): uma linha, privada, com RLS, sem GRANT para ninguém |
+| `king_private.sequencia_inicio` + `sequencia_inicio_imutavel()` e 2 gatilhos | o **marco** do rollout (§5.1): uma linha, privada, com RLS, sem GRANT para ninguém, **imutável** |
 | `king_private.sequencia_de(uuid)` | sequência derivada do ledger **pós-marco** (atual, recorde, último dia, partida) |
 | `king_private.sequencia_apos_lancamento()` + gatilho `xp_eventos_sequencia` | recalcula quem foi lançado |
 | `public.sequencia_efetiva(...)`, `public.sequencia_qualificada_hoje(...)` | puras e com o instante como parâmetro: os testes fixam o relógio |
@@ -248,76 +268,27 @@ select grantee, privilege_type from information_schema.role_table_grants
 
 ## 11. Rollout (quando autorizado; NADA disto foi feito)
 
-### 11.1 Ordem
+O roteiro exato, com cinco checkpoints e critério de PARAR em cada um, está em
+**`docs/KING-SEQUENCIA-ROLLOUT.md`**. Em resumo:
 
-As duas ordens são seguras:
+| Item | O que é |
+|---|---|
+| **Ordem** | as duas são seguras: a web nova lê `*` e, sem as colunas novas, mostra o card de antes (prova `compat`). Recomendado: banco primeiro |
+| **Aplicar** | o Tito cola **um arquivo**, `supabase/rollout/sequencia-aplicar.sql`, no SQL Editor: `begin`, trava e foto do antes, a migração (texto idêntico; S23 confere), oito conferências e `commit`. Qualquer falha aborta, e **nada** é gravado |
+| **Conferir** | `sequencia-checkpoint-1-antes.sql` e `sequencia-checkpoint-3-depois.sql`, os dois **somente leitura** |
+| **Rollback** | `supabase/rollback/20261001120000_sequencia_rollback.sql`, com a mesma estrutura (trava, foto, conferência, relatório). Remove só a sequência, não recalcula nada, e reaplicar não reconstrói nada (S17, S22) |
 
-- **migração antes da web:** a web publicada ignora as colunas novas;
-- **web antes da migração:** a web nova lê `*` e, sem as colunas, mostra o card de antes.
-
-Recomendado: **migração primeiro, web depois**.
-
-### 11.2 Aplicar a migração
-
-O Tito aplica pelo **SQL Editor do Dashboard**: cola `begin;`, o arquivo inteiro e `commit;`.
-Assim a aplicação é tudo ou nada; o arquivo em si não traz `begin`/`commit`, como a migração do
-progresso, porque o `db push` já abre a própria transação.
-
-- A migração usa `ALTER TABLE ... ADD COLUMN` com default constante, que no Postgres 11+ não
-  reescreve a tabela.
-- A trava de `progresso` dura só a migração: segundos, com a base atual. O crédito que chegar
-  durante esse tempo espera e segue.
-- O Supabase recarrega sozinho o cache de esquema da API depois de DDL. Se as colunas novas não
-  aparecerem em `meu_progresso` pela API, rodar `notify pgrst, 'reload schema';`.
-
-Conferências **somente leitura** depois de aplicar (todas devem dar o indicado):
-
-```sql
--- 1. o gatilho está ativo → 'O'
-select tgenabled from pg_trigger where tgname = 'xp_eventos_sequencia';
--- 2. SEM BACKFILL: ninguém com sequência logo depois da migração → 0
-select count(*) from public.progresso
- where sequencia_atual <> 0 or sequencia_recorde <> 0
-    or sequencia_ultimo_dia is not null or sequencia_partida is not null;
--- 3. o marco gravado → uma linha: o instante da aplicação e o último lançamento anterior
-select inicio, ultimo_evento_anterior, (select max(id) from public.xp_eventos) as maior_id_agora
-  from king_private.sequencia_inicio;
--- 4. a view mantém as colunas antigas na frente → player_id, xp_total, nivel, xp_no_nivel, xp_do_nivel, sequencia_…
-select column_name from information_schema.columns
- where table_schema = 'public' and table_name = 'meu_progresso' order by ordinal_position;
-```
-
-Mais tarde, a qualquer momento, o retrato deve bater com o ledger pós-marco (esperado 0):
-
-```sql
-select count(*) from public.progresso g
- cross join lateral king_private.sequencia_de(g.player_id) s
- where (g.sequencia_atual, g.sequencia_ultimo_dia, g.sequencia_partida)
-       is distinct from (s.atual, s.ultimo_dia, s.partida)
-    or g.sequencia_recorde < s.recorde;
-```
-
-### 11.3 Rollback
-
-`supabase/rollback/20261001120000_sequencia_rollback.sql` fica fora de `migrations/`, então
-nenhum `db push` o aplica.
-
-- O que ele faz: devolve a view às 5 colunas, remove o gatilho, as funções, o marco e as
-  colunas. Só objetos da sequência.
-- O que ele **não** toca: XP e ledger. Ele não recalcula nada.
-- **Reaplicar a migração depois NÃO reconstrói nada.** Ela grava um marco novo. Tudo o que veio
-  antes dele vira histórico: o histórico de antes da 1ª aplicação, o que contou durante ela e o
-  que foi creditado com a sequência fora do ar. Todo mundo volta a 0, e o 1º crédito seguinte
-  dá 1.
-
-Tudo isso está provado no S17 (migração → rollback → migração).
+O Supabase recarrega sozinho o cache de esquema da API depois de DDL. Se as colunas novas não
+aparecerem em `meu_progresso` pela API, rodar `notify pgrst, 'reload schema';`.
 
 ## 12. Testes
 
 | Onde | O quê |
 |---|---|
-| `scripts/testar-progresso-sql.mjs` (Postgres 17 real) | S1–S19, descritos abaixo; mais T1–T23 de XP, inalterados e verdes |
-| `scripts/testar-progresso-sql.mjs --provas` | 26 mutações (10 de XP + 16 de sequência e do ledger), todas mortas |
+| `scripts/testar-progresso-sql.mjs` (Postgres 17 real) | S1–S23 (com S10b e S21b), descritos abaixo; mais T1–T23 de XP, inalterados e verdes |
+| `scripts/testar-progresso-sql.mjs --provas` | 29 mutações (10 de XP + 19 de sequência, do marco e do ledger), todas mortas |
+| `npm run test:e2e:sequencia` (apps/web, **fora da CI**) | partida ONLINE inteira, de verdade: stack local com Postgres TLS, migrações reais, servidor compilado e Supabase falso com RLS. XP e sequência no Placar e na Home, reconexão e refresh sem duplicar, 2ª partida do dia sem avanço fingido, e os 4 viewports |
+| `npm run test:e2e:sequencia:compat` (apps/web, **fora da CI**) | a web nova contra o banco de hoje, sem a migração: partida online, Placar e Home como antes |
 | `apps/server/src/progresso/resultado.test.ts` | partida solo não chega ao crédito |
 | `apps/web/src/auth/progresso.test.ts` | leitura com e sem a migração, dado estranho, relógio adulterado, `select=*` |
 | `apps/web/src/game/xpDaPartida.test.ts` | o Placar só mostra a sequência da partida que qualificou; reload e duas abas dão o mesmo número |
@@ -342,12 +313,23 @@ Os testes SQL de sequência, um a um:
   atrasado, nem XP lançado antes);
 - **S17:** migração → rollback → migração, sem tocar XP nem ledger e **sem reconstruir nada**;
 - **S18:** escritores do ledger, no catálogo e em todas as migrações do repositório;
-- **S19:** XP que não vem de partida online (bônus futuro, solo) não qualifica dia.
+- **S19:** XP que não vem de partida online (bônus futuro, solo) não qualifica dia;
+- **S20:** o marco nasce uma vez e é imutável: nem o dono altera, e reaplicar sem rollback falha inteiro;
+- **S21, S21b:** concorrência no instante do marco (T5): crédito em curso quando a migração começa,
+  e crédito que chega durante a migração;
+- **S22:** ensaio do rollout com os arquivos de verdade. A base é realista: histórico, jogador sem
+  XP, abandono, **outbox antigo** entregue depois do rollout pelos módulos reais do servidor e
+  partida atravessando o marco. O ciclo é aplicar → créditos → rollback → reaplicar;
+- **S23:** o arquivo do rollout é a migração verbatim; com backfill, aborta sem gravar nada;
+  colado duas vezes, recusa.
 
-Nos testes de calendário (S1–S15), o banco foi "lançado" em 01/01/2026 e as partidas são de
-março. É preciso, porque o crédito não aceita fim no futuro. S16 e S17 usam o relógio real.
+Nos testes de calendário (S1–S15), o marco foi fixado em 31/12/2025 23:55: partidas contam a
+partir de 01/01/2026, e as partidas dos testes são de março. É preciso, porque o crédito não aceita
+fim no futuro. Os testes de rollout (S16, S17, S21–S23) aplicam a migração com o relógio real. Onde
+precisam de uma partida elegível, recuam o marco inteiro ("o rollout aconteceu há 10 minutos"),
+com os gatilhos de imutabilidade desligados só para isso, num banco descartável.
 
-As 16 mutações SQL de sequência e do ledger, uma a uma:
+As 19 mutações SQL de sequência, do marco e do ledger, uma a uma:
 
 | Mutação | Defeito que ela simula | Morre em |
 |---|---|---|
@@ -359,10 +341,13 @@ As 16 mutações SQL de sequência e do ledger, uma a uma:
 | `seq-sem-xp` | 0 XP qualifica o dia | S10 |
 | `seq-em-utc` | o dia calculado em UTC | S5, S6, S12 |
 | `seq-conta-solo` | crédito com 1 humano | S10b |
-| `seq-backfill` | a migração volta a preencher pelo histórico (marco no começo dos tempos + `UPDATE` retroativo) | S16, S17 |
-| `seq-historico-no-recalculo` | o gatilho ignora o marco e reconstrói o histórico no 1º crédito | S16 |
+| `seq-backfill` | a migração volta a preencher pelo histórico (marco no começo dos tempos + `UPDATE` retroativo) | S16, S17, S22, S23 |
+| `seq-historico-no-recalculo` | o gatilho ignora o marco e reconstrói o histórico no 1º crédito | S16, S22 |
 | `seq-xp-anterior-ao-rollout` | XP lançado antes do rollout passa a contar | S16 |
-| `seq-partida-anterior-ao-rollout` | crédito atrasado de partida pré-rollout passa a contar | S16 |
+| `seq-partida-anterior-ao-rollout` | crédito atrasado de partida pré-rollout, ou partida que atravessou o rollout, passa a contar | S16, S22 |
+| `seq-sem-margem-de-relogio` | sem os 5 min: com a VPS adiantada, partida anterior ao rollout chega carimbada depois | S16, S22 |
+| `seq-marco-com-now` | o marco usa o início da transação, e não o instante depois da trava | S21 |
+| `seq-marco-mutavel` | sem os gatilhos de imutabilidade | S20, S22 |
 | `seq-qualquer-origem` | XP que não é de partida qualifica o dia | S19 |
 | `seq-solo-no-recalculo` | partida solo gravada por outro escritor qualifica o dia | S19 |
 | `ledger-segundo-escritor` | nasce outra função que insere no ledger | S18 |
@@ -391,12 +376,17 @@ S16 pega.
 | relógio do cliente adulterado | não entra em lugar nenhum; o dia vem de `terminada_em` (servidor) e o "hoje" de `now()` (banco) | `progresso.test.ts`, `progresso.test.tsx` |
 | cliente tenta escrever a sequência | sem GRANT, sem política, sem RPC | S15, T14–T16 |
 | solo / bots | não chegam ao crédito | S10b, `resultado.test.ts` |
-| XP histórico "virar" sequência | não vira: marco do rollout | S16, S17 |
+| XP histórico "virar" sequência | não vira: marco do rollout | S16, S17, S22 |
+| crédito em curso no instante da migração | a migração espera; o lançamento fica antes do marco | S21 |
+| crédito chegando durante a migração | espera a trava; cai depois do marco, mas a partida é anterior | S21b |
+| relógio da VPS adiantado | margem de 5 min | S16 |
+| alguém reescreve o marco | gatilhos de imutabilidade | S20 |
+| rollout colado com defeito, ou duas vezes | aborta e não grava nada | S23 |
 | outra origem de XP no futuro | não qualifica dia sem mudança explícita | S18, S19 |
 
 ## 14. Riscos residuais
 
-1. **Defeito no gatilho bloqueia créditos** (§10), sem perda de dado. Mitigação: S1–S19, 26
+1. **Defeito no gatilho bloqueia créditos** (§10), sem perda de dado. Mitigação: S1–S23, 29
    mutações SQL, rollback testado.
 2. **Relógio do servidor da partida.** O dia vem de `terminada_em`, que o servidor da partida
    marca. Um relógio de VPS muito errado deslocaria dias. O banco já recusa fim no futuro
@@ -408,10 +398,13 @@ S16 pega.
 4. **Recomeço do zero no rollout.** Quem jogou online em dias seguidos antes do rollout começa
    em 0, como decidido. A Home mostra o convite até o 1º crédito depois do rollout. Não há texto
    que sugira perda.
-5. **Partida que atravessa o rollout não conta.** Quem estiver no meio de uma partida no
-   instante da migração recebe o XP dela normalmente, mas a sequência só começa na partida
-   seguinte. É a leitura estrita de "partida anterior ao rollout não cria sequência" (S16).
-6. **Placar online medido por injeção.** O bloco XP + sequência é medido no Placar local com o
-   markup real do componente. A coluna de dados é a mesma nos dois modos, mas uma partida online
-   inteira com crédito real não está na suíte de layout. Antes do rollout, vale uma conferência
-   visual numa partida online de Preview.
+5. **Partida que atravessa o rollout, ou começa nos 5 primeiros minutos depois dele, não conta.**
+   O XP dela entra normalmente; a sequência começa na partida seguinte. É a leitura estrita de
+   "partida anterior ao rollout não cria sequência", com a margem de relógio (§5.2).
+6. **Prova online é local, não na CI.** A partida online inteira com crédito e sequência reais roda
+   num stack local; o Supabase de verdade é emulado só nas rotas que o KING usa. O banco, o servidor
+   do jogo e a web são os reais. Cada partida leva ~10 min, então ela fica fora da CI e roda antes
+   do rollout.
+7. **Preview da Vercel protegido por SSO.** A validação visual no Preview exige o Tito logado na
+   Vercel. A compatibilidade com o banco sem a migração foi provada no stack local, com o mesmo
+   código.

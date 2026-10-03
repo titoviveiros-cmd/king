@@ -105,14 +105,21 @@ esperar fim de mão/fase. A fonte é `liveScores(m)` no motor = `m.cumulative` (
 4 humanos; humanos + bots; disconnect; reconnect; timeout; app em background; ação duplicada;
 ação atrasada; ação fora de turno; tentativa ilegal; host sai; jogador retorna.
 
-## Sequência (streak v1, Fase 6A)
-Regra, elegibilidade e rollout em `docs/KING-SEQUENCIA.md`. **Production ainda está sem streak.**
+## Sequência (streak v1, Fases 6A e 6B)
+Regra, elegibilidade e auditoria em `docs/KING-SEQUENCIA.md`; roteiro de produção em
+`docs/KING-SEQUENCIA-ROLLOUT.md`. **Production ainda está sem streak.**
 
-- Banco (Postgres 17 real): `npm run test:progresso-sql:provas` — S1–S19 (calendário com relógio
+- Banco (Postgres 17 real): `npm run test:progresso-sql:provas` — S1–S23 (calendário com relógio
   fixo, elegibilidade, duplicata, retry do outbox com os módulos reais do servidor, crédito
   atrasado, concorrência, valor efetivo, oráculo independente, segurança, **sem backfill**
-  sobre banco com histórico, migração → rollback → migração, escritores do ledger e origem do
-  XP) + 16 mutações de sequência e do ledger, além das 10 de XP.
+  sobre banco com histórico, migração → rollback → migração, escritores do ledger, origem do XP,
+  marco imutável, concorrência no instante do marco, ensaio do rollout com os arquivos de verdade e
+  o arquivo do rollout abortando sozinho) + 19 mutações de sequência, do marco e do ledger, além
+  das 10 de XP.
+- Prova ONLINE local (fora da CI, ~25 min): `npm run test:e2e:sequencia` em apps/web — duas
+  partidas online inteiras com crédito e sequência reais, reconexão, refresh, Home e Placar em
+  667×375, 740×360, 852×393 e 1600×900; `npm run test:e2e:sequencia:compat` — a web nova contra
+  o banco sem a migração.
 - Web e servidor: `npm run test:mutacao:sequencia` — 13 mutações unitárias + 4 de layout
   (Playwright), todas precisam morrer.
 - Layout: `tests-progresso/progresso.spec.ts` (Home com a sequência no pior caso, inclusive
