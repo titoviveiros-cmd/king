@@ -1,3 +1,50 @@
+-- ROLLOUT DA SEQUÊNCIA (streak v1) — COLAR ESTE ARQUIVO INTEIRO NO SQL EDITOR E RODAR UMA VEZ.
+--
+-- ARQUIVO GERADO por scripts/montar-rollout-sequencia.mjs — não editar à mão.
+--
+-- É UMA transação: BEGIN, retrato do "antes", a migração 20261001120000_sequencia.sql (texto
+-- idêntico), conferências e COMMIT. Se QUALQUER passo falhar, o erro aparece, o COMMIT não roda e
+-- NADA é gravado — nesse caso, rodar `rollback;` sozinho para limpar a sessão e me mandar o erro.
+-- Se tudo passar, a última tela mostra uma linha "SEQUÊNCIA APLICADA E CONFERIDA".
+--
+-- Durante os poucos segundos da transação, nenhum crédito de XP confirma (ele espera e segue).
+
+begin;
+
+-- ═══ PARTE 1/3 — ANTES DA MIGRAÇÃO (na MESMA transação) ════════════════════════════════════
+--
+-- 1. TRAVA o progresso contra crédito: `creditar_partida` grava em `progresso` antes de lançar no
+--    ledger, então nenhum crédito confirma enquanto esta transação existir (leitura continua
+--    livre até o ALTER da migração). O retrato abaixo fica estável até a conferência.
+-- 2. RETRATO do que a migração NÃO pode mudar, numa tabela temporária que some no commit.
+-- 3. RECUSA rodar se a sequência já existir ou se faltarem os papéis do progresso.
+lock table public.progresso in share row exclusive mode;
+
+create temp table rollout_sequencia_antes on commit drop as
+select (select count(*) from public.progresso)                    as linhas_de_progresso,
+       (select coalesce(sum(xp_total), 0) from public.progresso)  as xp_total,
+       (select count(*) from public.xp_eventos)                   as lancamentos,
+       (select coalesce(sum(xp_delta), 0) from public.xp_eventos) as xp_no_ledger,
+       (select coalesce(max(id), 0) from public.xp_eventos)       as maior_lancamento,
+       (select count(*) from king_private.partidas)               as partidas,
+       (select coalesce(array_agg(n.nspname || '.' || p.proname order by n.nspname, p.proname), '{}')
+          from pg_proc as p join pg_namespace as n on n.oid = p.pronamespace
+         where p.prosecdef and n.nspname in ('public', 'king_private'))  as security_definer;
+
+do $$
+begin
+  if to_regclass('king_private.sequencia_inicio') is not null
+     or exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'progresso' and column_name like 'sequencia%')
+     or exists (select 1 from pg_trigger where tgname = 'xp_eventos_sequencia') then
+    raise exception 'ROLLOUT ABORTADO (parte 1): a sequência já existe neste banco. Nada foi alterado.';
+  end if;
+  if to_regrole('king_progress_owner') is null or to_regrole('king_server') is null then
+    raise exception 'ROLLOUT ABORTADO (parte 1): papéis do progresso ausentes. Nada foi alterado.';
+  end if;
+end $$;
+
+-- ═══ PARTE 2/3 — A MIGRAÇÃO, idêntica a supabase/migrations/20261001120000_sequencia.sql ═══
 -- SEQUÊNCIA DO KING (streak v1) — dias seguidos com XP, derivados do ledger.
 --
 -- ══ A REGRA ══
@@ -287,3 +334,141 @@ comment on function king_private.sequencia_de(uuid) is
   'Sequência derivada do ledger PÓS-ROLLOUT (dias de São Paulo com XP positivo de partida online). Sem backfill; idempotente e independente da ordem de chegada.';
 comment on table king_private.sequencia_inicio is
   'Marco do rollout da sequência, imutável: conta só lançamento posterior a ultimo_evento_anterior, de partida iniciada a partir de partidas_a_partir_de (aplicado_em + 5 min de margem de relógio). Sem backfill histórico.';
+
+-- ═══ PARTE 3/3 — CONFERÊNCIAS, AINDA DENTRO DA TRANSAÇÃO ═══════════════════════════════════
+--
+-- Qualquer falha aqui levanta erro: o COMMIT abaixo não roda e NADA da migração é gravado.
+-- (O SQL Editor não mostra NOTICE; quem fala é o erro, ou o relatório no fim.)
+do $$
+declare
+  antes  record;
+  marco  record;
+  n      bigint;
+  lista  text[];
+begin
+  select * into antes from rollout_sequencia_antes;
+
+  -- 1. XP, ledger e partidas: nada do que existia mudou
+  if (select count(*) from public.progresso) <> antes.linhas_de_progresso
+     or (select coalesce(sum(xp_total), 0) from public.progresso) <> antes.xp_total
+     or (select count(*) from public.xp_eventos) <> antes.lancamentos
+     or (select coalesce(sum(xp_delta), 0) from public.xp_eventos) <> antes.xp_no_ledger
+     or (select coalesce(max(id), 0) from public.xp_eventos) <> antes.maior_lancamento
+     or (select count(*) from king_private.partidas) <> antes.partidas then
+    raise exception 'CONFERÊNCIA 1 FALHOU: XP, ledger ou partidas mudaram. Nada foi gravado.';
+  end if;
+
+  -- 2. SEM BACKFILL: ninguém nasceu com sequência — nem no retrato, nem no recálculo do ledger
+  select count(*) into n from public.progresso
+   where sequencia_atual <> 0 or sequencia_recorde <> 0
+      or sequencia_ultimo_dia is not null or sequencia_partida is not null;
+  if n <> 0 then
+    raise exception 'CONFERÊNCIA 2 FALHOU: % jogador(es) nasceram com sequência. Nada foi gravado.', n;
+  end if;
+  select count(*) into n
+    from public.progresso as g cross join lateral king_private.sequencia_de(g.player_id) as s
+   where s.atual <> 0 or s.recorde <> 0 or s.ultimo_dia is not null or s.partida is not null;
+  if n <> 0 then
+    raise exception 'CONFERÊNCIA 2 FALHOU: o recálculo enxerga histórico de % jogador(es). Nada foi gravado.', n;
+  end if;
+
+  -- 3. o marco: um só, coerente, deste instante
+  select count(*) into n from king_private.sequencia_inicio;
+  if n <> 1 then
+    raise exception 'CONFERÊNCIA 3 FALHOU: % marco(s) de rollout. Nada foi gravado.', n;
+  end if;
+  select * into marco from king_private.sequencia_inicio;
+  if marco.ultimo_evento_anterior <> antes.maior_lancamento
+     or marco.partidas_a_partir_de <> marco.aplicado_em + interval '5 minutes'
+     or marco.aplicado_em < now() or marco.aplicado_em > clock_timestamp() then
+    raise exception 'CONFERÊNCIA 3 FALHOU: marco incoerente (%). Nada foi gravado.', row_to_json(marco);
+  end if;
+
+  -- 4. os gatilhos: o da sequência no ledger e os dois de imutabilidade do marco, todos ligados
+  if not exists (select 1 from pg_trigger
+                  where tgname = 'xp_eventos_sequencia' and tgrelid = 'public.xp_eventos'::regclass and tgenabled = 'O')
+     or (select count(*) from pg_trigger
+          where tgrelid = 'king_private.sequencia_inicio'::regclass and not tgisinternal and tgenabled = 'O') <> 2 then
+    raise exception 'CONFERÊNCIA 4 FALHOU: gatilhos ausentes ou desligados. Nada foi gravado.';
+  end if;
+
+  -- 5. a leitura do jogador: colunas antigas na frente, novas no fim
+  if (select string_agg(column_name::text, ',' order by ordinal_position) from information_schema.columns
+       where table_schema = 'public' and table_name = 'meu_progresso')
+     is distinct from 'player_id,xp_total,nivel,xp_no_nivel,xp_do_nivel,sequencia_atual,sequencia_recorde,sequencia_hoje,sequencia_ultimo_dia,sequencia_partida' then
+    raise exception 'CONFERÊNCIA 5 FALHOU: colunas de meu_progresso. Nada foi gravado.';
+  end if;
+
+  -- 6. permissões de tabela: só o jogador lê o próprio progresso; escrita para ninguém da API
+  if has_table_privilege('anon', 'public.meu_progresso', 'SELECT')
+     or not has_table_privilege('authenticated', 'public.meu_progresso', 'SELECT') then
+    raise exception 'CONFERÊNCIA 6 FALHOU: leitura de meu_progresso. Nada foi gravado.';
+  end if;
+  if exists (
+    select 1
+      from unnest(array['anon', 'authenticated', 'service_role', 'king_server']) as r (papel),
+           unnest(array['public.progresso', 'public.xp_eventos', 'king_private.sequencia_inicio']) as t (tabela),
+           unnest(array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) as p (privilegio)
+     where to_regrole(r.papel) is not null and has_table_privilege(r.papel, t.tabela, p.privilegio)) then
+    raise exception 'CONFERÊNCIA 6 FALHOU: escrita aberta em progresso, ledger ou marco. Nada foi gravado.';
+  end if;
+  if exists (
+    select 1
+      from unnest(array['anon', 'authenticated', 'service_role', 'king_server']) as r (papel)
+     where to_regrole(r.papel) is not null
+       and has_table_privilege(r.papel, 'king_private.sequencia_inicio', 'SELECT')) then
+    raise exception 'CONFERÊNCIA 6 FALHOU: o marco é legível pela API. Nada foi gravado.';
+  end if;
+
+  -- 7. permissões de execução das funções novas
+  if exists (
+    select 1
+      from unnest(array['anon', 'service_role', 'king_server']) as r (papel),
+           unnest(array['public.dia_de_sao_paulo(timestamptz)', 'public.sequencia_efetiva(integer, date, timestamptz)',
+                        'public.sequencia_qualificada_hoje(date, timestamptz)', 'king_private.sequencia_de(uuid)',
+                        'king_private.sequencia_apos_lancamento()', 'king_private.sequencia_inicio_imutavel()']) as f (funcao)
+     where to_regrole(r.papel) is not null and has_function_privilege(r.papel, f.funcao, 'EXECUTE')) then
+    raise exception 'CONFERÊNCIA 7 FALHOU: função nova executável por anon, service_role ou king_server. Nada foi gravado.';
+  end if;
+  if exists (
+    select 1
+      from unnest(array['king_private.sequencia_de(uuid)', 'king_private.sequencia_apos_lancamento()',
+                        'king_private.sequencia_inicio_imutavel()']) as f (funcao)
+     where has_function_privilege('authenticated', f.funcao, 'EXECUTE')) then
+    raise exception 'CONFERÊNCIA 7 FALHOU: função privada executável pelo jogador. Nada foi gravado.';
+  end if;
+  if not has_function_privilege('king_server',
+       'king_private.creditar_partida(uuid, timestamptz, timestamptz, smallint, smallint, jsonb)', 'EXECUTE') then
+    raise exception 'CONFERÊNCIA 7 FALHOU: o servidor perdeu a porta do crédito. Nada foi gravado.';
+  end if;
+
+  -- 8. nenhuma função SECURITY DEFINER nova; as novas com search_path vazio e dono dedicado
+  select coalesce(array_agg(n2.nspname || '.' || p.proname order by n2.nspname, p.proname), '{}') into lista
+    from pg_proc as p join pg_namespace as n2 on n2.oid = p.pronamespace
+   where p.prosecdef and n2.nspname in ('public', 'king_private');
+  if lista is distinct from antes.security_definer then
+    raise exception 'CONFERÊNCIA 8 FALHOU: funções SECURITY DEFINER mudaram (% → %). Nada foi gravado.', antes.security_definer, lista;
+  end if;
+  if exists (
+    select 1 from pg_proc as p join pg_namespace as n2 on n2.oid = p.pronamespace
+     where (n2.nspname, p.proname) in (('public', 'dia_de_sao_paulo'), ('public', 'sequencia_efetiva'),
+                                       ('public', 'sequencia_qualificada_hoje'), ('king_private', 'sequencia_de'),
+                                       ('king_private', 'sequencia_apos_lancamento'), ('king_private', 'sequencia_inicio_imutavel'))
+       and (p.proconfig is distinct from array['search_path=""'] or pg_get_userbyid(p.proowner) <> 'king_progress_owner')) then
+    raise exception 'CONFERÊNCIA 8 FALHOU: função nova sem search_path vazio ou fora do dono dedicado. Nada foi gravado.';
+  end if;
+end $$;
+
+commit;
+
+-- ═══ RELATÓRIO — só aparece se TUDO acima passou e foi gravado ════════════════════════════
+select 'SEQUÊNCIA APLICADA E CONFERIDA' as resultado,
+       m.aplicado_em,
+       m.partidas_a_partir_de,
+       m.ultimo_evento_anterior,
+       (select count(*) from public.progresso
+         where sequencia_atual <> 0 or sequencia_recorde <> 0 or sequencia_ultimo_dia is not null) as jogadores_com_sequencia,
+       (select count(*) from public.progresso)                   as linhas_de_progresso,
+       (select coalesce(sum(xp_total), 0) from public.progresso) as xp_total,
+       (select count(*) from public.xp_eventos)                  as lancamentos
+  from king_private.sequencia_inicio as m;

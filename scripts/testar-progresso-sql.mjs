@@ -21,13 +21,14 @@
 // arquivo em disco nunca é tocado — e os testes que dependem dela precisam REPROVAR. Depois, a
 // migração original precisa passar em tudo.
 //
-// ══ SEQUÊNCIA (Fase 6A) ══
+// ══ SEQUÊNCIA (Fases 6A e 6B) ══
 //
-// Os modelos aplicam também `20261001120000_sequencia.sql`; o `modelo_sem_sequencia` é o banco de
-// Production de hoje, onde o S16 aplica a migração e o S17 o rollback. Os testes S* usam instantes
-// FIXOS com fuso explícito (março de 2026) — nenhuma conclusão depende de que horas são agora,
-// exceto o S13, que prova a view com o relógio do próprio banco. As mutações `seq-*` mexem no
-// texto da migração da sequência (`trocasSeq`) ou no do progresso (`trocas`).
+// Os modelos aplicam também `20261001120000_sequencia.sql`, com o marco fixado em 31/12/2025 (ver
+// ROLLOUT_DOS_TESTES); o `modelo_sem_sequencia` é o banco de Production de hoje, onde S16, S17 e
+// S21–S23 aplicam a migração — e o arquivo do rollout e o do rollback — com o relógio REAL. Os
+// testes de calendário usam instantes FIXOS com fuso explícito (março de 2026), exceto o S13, que
+// prova a view com o relógio do próprio banco. As mutações `seq-*` e `ledger-*` mexem no texto da
+// migração da sequência (`trocasSeq`) ou no do progresso (`trocas`).
 //
 // USO:
 //   node scripts/testar-progresso-sql.mjs            # suíte GREEN
@@ -49,6 +50,8 @@ const IDENTIDADE = ler("supabase/migrations/20260830120000_identidade.sql");
 const PROGRESSO = ler("supabase/migrations/20260925120000_progresso.sql");
 const SEQUENCIA = ler("supabase/migrations/20261001120000_sequencia.sql");
 const ROLLBACK_SEQUENCIA = ler("supabase/rollback/20261001120000_sequencia_rollback.sql");
+const ROLLOUT_ANTES = ler("supabase/rollout/partes/1-antes.sql");
+const ROLLOUT_CONFERENCIAS = ler("supabase/rollout/partes/3-conferencias.sql");
 
 const MARCADOR = "  -- [ponto-de-corrida]";
 const JANELA_MS = 400;
@@ -148,19 +151,20 @@ const MUTACOES = {
   "seq-backfill": {
     // a migração volta a "preencher pelo histórico": marco no começo dos tempos + UPDATE retroativo
     trocasSeq: [
-      ["values (now(), (select coalesce(max(e.id), 0) from public.xp_eventos as e));", "values ('-infinity', 0);"],
+      ["select t.agora, t.agora + interval '5 minutes', (select coalesce(max(e.id), 0) from public.xp_eventos as e)\n  from (select clock_timestamp() as agora) as t;",
+       "select '-infinity'::timestamptz, '-infinity'::timestamptz, 0;"],
       ["-- todo mundo (os defaults acima), e o marco garante que o histórico também não volte pelo gatilho.\n",
        "-- todo mundo (os defaults acima), e o marco garante que o histórico também não volte pelo gatilho.\n" +
        "update public.progresso as g set sequencia_atual = s.atual, sequencia_recorde = greatest(g.sequencia_recorde, s.recorde),\n" +
        "  sequencia_ultimo_dia = s.ultimo_dia, sequencia_partida = s.partida\n" +
        "  from public.progresso as p cross join lateral king_private.sequencia_de(p.player_id) as s where g.player_id = p.player_id;\n"],
     ],
-    alvos: ["S16", "S17"],
+    alvos: ["S16", "S17", "S22", "S23"],
   },
   "seq-historico-no-recalculo": {
     // sem o marco no cálculo: o primeiro crédito pós-rollout reconstrói o histórico pelo gatilho
-    trocasSeq: [["       and e.id > m.ultimo_evento_anterior\n       and q.iniciada_em >= m.inicio\n", ""]],
-    alvos: ["S16"],
+    trocasSeq: [["       and e.id > m.ultimo_evento_anterior\n       and q.iniciada_em >= m.partidas_a_partir_de\n", ""]],
+    alvos: ["S16", "S22"],
   },
   "seq-xp-anterior-ao-rollout": {
     // XP lançado ANTES do rollout passaria a contar (aqui, de partida com início marcado depois do marco)
@@ -169,8 +173,31 @@ const MUTACOES = {
   },
   "seq-partida-anterior-ao-rollout": {
     // crédito ATRASADO de partida pré-rollout, ou partida que ATRAVESSOU o rollout, passaria a contar
-    trocasSeq: [["       and q.iniciada_em >= m.inicio\n", ""]],
-    alvos: ["S16"],
+    trocasSeq: [["       and q.iniciada_em >= m.partidas_a_partir_de\n", ""]],
+    alvos: ["S16", "S22"],
+  },
+  // ── O MARCO: instante depois da trava, margem de relógio, imutável (auditoria da 6B) ──
+  "seq-sem-margem-de-relogio": {
+    // sem os 5 min: com a VPS adiantada, partida que começou ANTES do rollout chega carimbada depois
+    trocasSeq: [
+      ["select t.agora, t.agora + interval '5 minutes',", "select t.agora, t.agora,"],
+      ["check (partidas_a_partir_de = aplicado_em + interval '5 minutes')", "check (partidas_a_partir_de = aplicado_em)"],
+    ],
+    alvos: ["S16", "S22"],
+  },
+  "seq-marco-com-now": {
+    // now() é o INÍCIO da transação: se a migração esperou a trava, o marco fica para trás
+    trocasSeq: [["  from (select clock_timestamp() as agora) as t;", "  from (select now() as agora) as t;"]],
+    alvos: ["S21"],
+  },
+  "seq-marco-mutavel": {
+    // sem os gatilhos de imutabilidade, o dono (ou o postgres) reescreve o marco à vontade
+    trocasSeq: [[
+      "create trigger sequencia_inicio_sem_alteracao\n  before update or delete on king_private.sequencia_inicio\n" +
+      "  for each row execute function king_private.sequencia_inicio_imutavel();\n" +
+      "create trigger sequencia_inicio_sem_truncate\n  before truncate on king_private.sequencia_inicio\n" +
+      "  for each statement execute function king_private.sequencia_inicio_imutavel();\n", ""]],
+    alvos: ["S20", "S22"],
   },
   "seq-qualquer-origem": {
     // uma origem futura de XP que não é partida (bônus, evento) qualificaria o dia
@@ -240,12 +267,20 @@ const conectar = async (database, user = "postgres", password = SENHA_ADMIN) => 
 };
 
 /**
- * O ROLLOUT DOS TESTES DE CALENDÁRIO. A migração grava o marco com `now()`, e o crédito não aceita
- * fim no futuro — então os testes S1–S15 vivem num banco cujo rollout aconteceu em 01/01/2026 e
- * usam partidas de março. Os testes de NÃO-BACKFILL (S16, S17) não usam isto: aplicam a migração de
- * verdade, com o relógio real, sobre um banco que já tem histórico.
+ * O ROLLOUT DOS TESTES DE CALENDÁRIO. A migração grava o marco com o relógio real, e o crédito não
+ * aceita fim no futuro — então os testes S1–S15 vivem num banco cujo rollout aconteceu em
+ * 31/12/2025 23:55 (partidas contam a partir de 01/01/2026, depois da margem de 5 min) e usam
+ * partidas de março. Os testes de NÃO-BACKFILL (S16, S17, S21, S22, S23) não usam isto: aplicam a
+ * migração de verdade, com o relógio real, sobre um banco que já tem histórico.
+ *
+ * O marco é imutável de propósito (S20); só o teste, como superusuário de um banco descartável,
+ * desliga os gatilhos dele um instante para fixar a data — e liga de novo.
  */
 const ROLLOUT_DOS_TESTES = "2026-01-01T00:00:00-03:00";
+const MOVER_MARCO = "update king_private.sequencia_inicio set " +
+  // a margem que a migração gravou é preservada (inclusive numa mutação que a remova)
+  "aplicado_em = $1::timestamptz - (case when isfinite(aplicado_em) and isfinite(partidas_a_partir_de) " +
+  "then partidas_a_partir_de - aplicado_em else interval '5 minutes' end), partidas_a_partir_de = $1::timestamptz";
 
 /** `textoSequencia` null = o banco como está em Production hoje, SEM a migração da sequência. */
 async function criarModelo(nome, textoProgresso, textoSequencia) {
@@ -259,7 +294,9 @@ async function criarModelo(nome, textoProgresso, textoSequencia) {
     await c.query(textoProgresso);
     if (textoSequencia) {
       await c.query(textoSequencia);
-      await c.query("update king_private.sequencia_inicio set inicio = $1", [ROLLOUT_DOS_TESTES]);
+      await c.query("alter table king_private.sequencia_inicio disable trigger user");
+      await c.query(MOVER_MARCO, [ROLLOUT_DOS_TESTES]);
+      await c.query("alter table king_private.sequencia_inicio enable trigger user");
     }
   } finally {
     await c.end();
@@ -369,8 +406,30 @@ function mulberry32(semente) {
 const diaMenos = (iso, k) => new Date((numeroDoDia(iso) - k) * 86_400_000).toISOString().slice(0, 10);
 /** O marco do rollout que a migração gravou. */
 async function marco(admin) {
-  const r = await admin.query("select inicio, ultimo_evento_anterior::int as ultimo from king_private.sequencia_inicio");
+  const r = await admin.query("select aplicado_em as aplicado, partidas_a_partir_de as partidas, " +
+    "ultimo_evento_anterior::int as ultimo from king_private.sequencia_inicio");
   return r.rows[0] ?? null;
+}
+/**
+ * "O rollout aconteceu há N minutos": recua o marco INTEIRO (instante e margem juntos; o id fica).
+ * É o mesmo que esperar N minutos — necessário porque o crédito não aceita fim no futuro e a margem
+ * de 5 min deixa de fora as partidas iniciadas logo depois da migração. Só em banco descartável.
+ */
+async function recuarMarco(admin, minutos) {
+  await admin.query("alter table king_private.sequencia_inicio disable trigger user");
+  await admin.query("update king_private.sequencia_inicio set aplicado_em = aplicado_em - make_interval(mins => $1), " +
+    "partidas_a_partir_de = partidas_a_partir_de - make_interval(mins => $1)", [minutos]);
+  await admin.query("alter table king_private.sequencia_inicio enable trigger user");
+  return marco(admin);
+}
+/** O texto do rollout, montado como o arquivo do Tito — mas com a migração deste modelo (mutada ou não). */
+const textoDoRollout = (seq) => "begin;\n\n" + ROLLOUT_ANTES + seq + ROLLOUT_CONFERENCIAS;
+/** Dispara um SQL sem esperar; anota quando termina (para `paradaOuTerminou`). */
+function dispararSql(c, sql) {
+  const p = c.query(sql);
+  const estado = { terminou: false };
+  p.then(() => { estado.terminou = true; }, () => { estado.terminou = true; });
+  return { pid: c.processID, p, estado };
 }
 const ZERADO = JSON.stringify({ atual: 0, recorde: 0, dia: null, partida: null });
 /** Quantos jogadores têm QUALQUER traço de sequência. */
@@ -1076,7 +1135,8 @@ const TESTES = [
     await reprova(s.query("select * from king_private.sequencia_de($1)", [a]), /permission denied/, "king_server chamou o cálculo do ledger");
     await reprova(s.query("update public.progresso set sequencia_atual = 9"), /permission denied/, "king_server escreveu a sequência direto");
     const funcs = ["public.dia_de_sao_paulo(timestamptz)", "public.sequencia_efetiva(integer, date, timestamptz)",
-      "public.sequencia_qualificada_hoje(date, timestamptz)", "king_private.sequencia_de(uuid)", "king_private.sequencia_apos_lancamento()"];
+      "public.sequencia_qualificada_hoje(date, timestamptz)", "king_private.sequencia_de(uuid)", "king_private.sequencia_apos_lancamento()",
+      "king_private.sequencia_inicio_imutavel()"];
     for (const f of funcs) {
       const { rows: [r] } = await b.admin.query(
         "select pg_get_userbyid(p.proowner) as dono, p.prosecdef, p.proconfig, p.proacl is not null as acl_explicita, " +
@@ -1110,8 +1170,8 @@ const TESTES = [
   // S16/S17 aplicam a migração DE VERDADE — relógio real, marco real — sobre o banco de Production
   // de hoje, que já tem XP. Nada anterior ao rollout pode virar sequência.
 
-  { id: "S16", semSequencia: true, nome: "SEM BACKFILL — sobre banco COM XP histórico: todos zerados; o 1º crédito depois dá 1; nada pré-rollout entra", async fn(b, ctx) {
-    const [a, x, y, z, w, v, u] = await b.jogadores(7);
+  { id: "S16", semSequencia: true, nome: "SEM BACKFILL — sobre banco COM XP histórico: todos zerados; o 1º crédito elegível dá 1; nada pré-rollout entra (nem com a VPS adiantada)", async fn(b, ctx) {
+    const [a, x, y, z, w, v, u, r1, r2] = await b.jogadores(9);
     const s = await b.servidor();
     // A. O HISTÓRICO, antes da migração: A e X jogaram nos 3 dias anteriores e hoje mais cedo. Se o
     //    histórico entrasse, o 1º crédito de depois daria 4 ou 5 — nunca 1.
@@ -1119,14 +1179,13 @@ const TESTES = [
     for (const k of [3, 2, 1]) await creditar(s, { ...terminandoEm(`${diaMenos(hoje, k)}T12:00:00-03:00`), humanos: dupla(a, x) });
     const cedo = new Date(Date.now() - 2 * 3_600_000);
     await creditar(s, { iniciada: new Date(cedo.getTime() - 10 * 60_000), terminada: cedo, humanos: dupla(a, x) });
-    // Z e W: XP lançado ANTES da migração, de partida com início E fim marcados à frente (relógio do
-    //    servidor adiantado; o crédito aceita fim até 5 min no futuro). Só o id do marco a barra.
-    const adiantada = { iniciada: new Date(Date.now() + 60_000), terminada: new Date(Date.now() + 4 * 60_000) };
-    await creditar(s, { ...adiantada, humanos: dupla(z, w) });
+    // Z e W: XP lançado ANTES da migração, de partida com início e fim marcados à frente (VPS
+    //    adiantada; o crédito aceita fim até 5 min no futuro). Só o id do marco a barra.
+    await creditar(s, { iniciada: new Date(Date.now() + 60_000), terminada: new Date(Date.now() + 4 * 60_000), humanos: dupla(z, w) });
     const antes = await resumoDoLedger(b.admin);
     const xpAntes = { a: await total(b.admin, a), z: await total(b.admin, z) };
 
-    // B. a migração, como o Tito a aplicaria
+    // B. a migração, como o Tito a aplicaria, com o relógio real
     await b.admin.query(ctx.sequencia);
 
     // C. todo mundo zerado — retrato e leitura. É AQUI que um backfill tem de ser pego.
@@ -1135,21 +1194,24 @@ const TESTES = [
       const q = await sequencia(b.admin, id);
       afirmar(JSON.stringify(q) === ZERADO, `${id.slice(0, 8)} depois da migração: ${JSON.stringify(q)}`);
     }
-    const m = await marco(b.admin);
-    afirmar(m && m.inicio instanceof Date && m.ultimo === antes.ultimo, `marco ${JSON.stringify(m)}; o ledger terminava no lançamento ${antes.ultimo}`);
     const va = (await (await b.como(a)).query(
       "select sequencia_atual, sequencia_recorde, sequencia_hoje, sequencia_ultimo_dia, sequencia_partida from public.meu_progresso")).rows[0];
     afirmar(va.sequencia_atual === 0 && va.sequencia_recorde === 0 && va.sequencia_hoje === false && va.sequencia_ultimo_dia === null && va.sequencia_partida === null,
       `meu_progresso de A depois da migração: ${JSON.stringify(va)}`);
     const depois = await resumoDoLedger(b.admin);
     afirmar(depois.n === antes.n && depois.soma === antes.soma && await total(b.admin, a) === xpAntes.a, "a migração mexeu no XP ou no ledger");
+    const m = await marco(b.admin);
+    afirmar(m && m.aplicado instanceof Date && m.ultimo === antes.ultimo, `marco ${JSON.stringify(m)}; o ledger terminava no lançamento ${antes.ultimo}`);
 
-    // D/E. o PRIMEIRO crédito elegível depois da migração (partida iniciada depois do marco)
-    const fim = new Date(m.inicio.getTime() + 61_000);
-    const { partida } = await creditar(s, { iniciada: new Date(m.inicio.getTime() + 1_000), terminada: fim, humanos: dupla(a, y) });
+    // A partir daqui, "o rollout aconteceu há 10 minutos" (o marco recua inteiro; ver recuarMarco).
+    const r = await recuarMarco(b.admin, 10);
+    const t = (rel) => new Date(r.aplicado.getTime() + rel * 60_000); // minutos relativos ao marco
+
+    // D/E. o PRIMEIRO crédito elegível: partida iniciada depois de `partidas_a_partir_de`
+    const { partida } = await creditar(s, { iniciada: t(6), terminada: t(7), humanos: dupla(a, y) });
     const qa = await sequencia(b.admin, a);
-    afirmar(qa.atual === 1 && qa.recorde === 1 && qa.dia === diaSP(fim) && qa.partida === partida,
-      `1º crédito pós-migração de quem tinha 4 dias de histórico: ${JSON.stringify(qa)}`);
+    afirmar(qa.atual === 1 && qa.recorde === 1 && qa.dia === diaSP(t(7)) && qa.partida === partida,
+      `1º crédito elegível de quem tinha 4 dias de histórico: ${JSON.stringify(qa)}`);
     afirmar((await sequencia(b.admin, y)).atual === 1, "quem nunca tinha jogado também começa em 1");
 
     // F. o histórico não participa — nem do recálculo, nem de quem só tem histórico
@@ -1157,18 +1219,23 @@ const TESTES = [
     afirmar(rec.atual === 1 && rec.recorde === 1, `o recálculo do ledger enxergou o histórico: ${JSON.stringify(rec)}`);
     afirmar(JSON.stringify(await sequencia(b.admin, x)) === ZERADO, "X só tem histórico e ganhou sequência");
 
-    // crédito ATRASADO (outbox) de partida que terminou ANTES do marco: o XP entra; a sequência, não.
-    // E o recálculo que ele dispara também não pode aproveitar o lançamento de Z feito antes do marco.
-    const atrasada = new Date(m.inicio.getTime() - 30 * 60_000);
-    const { linhas } = await creditar(s, { iniciada: new Date(atrasada.getTime() - 10 * 60_000), terminada: atrasada, humanos: dupla(z, w) });
+    // T2/T4 — crédito ATRASADO (outbox) de partida que terminou ANTES do marco: o XP entra; a
+    //    sequência, não. E o recálculo que ele dispara não aproveita o lançamento de Z feito antes.
+    const { linhas } = await creditar(s, { iniciada: t(-40), terminada: t(-30), humanos: dupla(z, w) });
     afirmar(xpDe(linhas, z) === 150 && await total(b.admin, z) === xpAntes.z + 150, "o XP do crédito atrasado deveria entrar normalmente");
-    // partida que ATRAVESSOU o rollout (começou antes, terminou depois): partida anterior, não conta
-    const atravessou = await creditar(s, { iniciada: new Date(m.inicio.getTime() - 5 * 60_000), terminada: new Date(m.inicio.getTime() + 20_000), humanos: dupla(v, u) });
+    // T3 — partida que ATRAVESSOU o rollout (começou antes, terminou depois): anterior, não conta
+    const atravessou = await creditar(s, { iniciada: t(-1), terminada: t(1), humanos: dupla(v, u) });
     afirmar(xpDe(atravessou.linhas, v) === 150, "o XP da partida que atravessou o rollout deveria entrar normalmente");
-    for (const id of [z, w, v, u]) {
+    // RELÓGIO DA VPS ADIANTADO 4 min: a partida começou, de verdade, 3 min ANTES do marco e chegou
+    //    carimbada 1 min DEPOIS dele. A margem de 5 min a mantém fora.
+    const adiantada = await creditar(s, { iniciada: t(1), terminada: t(3), humanos: dupla(r1, r2) });
+    afirmar(xpDe(adiantada.linhas, r1) === 150, "o XP da partida com relógio adiantado deveria entrar normalmente");
+    for (const id of [z, w, v, u, r1, r2]) {
       const q = await sequencia(b.admin, id);
       afirmar(JSON.stringify(q) === ZERADO, `XP ou partida anterior ao rollout contou para ${id.slice(0, 8)}: ${JSON.stringify(q)}`);
     }
+    // por último, a forma do marco (o comportamento acima já tem de pegar uma margem errada sozinho)
+    afirmar(m.partidas.getTime() - m.aplicado.getTime() === 5 * 60_000, `margem do marco: ${JSON.stringify(m)}`);
   } },
   { id: "S17", semSequencia: true, nome: "rollback remove só a sequência (XP e ledger intactos) e REAPLICAR não reconstrói nada", async fn(b, ctx) {
     const [a, x] = await b.jogadores(2);
@@ -1177,22 +1244,24 @@ const TESTES = [
     for (const k of [2, 1]) await creditar(s, { ...terminandoEm(`${diaMenos(hoje, k)}T12:00:00-03:00`), humanos: dupla(a, x) });
     await b.admin.query(ctx.sequencia);
     afirmar(await naoZerados(b.admin) === 0, "a 1ª aplicação preencheu sequência a partir do histórico");
-    const m1 = await marco(b.admin);
-    afirmar(m1 && m1.inicio instanceof Date, `marco da 1ª aplicação: ${JSON.stringify(m1)}`);
-    await creditar(s, { iniciada: new Date(m1.inicio.getTime() + 1_000), terminada: new Date(m1.inicio.getTime() + 31_000), humanos: dupla(a, x) });
-    afirmar((await sequencia(b.admin, a)).atual === 1, "o 1º crédito depois da 1ª aplicação deveria dar 1");
+    const m1 = await recuarMarco(b.admin, 10);
+    const t1 = (rel) => new Date(m1.aplicado.getTime() + rel * 60_000);
+    await creditar(s, { iniciada: t1(6), terminada: t1(7), humanos: dupla(a, x) });
+    afirmar((await sequencia(b.admin, a)).atual === 1, "o 1º crédito elegível depois da 1ª aplicação deveria dar 1");
     const ledger1 = await resumoDoLedger(b.admin);
     const xp1 = await total(b.admin, a);
 
-    // G. rollback
-    await b.admin.query(ROLLBACK_SEQUENCIA);
+    // G. rollback — o arquivo de verdade, com as conferências dele
+    const saida = await b.admin.query(ROLLBACK_SEQUENCIA);
+    const relatorio = [].concat(saida).at(-1).rows[0];
+    afirmar(relatorio?.resultado === "SEQUÊNCIA REMOVIDA E CONFERIDA", `relatório do rollback: ${JSON.stringify(relatorio)}`);
     const cols = async (tabela) => (await b.admin.query(
       "select column_name from information_schema.columns where table_schema = 'public' and table_name = $1 order by ordinal_position", [tabela])).rows.map((r) => r.column_name).join(",");
     afirmar(await cols("meu_progresso") === "player_id,xp_total,nivel,xp_no_nivel,xp_do_nivel", `view depois do rollback: ${await cols("meu_progresso")}`);
     afirmar(await cols("progresso") === "player_id,xp_total,atualizado_em", `progresso depois do rollback: ${await cols("progresso")}`);
     const sobras = await b.admin.query(
       "select (select count(*)::int from pg_trigger where tgname = 'xp_eventos_sequencia')" +
-      " + (select count(*)::int from pg_proc where proname in ('dia_de_sao_paulo','sequencia_efetiva','sequencia_qualificada_hoje','sequencia_de','sequencia_apos_lancamento'))" +
+      " + (select count(*)::int from pg_proc where proname in ('dia_de_sao_paulo','sequencia_efetiva','sequencia_qualificada_hoje','sequencia_de','sequencia_apos_lancamento','sequencia_inicio_imutavel'))" +
       " + (select count(*)::int from pg_class where oid = to_regclass('king_private.sequencia_inicio')) as n");
     afirmar(sobras.rows[0].n === 0, "o rollback deixou gatilho, função ou marco para trás");
     const ledgerR = await resumoDoLedger(b.admin);
@@ -1209,12 +1278,13 @@ const TESTES = [
     afirmar(await naoZerados(b.admin) === 0, "reaplicar reconstruiu sequência a partir do ledger");
     for (const id of [a, x]) afirmar(JSON.stringify(await sequencia(b.admin, id)) === ZERADO, "reaplicar devolveu sequência antiga");
     const m2 = await marco(b.admin);
-    afirmar(m2.inicio > m1.inicio && m2.ultimo > m1.ultimo, `o marco não foi renovado: ${JSON.stringify({ m1, m2 })}`);
-    // e o fluxo normal recomeça do 1
-    const f3 = new Date(m2.inicio.getTime() + 4 * 60_000);
-    await creditar(s, { iniciada: new Date(f3.getTime() - 30_000), terminada: f3, humanos: dupla(a, x) });
+    afirmar(m2.ultimo > m1.ultimo && m2.aplicado > m1.aplicado, `o marco não foi renovado: ${JSON.stringify({ m1, m2 })}`);
+    // e o fluxo normal recomeça do 1 (partida iniciada depois do NOVO marco)
+    const m2r = await recuarMarco(b.admin, 10);
+    const t2 = (rel) => new Date(m2r.aplicado.getTime() + rel * 60_000);
+    await creditar(s, { iniciada: t2(7.5), terminada: t2(8), humanos: dupla(a, x) });
     const q = await sequencia(b.admin, a);
-    afirmar(q.atual === 1 && q.recorde === 1, `1º crédito depois da reaplicação: ${JSON.stringify(q)}`);
+    afirmar(q.atual === 1 && q.recorde === 1, `1º crédito elegível depois da reaplicação: ${JSON.stringify(q)}`);
     const div = await b.admin.query(
       "select count(*)::int n from public.progresso g where g.xp_total <> (select coalesce(sum(e.xp_delta), 0) from public.xp_eventos e where e.player_id = g.player_id)");
     afirmar(div.rows[0].n === 0, "XP total divergiu do ledger depois do ciclo migração → rollback → migração");
@@ -1292,6 +1362,183 @@ const TESTES = [
     await creditar(s, { ...terminandoEm("2026-03-12T15:00:00-03:00"), humanos: dupla(a, x) });
     const q = await sequencia(b.admin, a);
     afirmar(q.atual === 1 && q.recorde === 1 && q.dia === "2026-03-12", `a partida online depois das origens falsas: ${JSON.stringify(q)}`);
+  } },
+  // ═══════════════ O MARCO E O ROLLOUT (auditoria da 6B) ═══════════════
+
+  { id: "S20", nome: "marco do rollout: nasce UMA vez e é imutável — nem o dono altera; reaplicar sem rollback falha inteiro", async fn(b, ctx) {
+    const antes = await marco(b.admin);
+    await reprova(b.admin.query("update king_private.sequencia_inicio set partidas_a_partir_de = partidas_a_partir_de - interval '1 day', aplicado_em = aplicado_em - interval '1 day'"),
+      /imutável/, "o marco aceitou UPDATE");
+    await reprova(b.admin.query("delete from king_private.sequencia_inicio"), /imutável/, "o marco aceitou DELETE");
+    await reprova(b.admin.query("truncate king_private.sequencia_inicio"), /imutável/, "o marco aceitou TRUNCATE");
+    await reprova(b.admin.query("insert into king_private.sequencia_inicio (unica, aplicado_em, partidas_a_partir_de, ultimo_evento_anterior) " +
+      "values (true, now(), now() + interval '5 minutes', 0)"), /duplicate key|sequencia_inicio_pkey/, "um 2º marco entrou");
+    const dono = await b.outraAdmin();
+    await dono.query("set role king_progress_owner");
+    await reprova(dono.query("update king_private.sequencia_inicio set ultimo_evento_anterior = 0"), /imutável/, "o dono dedicado alterou o marco");
+    // reaplicar a migração SEM rollback: falha inteira (é uma transação só) e nada muda
+    await reprova(b.admin.query(ctx.sequencia), /already exists|já existe/, "a migração rodou duas vezes");
+    afirmar(JSON.stringify(await marco(b.admin)) === JSON.stringify(antes), "o marco mudou");
+    const g = await b.admin.query("select (select count(*)::int from king_private.sequencia_inicio) as marcos, " +
+      "(select count(*)::int from pg_trigger where tgrelid = 'king_private.sequencia_inicio'::regclass and not tgisinternal and tgenabled = 'O') as gatilhos");
+    afirmar(g.rows[0].marcos === 1 && g.rows[0].gatilhos === 2, `marcos/gatilhos: ${JSON.stringify(g.rows[0])}`);
+  } },
+  { id: "S21", semSequencia: true, nome: "T5 — crédito EM CURSO quando a migração começa: ela espera a trava, e o marco (lido depois) deixa o lançamento ANTES dele", async fn(b, ctx) {
+    const [a, x] = await b.jogadores(2);
+    const s1 = await b.servidor();
+    await s1.query("begin");
+    const { partida } = await creditar(s1, { iniciada: new Date(Date.now() - 20 * 60_000), terminada: new Date(Date.now() - 10 * 60_000), humanos: dupla(a, x) });
+    const mig = await b.outraAdmin();
+    const migracao = dispararSql(mig, ctx.sequencia);
+    afirmar(await paradaOuTerminou(b, migracao, [s1.processID]) === "parada", "a migração não esperou o crédito em curso");
+    // a migração está ESPERANDO a trava; o tempo corre
+    await new Promise((ok) => setTimeout(ok, 300));
+    const antesDoCommit = (await s1.query("select clock_timestamp() as t")).rows[0].t;
+    await s1.query("commit");
+    await migracao.p;
+    const m = await marco(b.admin);
+    const id = (await b.admin.query("select max(id)::int as id from public.xp_eventos where partida_id = $1", [partida])).rows[0].id;
+    afirmar(m.ultimo >= id, `o crédito em curso ficou DEPOIS do marco (id ${id}, marco ${m.ultimo})`);
+    afirmar(m.aplicado > antesDoCommit, `o marco foi lido antes de a trava ser concedida: ${m.aplicado.toISOString()} ≤ ${antesDoCommit.toISOString()}`);
+    afirmar(await naoZerados(b.admin) === 0, "o crédito em curso virou sequência");
+  } },
+  { id: "S21b", semSequencia: true, nome: "T5 — crédito que chega DURANTE a migração espera a trava, cai DEPOIS do marco, e a partida pré-rollout continua fora", async fn(b, ctx) {
+    const [a, x] = await b.jogadores(2);
+    const mig = await b.outraAdmin();
+    await mig.query("begin");
+    await mig.query(ctx.sequencia); // migração aplicada, transação ABERTA (trava exclusiva em progresso)
+    const s = await b.servidor();
+    const credito = disparar(s, { iniciada: new Date(Date.now() - 20 * 60_000), terminada: new Date(Date.now() - 10 * 60_000), humanos: dupla(a, x) });
+    afirmar(await paradaOuTerminou(b, credito, [mig.processID]) === "parada", "o crédito não esperou a migração em curso");
+    await mig.query("commit");
+    const { linhas, partida } = await credito.p;
+    afirmar(xpDe(linhas, a) === 150, "o XP do crédito que esperou deveria entrar normalmente");
+    const m = await marco(b.admin);
+    const id = (await b.admin.query("select max(id)::int as id from public.xp_eventos where partida_id = $1", [partida])).rows[0].id;
+    afirmar(id > m.ultimo, `o crédito que esperou a migração ficou ANTES do marco (id ${id}, marco ${m.ultimo})`);
+    afirmar(JSON.stringify(await sequencia(b.admin, a)) === ZERADO, "partida pré-rollout contou por ter sido creditada depois do marco");
+  } },
+  { id: "S22", semSequencia: true, nome: "ENSAIO DO ROLLOUT com os arquivos de verdade: base realista (histórico, sem XP, outbox antigo, partida atravessando) → aplicar → créditos → rollback → reaplicar", async fn(b, ctx) {
+    const { OutboxDeProgresso } = await import(new URL("apps/server/dist/progresso/outbox.js", RAIZ).href);
+    const { repositorioPg } = await import(new URL("apps/server/dist/progresso/repositorio.js", RAIZ).href);
+    const { ServicoDeProgresso } = await import(new URL("apps/server/dist/progresso/servico.js", RAIZ).href);
+    const [a, x, h, n1, zero, semXp, o1, o2, t1, t2] = await b.jogadores(10);
+    const s = await b.servidor();
+    const hoje = diaSP(new Date());
+    // ── a base de antes: cinco dias de A e X, dias alternados de H, um abandono (0 XP), um jogador sem XP
+    for (const k of [5, 4, 3, 2, 1]) await creditar(s, { ...terminandoEm(`${diaMenos(hoje, k)}T12:00:00-03:00`), humanos: dupla(a, x) });
+    for (const k of [4, 2]) await creditar(s, { ...terminandoEm(`${diaMenos(hoje, k)}T15:00:00-03:00`), humanos: dupla(h, n1) });
+    await creditar(s, { ...terminandoEm(`${diaMenos(hoje, 1)}T18:00:00-03:00`), humanos: [{ id: zero, posicao: 1, participou: false }, { id: n1, posicao: 2 }] });
+    // ── OUTBOX ANTIGO: a partida de O1 e O2 terminou antes do rollout e o crédito ficou PENDENTE (banco fora)
+    const dirOutbox = mkdtempSync(join(tmpdir(), "king-outbox-ensaio-"));
+    const semEspera = { esperas: [0], esperar: async () => {}, log: () => {} };
+    const partidaDoOutbox = {
+      partidaId: randomUUID(), iniciadaEm: new Date(Date.now() - 90 * 60_000), terminadaEm: new Date(Date.now() - 80 * 60_000),
+      posicoes: { 0: 1, 1: 2, 2: 3, 3: 4 },
+      assentos: [
+        { seat: 0, playerId: o1, bot: false, permanente: true, conectado: true, jogadasTotais: 30, jogadasProprias: 30 },
+        { seat: 1, playerId: "bot:1", bot: true, permanente: false, conectado: true, jogadasTotais: 30, jogadasProprias: 0 },
+        { seat: 2, playerId: o2, bot: false, permanente: true, conectado: true, jogadasTotais: 30, jogadasProprias: 30 },
+        { seat: 3, playerId: "bot:3", bot: true, permanente: false, conectado: true, jogadasTotais: 30, jogadasProprias: 0 },
+      ],
+    };
+    const bancoFora = repositorioPg({ pool: new pg.Pool({ host: "127.0.0.1", port: 1, database: b.nome, user: "king_server", password: SENHA_SERVIDOR, max: 1 }) });
+    const poolReal = new pg.Pool({ host: "127.0.0.1", port: PORTA, database: b.nome, user: "king_server", password: SENHA_SERVIDOR, max: 2 });
+    const repo = repositorioPg({ pool: poolReal });
+    try {
+      const fora = new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), bancoFora, semEspera);
+      await fora.iniciar();
+      fora.partidaEncerrada(partidaDoOutbox);
+      await fora.ocioso();
+      afirmar(new OutboxDeProgresso(dirOutbox).pendentes().validas.length === 1, "o crédito antigo deveria estar pendente no outbox");
+      // ── a partida que vai ATRAVESSAR o marco: começa antes da migração, é creditada depois
+      const atravessa = { iniciada: new Date(Date.now() - 3 * 60_000), terminada: new Date(Date.now() + 60_000) };
+      const antes = await resumoDoLedger(b.admin);
+      const xpAntes = {};
+      for (const id of [a, x, h, n1, zero]) xpAntes[id] = await total(b.admin, id);
+
+      // ── APLICAR: o arquivo do rollout (antes + migração + conferências), numa transação
+      const saida = await b.admin.query(textoDoRollout(ctx.sequencia));
+      const rel = [].concat(saida).at(-1).rows[0];
+      afirmar(rel?.resultado === "SEQUÊNCIA APLICADA E CONFERIDA" && Number(rel.jogadores_com_sequencia) === 0 && Number(rel.ultimo_evento_anterior) === antes.ultimo,
+        `relatório do rollout: ${JSON.stringify(rel)}`);
+      // inspeções
+      afirmar(await naoZerados(b.admin) === 0, "alguém nasceu com sequência");
+      afirmar(JSON.stringify(await resumoDoLedger(b.admin)) === JSON.stringify(antes), "o rollout mexeu no ledger");
+      for (const id of [a, x, h, n1, zero]) afirmar(await total(b.admin, id) === xpAntes[id], "o rollout mexeu no XP");
+      afirmar((await (await b.como(semXp)).query("select sequencia_atual, sequencia_recorde from public.meu_progresso")).rows[0].sequencia_atual === 0,
+        "quem nunca teve XP deveria ler sequência 0");
+
+      // ── depois do rollout: o servidor volta e entrega o crédito ANTIGO do outbox
+      const { balanco } = await new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), repo, semEspera).iniciar();
+      afirmar(balanco?.entregues === 1 && balanco?.pendentes === 0, `entrega do outbox antigo: ${JSON.stringify(balanco)}`);
+      afirmar(await total(b.admin, o1) === 150, "o XP do crédito antigo deveria entrar normalmente");
+      // e a partida que atravessou o marco é creditada
+      await creditar(s, { ...atravessa, humanos: dupla(t1, t2) });
+      for (const id of [o1, o2, t1, t2]) afirmar(JSON.stringify(await sequencia(b.admin, id)) === ZERADO, `partida anterior ao rollout contou (${id.slice(0, 8)})`);
+
+      // ── a 1ª partida elegível ("o rollout aconteceu há 10 minutos") e a 2ª do MESMO dia
+      const r = await recuarMarco(b.admin, 10);
+      const t = (rel2) => new Date(r.aplicado.getTime() + rel2 * 60_000);
+      const p1 = await creditar(s, { iniciada: t(6), terminada: t(7), humanos: dupla(a, x) });
+      await creditar(s, { iniciada: t(8), terminada: t(9), humanos: dupla(a, x) });
+      const qa = await sequencia(b.admin, a);
+      afirmar(qa.atual === 1 && qa.recorde === 1 && qa.partida === p1.partida, `A depois de 2 partidas no 1º dia (5 dias de histórico antes): ${JSON.stringify(qa)}`);
+      afirmar(JSON.stringify(await sequencia(b.admin, h)) === ZERADO, "H só tem histórico e ganhou sequência");
+
+      // ── ROLLBACK: o arquivo de verdade
+      const ledgerAntesDoRollback = await resumoDoLedger(b.admin);
+      const rb = [].concat(await b.admin.query(ROLLBACK_SEQUENCIA)).at(-1).rows[0];
+      afirmar(rb?.resultado === "SEQUÊNCIA REMOVIDA E CONFERIDA", `relatório do rollback: ${JSON.stringify(rb)}`);
+      afirmar(JSON.stringify(await resumoDoLedger(b.admin)) === JSON.stringify(ledgerAntesDoRollback), "o rollback mexeu no ledger");
+      const objetos = await b.admin.query("select to_regclass('king_private.sequencia_inicio') is null as sem_marco, " +
+        "(select count(*)::int from information_schema.columns where table_schema = 'public' and table_name = 'progresso' and column_name like 'sequencia%') as colunas");
+      afirmar(objetos.rows[0].sem_marco && objetos.rows[0].colunas === 0, `sobra depois do rollback: ${JSON.stringify(objetos.rows[0])}`);
+
+      // ── REAPLICAR: de novo o arquivo do rollout — e NADA volta
+      const rel2 = [].concat(await b.admin.query(textoDoRollout(ctx.sequencia))).at(-1).rows[0];
+      afirmar(rel2?.resultado === "SEQUÊNCIA APLICADA E CONFERIDA" && Number(rel2.jogadores_com_sequencia) === 0, `relatório da reaplicação: ${JSON.stringify(rel2)}`);
+      afirmar(await naoZerados(b.admin) === 0, "a reaplicação reconstruiu a sequência de antes do rollback");
+      const r2 = await recuarMarco(b.admin, 10);
+      const u2 = (rel3) => new Date(r2.aplicado.getTime() + rel3 * 60_000);
+      await creditar(s, { iniciada: u2(9.5), terminada: u2(9.8), humanos: dupla(a, x) });
+      const qa2 = await sequencia(b.admin, a);
+      afirmar(qa2.atual === 1 && qa2.recorde === 1, `1º crédito elegível depois da reaplicação: ${JSON.stringify(qa2)}`);
+    } finally {
+      await repo.encerrar().catch(() => {});
+      await bancoFora.encerrar().catch(() => {});
+      rmSync(dirOutbox, { recursive: true, force: true });
+    }
+  } },
+  { id: "S23", semSequencia: true, nome: "o ARQUIVO do rollout: igual à migração; com defeito (backfill), aborta e não grava NADA; repetido, recusa na parte 1", async fn(b, ctx) {
+    // (a) o arquivo que o Tito cola é exatamente o que as partes e a migração montam hoje
+    const { montarRollout } = await import(new URL("scripts/montar-rollout-sequencia.mjs", RAIZ).href);
+    afirmar(ler("supabase/rollout/sequencia-aplicar.sql") === montarRollout(), "supabase/rollout/sequencia-aplicar.sql está desatualizado (rode node scripts/montar-rollout-sequencia.mjs)");
+    afirmar(montarRollout().includes(SEQUENCIA), "a migração não entra verbatim no arquivo do rollout");
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    const hoje = diaSP(new Date());
+    for (const k of [2, 1]) await creditar(s, { ...terminandoEm(`${diaMenos(hoje, k)}T12:00:00-03:00`), humanos: dupla(a, x) });
+    const antes = await resumoDoLedger(b.admin);
+    const nadaDaSequencia = async () => (await b.admin.query("select to_regclass('king_private.sequencia_inicio') is null " +
+      "and not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'progresso' and column_name like 'sequencia%') " +
+      "and to_regprocedure('public.dia_de_sao_paulo(timestamptz)') is null as limpo")).rows[0].limpo;
+    // (b) uma migração com BACKFILL dentro do arquivo do rollout: a conferência pega, e nada é gravado
+    const comBackfill = mutar(SEQUENCIA, MUTACOES["seq-backfill"].trocasSeq);
+    const c1 = await b.outraAdmin();
+    await reprova(c1.query(textoDoRollout(comBackfill)), /CONFERÊNCIA [0-9] FALHOU/, "o rollout com backfill passou pelas conferências");
+    await c1.query("rollback").catch(() => {}); // como o Tito faria, para limpar a sessão
+    afirmar(await nadaDaSequencia(), "o rollout que falhou deixou objeto da sequência gravado");
+    afirmar(JSON.stringify(await resumoDoLedger(b.admin)) === JSON.stringify(antes), "o rollout que falhou mexeu no ledger");
+    // (c) o arquivo de verdade: aplica e confere
+    const rel = [].concat(await b.admin.query(textoDoRollout(ctx.sequencia))).at(-1).rows[0];
+    afirmar(rel?.resultado === "SEQUÊNCIA APLICADA E CONFERIDA", `relatório: ${JSON.stringify(rel)}`);
+    const m = await marco(b.admin);
+    // (d) colado de novo, por engano: recusa na parte 1, e nada muda
+    const c2 = await b.outraAdmin();
+    await reprova(c2.query(textoDoRollout(ctx.sequencia)), /ROLLOUT ABORTADO \(parte 1\)/, "o rollout rodou duas vezes");
+    await c2.query("rollback").catch(() => {});
+    afirmar(JSON.stringify(await marco(b.admin)) === JSON.stringify(m), "o rollout repetido mexeu no marco");
   } },
 ];
 
