@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-e2e-progresso/
 dist-e2e-analytics/
+dist-e2e-sequencia/
 build/
 *.log
 .DS_Store

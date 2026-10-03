@@ -13,7 +13,10 @@
     "build:e2e-progresso": "vite build --mode e2e-progresso --outDir dist-e2e-progresso",
     "test:e2e:progresso": "npm run build:e2e-progresso && playwright test -c playwright.progresso.config.ts",
     "build:e2e-analytics": "vite build --mode e2e-analytics --outDir dist-e2e-analytics",
-    "test:e2e:analytics": "npm run build:e2e-analytics && playwright test -c playwright.analytics.config.ts"
+    "test:e2e:analytics": "npm run build:e2e-analytics && playwright test -c playwright.analytics.config.ts",
+    "build:e2e-sequencia": "vite build --mode e2e-sequencia --outDir dist-e2e-sequencia",
+    "test:e2e:sequencia": "npm run build:e2e-sequencia && playwright test -c playwright.sequencia.config.ts",
+    "test:e2e:sequencia:compat": "npm run build:e2e-sequencia && playwright test -c playwright.sequencia-compat.config.ts"
   },
   "dependencies": {
     "@colyseus/sdk": "^0.17.43",
