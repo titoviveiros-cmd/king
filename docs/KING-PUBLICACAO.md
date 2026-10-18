@@ -263,6 +263,49 @@ e-mail que alguém leia *(falta)* · como jogar (apontar para o APRENDA KING) ·
 (não entro na sala, caí no meio da partida, não tem som) · como relatar erro · link para a
 privacidade.
 
+### Prévia do link (WhatsApp, Facebook, Telegram, X)
+
+Colar `https://playkingcards.com.br` numa conversa monta um cartão com imagem, título e descrição.
+
+- **Onde:** metatags fixas no `apps/web/index.html`: `<title>`, `description`, `canonical` e o Open
+  Graph (`og:*`) e o cartão do X (`twitter:*`). Os robôs de prévia leem o HTML cru e **não rodam
+  JavaScript**, por isso nada disso pode vir do React. Endereços **absolutos** do domínio público.
+  Mesmo padrão do Titoko (DEC-222).
+- **Imagem:** `apps/web/public/king-social-v2-1200x630.jpg`, JPEG baseline **1200×630** (o 1,91:1 do
+  Open Graph), 184.485 bytes (o WhatsApp descarta, na prática, `og:image` acima de ~300 kB). Sai da
+  arte final, guardada como veio em `docs/arte/king-compartilhamento-arte-final.png` ("Rei das
+  Cartas em Festa", 1731×909, sha256 `ccee71203387a082…`): o rei segura o **K de copas**, que
+  aparece uma vez só; as outras cartas (A♠, Q♦, J♣, 10♠) também são únicas.
+- **Reprodutível:** `node scripts/gerar-imagem-social.mjs` gera a imagem com o Chromium do
+  Playwright fixado no package-lock, em modo software; `--conferir` refaz em memória e compara byte a
+  byte com a versionada. Na mesma plataforma sai igual (provado em Windows x64); em outra, o
+  codificador pode variar sem defeito, e a referência é a imagem versionada (sha travado no teste).
+- **Nome curto:** `application-name` e `apple-mobile-web-app-title` = `KING`. O `<title>` longo
+  ("KING — Jogue cartas com amigos") fica para a aba e para a prévia; o "Adicionar à tela inicial"
+  usa o nome curto. Não há manifest (não é PWA).
+- **Travas:** `apps/web/src/ui/previaDoLink.test.ts`: cada metatag uma vez, URLs absolutas, nome
+  curto KING, a imagem existe em `public/`, é JPEG 1200×630 de verdade, tem até 250 kB, o conteúdo
+  (sha256) é o da versão do nome, só existe uma imagem social em `public/`, e nenhum código mexe no
+  head.
+- **Regra: arte nova = arquivo novo.** Os apps guardam a prévia pelo endereço da imagem e da página.
+  Para trocar a arte: substituir a arte final, subir a versão no nome da saída (`v2` → `v3`), rodar
+  o script, apagar a imagem anterior de `public/`, atualizar `og:image` e `twitter:image` e
+  registrar o sha novo no teste.
+- **Validar depois de publicar, nesta ordem:**
+  1. `https://playkingcards.com.br/king-social-v2-1200x630.jpg` responde `200` com
+     `content-type: image/jpeg` e mostra a arte. O rewrite `/(.*)` da Vercel devolve o `index.html`
+     com 200 para arquivo que não existe, e aí a prévia sai sem imagem, sem erro nenhum.
+  2. O HTML de Production traz as metatags (um GET simples, sem JavaScript).
+  3. Só então, no WhatsApp: colar `https://playkingcards.com.br/?v=2` e esperar a prévia aparecer
+     **antes** de enviar. O app ignora `v`; **não** usar `?trafego=`, que marca o navegador como
+     teste. Colar antes do passo 1 grava no aparelho uma prévia vazia para aquele endereço; aí é
+     preciso outro número (`?v=3`).
+  4. Depois, o link canônico `https://playkingcards.com.br/`, que pode mostrar por um tempo a prévia
+     antiga, guardada pelos apps. Mensagens já enviadas não ganham prévia (ela é montada no
+     aparelho de quem envia).
+- **O Preview da Vercel não serve para testar** a prévia: tem SSO (o robô recebe a tela de login) e o
+  `og:image` aponta para Production.
+
 ### ⏸️ Decisões que dependem de você
 
 | # | Decisão | O que trava |
