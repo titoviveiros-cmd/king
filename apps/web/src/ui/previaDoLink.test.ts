@@ -33,11 +33,13 @@ function meta(chave: string): string {
 
 /**
  * Cada versão da imagem e o seu conteúdo (sha256). NUNCA editar uma linha que já existe: os apps
- * guardam a prévia pelo endereço, então imagem nova = nome novo (v3) = linha nova aqui. A v2 é a
- * primeira publicada: sai da arte final, com o K de copas uma vez só, na mão do rei.
+ * guardam a prévia pelo endereço, então imagem nova = nome novo (v4) = linha nova aqui.
  */
 const VERSOES_DA_IMAGEM: Record<string, string> = {
+  // nunca publicada: o 10♠ da arte tinha 7 espadas
   "king-social-v2-1200x630.jpg": "4ad602096f69bee815aa021b7d4719bfa0c83ab5432df39be02b3af37575df2b",
+  // a primeira publicada: K♥ uma vez só, na mão do rei; A♠, Q♦, J♣ e 10♠ únicos; 10♠ com 10 espadas
+  "king-social-v3-1200x630.jpg": "8e897e7808b134519a277207c47190eaa167fbdf03c7772b6ddbbf73362abb26",
 };
 const RAIZ = join(WEB, "../../");
 
@@ -92,12 +94,18 @@ describe("as metatags estão no HTML fixo, uma vez cada", () => {
 describe("o que o cartão mostra", () => {
   it("o mesmo título e a mesma descrição no <title>, no og: e no twitter:", () => {
     const titulo = HEAD.match(/<title>([^<]*)<\/title>/i)![1];
-    expect(titulo).toBe("KING — Jogue cartas com amigos");
+    expect(titulo).toBe("KING: Jogue cartas com amigos");
     expect(meta("og:title")).toBe(titulo);
     expect(meta("twitter:title")).toBe(titulo);
     expect(meta("og:description")).toBe(meta("description"));
     expect(meta("twitter:description")).toBe(meta("description"));
     expect(meta("description")).toMatch(/cartas.*4 jogadores.*sala.*amigos/i);
+  });
+
+  it("nenhum travessão no que chega ao grupo (a mesma regra do texto do compartilhar)", () => {
+    const publicos = [HEAD.match(/<title>([^<]*)<\/title>/i)![1], ...["description", "og:title", "og:description",
+      "og:image:alt", "twitter:title", "twitter:description", "twitter:image:alt"].map(meta)];
+    for (const t of publicos) expect(t, t).not.toMatch(/[—–]/);
   });
 
   it("cartão grande, site em português", () => {
@@ -146,11 +154,12 @@ describe("a imagem existe e é o que as metatags dizem", () => {
     expect(createHash("sha256").update(readFileSync(arquivoDaImagem())).digest("hex")).toBe(VERSOES_DA_IMAGEM[nome]);
   });
 
-  it("uma imagem social só, a apontada — e nenhum rastro da v1, que nunca foi publicada", () => {
+  it("uma imagem social só, a apontada — e nenhuma versão antiga citada no HTML, no script ou na documentação", () => {
     const nome = meta("og:image").slice(SITE.length);
     expect(readdirSync(join(WEB, "public")).filter((f) => f.startsWith("king-social-"))).toEqual([nome]);
     for (const f of ["apps/web/index.html", "docs/KING-PUBLICACAO.md", "scripts/gerar-imagem-social.mjs"]) {
-      expect(readFileSync(join(RAIZ, f), "utf8"), f).not.toMatch(/king-social-v1\b/);
+      const citadas = [...readFileSync(join(RAIZ, f), "utf8").matchAll(/king-social-v\d+-1200x630\.jpg/g)].map((m) => m[0]);
+      expect(citadas.filter((c) => c !== nome), f).toEqual([]);
     }
   });
 });

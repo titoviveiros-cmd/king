@@ -1,12 +1,12 @@
 // A IMAGEM DA PRÉVIA DO LINK (WhatsApp, Facebook, Telegram, X), feita a partir da arte final.
 //
-// Entrada: docs/arte/king-compartilhamento-arte-final.png — a arte como veio ("Rei das Cartas em
-//          Festa", 1731×909): o rei segura o K de copas, que aparece UMA vez; as outras cartas
-//          (A♠, Q♦, J♣, 10♠) também são únicas. A proporção dela (1,904) já é a do Open Graph
-//          (1200×630 = 1,905): redimensiona inteira, sem corte (diferença de 0,03% na altura).
-// Saída:   apps/web/public/king-social-v2-1200x630.jpg — JPEG baseline 1200×630, qualidade 85
-//          (~180 kB). O WhatsApp descarta na prática og:image acima de ~300 kB; o script recusa
-//          passar de 250 kB, para sobrar folga.
+// Entrada: docs/arte/king-compartilhamento-arte-v3.png — a arte como veio (1730×909): o rei segura
+//          o K de copas, que aparece UMA vez; as outras cartas (A♠, Q♦, J♣, 10♠) também são únicas,
+//          e o 10♠ tem as 10 espadas de uma carta real (4 + 2 + 4). A proporção dela (1,903) já é
+//          a do Open Graph (1200×630 = 1,905): redimensiona inteira, sem corte (0,08% na altura).
+// Saída:   apps/web/public/king-social-v3-1200x630.jpg — JPEG baseline 1200×630, qualidade 85.
+//          O WhatsApp descarta na prática og:image acima de ~300 kB; o script recusa passar de
+//          250 kB, para sobrar folga.
 //
 // REPRODUTÍVEL: quem redimensiona e codifica é o Chromium do Playwright fixado no package-lock, em
 // modo software (--disable-gpu). Na MESMA plataforma, a mesma arte com o mesmo Playwright dá o mesmo
@@ -15,7 +15,7 @@
 // defeito: a referência é a imagem versionada, com o sha256 travado em
 // apps/web/src/ui/previaDoLink.test.ts.
 //
-// ARTE NOVA = ARQUIVO NOVO: trocar a entrada, subir a versão no nome da saída (v2 → v3: os apps
+// ARTE NOVA = ARQUIVO NOVO: trocar a entrada, subir a versão no nome da saída (v3 → v4: os apps
 // guardam a prévia pelo endereço), rodar `node scripts/gerar-imagem-social.mjs`, atualizar
 // og:image e twitter:image em apps/web/index.html e registrar o sha novo no teste.
 import { createRequire } from "node:module";
@@ -24,8 +24,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const raiz = (rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
-const ENTRADA = "docs/arte/king-compartilhamento-arte-final.png";
-const SAIDA = "apps/web/public/king-social-v2-1200x630.jpg";
+const ENTRADA = "docs/arte/king-compartilhamento-arte-v3.png";
+const SAIDA = "apps/web/public/king-social-v3-1200x630.jpg";
 const LARGURA = 1200;
 const ALTURA = 630;
 const QUALIDADE = 0.85;
