@@ -97,6 +97,9 @@ Partida não trava, e a leitura da Home espera no máximo o tempo da transação
    - Refresh no Placar: o mesmo número.
    - 2ª partida no mesmo dia: XP, e **nenhuma** linha de sequência.
    - Repetir o checkpoint 3: `retrato_divergente_do_ledger = 0` e `progresso_divergente_do_ledger = 0`.
+   - Checkpoint final (fecha a Fase 6): `supabase/rollout/sequencia-checkpoint-final.sql`, também só
+     de leitura. É o checkpoint 3 com o esperado derivado do próprio ledger, sem número fixo: os
+     lançamentos e os jogadores com sequência depois do marco saem do banco, não do roteiro.
 
 ## CHECKPOINT 5 — rollback (pronto; NÃO executar se tudo estiver saudável)
 
