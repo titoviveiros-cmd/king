@@ -1861,32 +1861,36 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
 /* O PROGRESSO NA HOME — o "player card" do Design System no mínimo: badge de nível em ouro e barra
    de XP turquesa→violeta. Uma pílula de vidro ABAIXO das ações, e menor que elas: é lembrança de
-   que cada partida conta, não painel. Números tabulares; nível e faixa vêm do banco, prontos. */
-.hm-progresso{display:inline-flex;align-items:center;gap:calc(var(--ui)*.6);margin-top:clamp(2px,.8vh,8px);
-  padding:calc(var(--ui)*.28) calc(var(--ui)*.85) calc(var(--ui)*.28) calc(var(--ui)*.28);
+   que cada partida conta, não painel. Números tabulares; nível e faixa vêm do banco, prontos.
+   LEITURA (18/10/2026): no celular em paisagem os textos auxiliares tinham 7px. Cresceram mais os
+   textos (~20%) que a pílula (~10% de altura): continua abaixo do peso visual dos CTAs. */
+.hm-progresso{display:inline-flex;align-items:center;gap:calc(var(--ui)*.66);margin-top:clamp(2px,.8vh,8px);
+  padding:calc(var(--ui)*.3) calc(var(--ui)*.95) calc(var(--ui)*.3) calc(var(--ui)*.3);
   border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line);
-  font-family:var(--disp);font-variant-numeric:tabular-nums;max-width:min(92vw,420px);
+  font-family:var(--disp);font-variant-numeric:tabular-nums;max-width:min(92vw,470px);
   animation:riseIn .55s cubic-bezier(.34,1.4,.64,1) both;}
 .pg-nivel{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  width:calc(var(--ui)*2.5);height:calc(var(--ui)*2.5);border-radius:50%;line-height:1;color:#2a1805;
+  width:calc(var(--ui)*2.8);height:calc(var(--ui)*2.8);border-radius:50%;line-height:1;color:#2a1805;
   background:radial-gradient(circle at 35% 30%,#fff1b0,var(--gold) 52%,var(--gold2));
   box-shadow:0 0 0 1px rgba(255,255,255,.35) inset,0 0 12px rgba(244,197,66,.32);}
-.pg-nivel small{font-size:calc(var(--ui)*.4);font-weight:800;letter-spacing:.08em;text-transform:uppercase;}
-.pg-nivel b{font-size:calc(var(--ui)*1.05);font-weight:800;}
-.pg-meio{display:flex;flex-direction:column;gap:4px;min-width:calc(var(--ui)*7.5);}
+.pg-nivel small{font-size:calc(var(--ui)*.48);font-weight:800;letter-spacing:.08em;text-transform:uppercase;}
+.pg-nivel b{font-size:calc(var(--ui)*1.17);font-weight:800;}
+.pg-meio{display:flex;flex-direction:column;gap:5px;min-width:calc(var(--ui)*8.8);}
 .pg-barra{display:block;height:6px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;}
 .pg-barra i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--turq),var(--violet));
   transition:width .7s cubic-bezier(.2,.8,.2,1);}
-.pg-numeros{font-size:calc(var(--ui)*.66);font-weight:700;color:var(--muted);text-align:left;white-space:nowrap;}
+/* A barra é a MESMA do Placar (.fimxp-nivel), que não muda: a espessura maior vale só na Home. */
+.hm-progresso .pg-barra{height:7px;}
+.pg-numeros{font-size:calc(var(--ui)*.78);font-weight:700;color:var(--muted);text-align:left;white-space:nowrap;}
 .pg-numeros b{color:var(--ink);}
-.pg-total{font-size:calc(var(--ui)*.58);font-weight:700;letter-spacing:.04em;color:var(--faint);white-space:nowrap;}
+.pg-total{font-size:calc(var(--ui)*.7);font-weight:700;letter-spacing:.04em;color:var(--faint);white-space:nowrap;}
 /* A SEQUÊNCIA, na lateral do card: uma pilha curta (total, sequência, recorde) que cabe na altura
    do badge — o card não cresce. Ouro quando o dia de hoje já conta; tom neutro enquanto não conta,
    sem alarme: é lembrança, não cobrança. */
-.pg-lado{display:flex;flex-direction:column;align-items:flex-start;gap:2px;line-height:1.15;min-width:0;}
-.pg-seq{font-size:calc(var(--ui)*.58);font-weight:800;letter-spacing:.02em;color:var(--muted);white-space:nowrap;}
+.pg-lado{display:flex;flex-direction:column;align-items:flex-start;gap:calc(var(--ui)*.2);line-height:1.1;min-width:0;}
+.pg-seq{font-size:calc(var(--ui)*.7);font-weight:800;letter-spacing:.02em;color:var(--muted);white-space:nowrap;}
 .pg-seq.hoje{color:var(--gold);}
-.pg-recorde{font-size:calc(var(--ui)*.52);font-weight:700;letter-spacing:.03em;color:var(--faint);white-space:nowrap;}
+.pg-recorde{font-size:calc(var(--ui)*.62);font-weight:700;letter-spacing:.03em;color:var(--faint);white-space:nowrap;}
 /* Altura compacta: a pílula fica, o texto auxiliar cede — na ordem do Design System. */
 @media (max-height: 360px){ .hm-progresso{margin-top:0;} .pg-total{display:none;} }
 @media (prefers-reduced-motion: reduce){ .hm-progresso{animation:none;} .pg-barra i{transition:none;} }
