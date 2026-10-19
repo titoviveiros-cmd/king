@@ -37,6 +37,17 @@ async function tutorial(page: Page): Promise<void> {
  * modal e virava uma barra rosa de 627px atravessando a mesa. Medir a caixa é o que pega isso.
  */
 async function vazamentos(page: Page): Promise<unknown[]> {
+  // MEDIR O REPOUSO, COM A FONTE DO JOGO. Medido logo que o tutorial aparece, o chip saía na fonte
+  // de reserva: a 740x320, "−240" termina em 134px com a Gabarito e em 139px com a reserva do
+  // Windows (borda do card em 140); no Linux da CI a reserva é mais larga e passou da borda — o
+  // flaky de 19/10/2026, só na 1ª tentativa. Espera as fontes e a entrada dos cards (animação
+  // finita; a infinita, de destaque, não conta).
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForFunction((sels: string[]) => sels.every((s) => {
+    const el = document.querySelector(s);
+    return !el || el.getAnimations({ subtree: true })
+      .every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity);
+  }), [".youtag", ".opp.left", ".opp.top", ".opp.right"]);
   return page.evaluate((valores: string[]) => {
     const out: { valor: string; sel: string; chipW: number; cardW: number }[] = [];
     for (const valor of valores) {
