@@ -110,6 +110,28 @@ describe("a recusa vira frase, não código", () => {
     expect(f).not.toMatch(/assinatura|token|jwt|expirado|emissor/i);
   });
 
+  it("o erro REAL do Colyseus: mensagem do servidor em português e o código à parte, em `code`", () => {
+    // Antes caía no genérico: o texto não tem "4002" nem "full". Visto no e2e do convite por link.
+    const real = (code: number, message: string) => mensagemDeFalha(Object.assign(new Error(message), { code }));
+    expect(real(4002, "A sala já tem quatro jogadores")).toBe("Essa sala já tem quatro jogadores.");
+    expect(real(4004, "Esta conta já está nesta mesa — para continuar noutro aparelho, reconecte.")).toContain("outro aparelho");
+    expect(real(4212, 'room "0315" not found')).toBe("Sala não encontrada. Confira o código.");
+    expect(real(4999, "qualquer coisa")).toBe("Não foi possível conectar ao servidor.");
+  });
+
+  it("sala de QUATRO HUMANOS: o Colyseus trava a sala, e a frase é a de sala cheia", () => {
+    // Medido pelo red team da Fase 7: `room "0941" is locked`, code 522.
+    const real = (code: number, message: string) => mensagemDeFalha(Object.assign(new Error(message), { code }));
+    expect(real(522, 'room "0941" is locked')).toBe("Essa sala já tem quatro jogadores.");
+  });
+
+  it("o código da SALA na mensagem nunca é lido como código de erro", () => {
+    const real = (code: number, message: string) => mensagemDeFalha(Object.assign(new Error(message), { code }));
+    expect(real(522, 'room "4004" is locked')).toBe("Essa sala já tem quatro jogadores.");
+    expect(real(522, 'room "4003" not found')).toBe("Sala não encontrada. Confira o código.");
+    expect(real(4212, 'room "4001" not found')).toBe("Sala não encontrada. Confira o código.");
+  });
+
   it("os códigos antigos continuam com as frases antigas", () => {
     expect(falha("code 4002")).toContain("quatro jogadores");
     expect(falha("code 4001")).toContain("não são compatíveis");

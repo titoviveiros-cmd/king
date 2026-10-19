@@ -397,3 +397,203 @@ test("navegador automatizado (webdriver + HeadlessChrome): o próprio SDK descar
   expect(rede.eventos, "nenhum evento de navegador automatizado").toEqual([]);
   await ctx.close();
 });
+
+// ═══════════════════════════════ CONVITE POR LINK (Fase 7) ═══════════════════════════════
+//
+// O convidado abre EXATAMENTE o link que o anfitrião mandou — o domínio público, servido aqui pelo
+// build local —, e nada entra sozinho: nenhum pedido ao servidor do jogo antes do toque em "Entrar
+// na sala". E o código da sala, que é a chave dela, não aparece em evento nenhum nem no que o
+// analytics guarda no aparelho.
+
+const ORIGEM_PUBLICA = "https://playkingcards.com.br";
+const CHAMADA = "Vem jogar KING comigo 👑\nEntre na minha sala:";
+
+/** O domínio público, servido pelo build local: o link do convite é aberto tal como foi mandado. */
+async function servirComoProducao(ctx: BrowserContext): Promise<void> {
+  await ctx.route(`${ORIGEM_PUBLICA}/**`, async (route) => {
+    const u = new URL(route.request().url());
+    await route.fulfill({ response: await route.fetch({ url: `${NOSSA_ORIGEM}${u.pathname}${u.search}` }) });
+  });
+}
+
+/** Tudo que a página pede ao servidor do JOGO (matchmaking por HTTP e WebSocket). */
+function vigiarServidorDoJogo(page: Page): string[] {
+  const pedidos: string[] = [];
+  page.on("websocket", (ws) => pedidos.push(ws.url()));
+  page.on("request", (r) => { if (r.url().startsWith(SERVIDOR_DO_JOGO)) pedidos.push(r.url()); });
+  return pedidos;
+}
+
+/**
+ * Onde o código seria vazamento: um valor IGUAL a ele, ou "sala=" em qualquer texto. Procurar os
+ * quatro dígitos soltos daria falso positivo em carimbo de tempo e uuid; igualdade não dá.
+ */
+function vazamentosDoCodigo(valor: unknown, codigo: string, caminho = "$"): string[] {
+  if (typeof valor === "string") return valor === codigo || valor.includes("sala=") ? [caminho] : [];
+  if (typeof valor === "number") return String(valor) === codigo ? [caminho] : [];
+  if (Array.isArray(valor)) return valor.flatMap((v, i) => vazamentosDoCodigo(v, codigo, `${caminho}[${i}]`));
+  if (valor && typeof valor === "object") {
+    return Object.entries(valor).flatMap(([k, v]) => [
+      ...(k === codigo ? [`${caminho}.${k}`] : []), ...vazamentosDoCodigo(v, codigo, `${caminho}.${k}`),
+    ]);
+  }
+  return [];
+}
+
+/** O que o ANALYTICS guarda no aparelho (PostHog e o nosso estado). A recuperação da sala é do jogo. */
+async function guardadoPeloAnalytics(page: Page): Promise<Array<[string, unknown]>> {
+  const itens = await page.evaluate(() => [localStorage, sessionStorage].flatMap((s) =>
+    Object.keys(s).filter((k) => /^ph_|analytics|posthog/i.test(k)).map((k) => [k, s.getItem(k) ?? ""] as [string, string])));
+  return itens.map(([k, v]) => { try { return [k, JSON.parse(v)]; } catch { return [k, v]; } });
+}
+
+const entrarComAvatar = async (page: Page, apelido: string) => {
+  await page.locator(".hm-online input").first().fill(apelido);
+  await page.getByRole("button", { name: "Entrar na sala" }).click();
+  await page.locator('.hm-avdialogo .hm-av[aria-label="Panda"]').click();
+};
+
+test("convite por link: o convidado abre o link, NADA entra sozinho, e o código não vai para o PostHog", async ({ browser }) => {
+  const { ctx: ctxA, rede: redeA } = await novoContexto(browser);
+  const { ctx: ctxB, rede: redeB } = await novoContexto(browser);
+  // A folha de compartilhar do anfitrião (headless não tem): registra o que seria mandado.
+  await ctxA.addInitScript(() => {
+    const w = window as unknown as { __folha: unknown[]; __folhaRecusa?: boolean };
+    w.__folha = [];
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: async (d: unknown) => {
+        if (w.__folhaRecusa) throw Object.assign(new Error("recusou"), { name: "NotAllowedError" });
+        w.__folha.push(d);
+      },
+    });
+  });
+  await ctxA.grantPermissions(["clipboard-read", "clipboard-write"], { origin: NOSSA_ORIGEM });
+  const a = await ctxA.newPage();
+  const codigo = await criarSala(a, "Tito", "Sapo");
+  const link = `${ORIGEM_PUBLICA}/?sala=${codigo}`;
+
+  // 1. Com folha: o link no campo url, o texto sem ele — e nenhum evento (não há evento de compartilhar).
+  await a.locator(".sl-convidar").click();
+  await expect(a.locator(".sl-convidar")).toHaveText("Enviado ✓");
+  expect(await a.evaluate(() => (window as unknown as { __folha: unknown[] }).__folha))
+    .toEqual([{ title: "KING", text: CHAMADA, url: link }]);
+  // 2. Folha recusada: copia o texto inteiro, e SÓ AÍ conta invite_code_copied.
+  await a.evaluate(() => { (window as unknown as { __folhaRecusa: boolean }).__folhaRecusa = true; });
+  await a.locator(".sl-convidar").click();
+  await expect(a.locator(".sl-convidar")).toHaveText("Copiado ✓");
+  // No Windows a área de transferência devolve CRLF; o texto é o mesmo.
+  expect((await a.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n")).toBe(`${CHAMADA}\n${link}`);
+  await expect.poll(() => contar(redeA, "invite_code_copied"), { timeout: 10_000 }).toBe(1);
+
+  // 3. O convidado abre o link: o MESMO caminho e parâmetro, no build local. (O domínio público
+  //    servido daqui fica para o teste sem servidor, abaixo: o Chrome não deixa um site público
+  //    falar com o servidor do jogo em localhost — Private Network Access.)
+  const b = await ctxB.newPage();
+  const doJogo = vigiarServidorDoJogo(b);
+  const aberto = `${NOSSA_ORIGEM}${new URL(link).pathname}${new URL(link).search}`;
+  await b.goto(aberto);
+  await expect(b.locator(".hm-online")).toBeVisible({ timeout: 15_000 });
+  await expect(b.locator(".hm-online input").last()).toHaveValue(codigo);
+  await expect.poll(() => b.url(), { message: "a barra continuou com o código" }).toBe(`${NOSSA_ORIGEM}/`);
+  expect(await b.evaluate(() => performance.getEntriesByType("navigation")[0].name), "a barra foi limpa SEM recarregar").toBe(aberto);
+  await expect(b.getByRole("button", { name: "Entrar na sala" })).toBeFocused();
+
+  // 4. NADA ENTROU: nenhum pedido ao servidor do jogo, e o anfitrião continua sozinho na sala.
+  await b.waitForTimeout(1500);
+  expect(doJogo, "abrir o link conectou ao servidor do jogo").toEqual([]);
+  await expect(a.locator(".sl-lugar:not(.vago)")).toHaveCount(1);
+
+  // 5. Só o toque entra — e o anfitrião vê o convidado chegar.
+  await entrarComAvatar(b, "Raiza");
+  await expect(b.locator(".sl-lugares")).toBeVisible({ timeout: 20_000 });
+  await expect(a.locator(".sl-lugar:not(.vago)")).toHaveCount(2, { timeout: 20_000 });
+  await expect.poll(() => contar(redeB, "room_joined"), { timeout: 15_000 }).toBe(1);
+
+  // 6. PRIVACIDADE: o código em nenhum evento, nem na barra, nem no que o analytics guarda.
+  for (const rede of [redeA, redeB]) {
+    rede.externos.splice(0, rede.externos.length, ...rede.externos.filter((o) => o !== ORIGEM_PUBLICA));
+    conferirTudoQueSaiu(rede, ["sala=", "playkingcards"]);
+    expect(vazamentosDoCodigo(rede.eventos, codigo), "o código da sala apareceu num evento").toEqual([]);
+  }
+  expect(b.url()).not.toContain(codigo);
+  for (const pagina of [a, b]) {
+    for (const [chave, valor] of await guardadoPeloAnalytics(pagina)) {
+      expect(vazamentosDoCodigo(valor, codigo), `${chave} guardou o código`).toEqual([]);
+    }
+  }
+  await ctxA.close();
+  await ctxB.close();
+});
+
+test("convite por link: link malformado, sala que enche no caminho e sala encerrada", async ({ browser }) => {
+  const { ctx: ctxA } = await novoContexto(browser);
+  const { ctx: ctxB } = await novoContexto(browser);
+  const a = await ctxA.newPage();
+  const b = await ctxB.newPage();
+  const doJogo = vigiarServidorDoJogo(b);
+
+  // MALFORMADO: a barra é limpa, o painel abre com o aviso e nada conecta.
+  await b.goto(`${NOSSA_ORIGEM}/?sala=12ab`);
+  await expect(b.locator(".hm-aviso-convite")).toHaveText("Esse link de convite não é válido. Digite o código da sala.");
+  await expect(b.locator(".hm-online input").last()).toHaveValue("");
+  await expect.poll(() => b.url()).toBe(`${NOSSA_ORIGEM}/`);
+  expect(doJogo).toEqual([]);
+
+  // A SALA ENCHE entre abrir o link e tocar: a recusa volta para o painel, com o motivo, o apelido
+  // e o código mantidos — e nada girando.
+  const codigo = await criarSala(a, "Tito", "Sapo");
+  await b.goto(`${NOSSA_ORIGEM}/?sala=${codigo}`);
+  await expect(b.locator(".hm-online input").last()).toHaveValue(codigo);
+  for (let i = 1; i <= 3; i++) {
+    await a.locator(".sl-bot.add").first().click();
+    await expect(a.locator(".sl-lugar.robo")).toHaveCount(i, { timeout: 20_000 });
+  }
+  await entrarComAvatar(b, "Raiza");
+  await expect(b.locator(".hm-aviso-convite")).toHaveText("Essa sala já tem quatro jogadores.", { timeout: 20_000 });
+  await expect(b.locator(".hm-online input").first()).toHaveValue("Raiza");
+  await expect(b.locator(".hm-online input").last()).toHaveValue(codigo);
+  await expect(b.getByRole("button", { name: "Entrar na sala" })).toBeEnabled();
+
+  // ENCERRADA: o anfitrião sai e a sala acaba; tentar de novo diz que ela não existe.
+  await a.getByRole("button", { name: "Sair" }).click();
+  await expect(a.getByRole("button", { name: "Jogar com amigos" })).toBeVisible({ timeout: 15_000 });
+  await a.waitForTimeout(1000);
+  await b.getByRole("button", { name: "Entrar na sala" }).click();
+  await b.locator('.hm-avdialogo .hm-av[aria-label="Panda"]').click();
+  await expect(b.locator(".hm-aviso-convite")).toHaveText("Sala não encontrada. Confira o código.", { timeout: 20_000 });
+  await expect(b.locator(".hm-online input").first()).toHaveValue("Raiza");
+  await ctxA.close();
+  await ctxB.close();
+});
+
+test("convite por link: recarregar, voltar e duas abas nunca entram sozinhos", async ({ browser }) => {
+  const { ctx } = await novoContexto(browser);
+  await servirComoProducao(ctx);
+  const link = `${ORIGEM_PUBLICA}/?sala=4821`;
+  const p1 = await ctx.newPage();
+  const p2 = await ctx.newPage();
+  const doJogo = vigiarServidorDoJogo(p1);
+  const doJogo2 = vigiarServidorDoJogo(p2);
+
+  // O MESMO LINK EM DUAS ABAS: as duas preenchem, nenhuma entra.
+  await p1.goto(link);
+  await p2.goto(link);
+  for (const p of [p1, p2]) {
+    await expect(p.locator(".hm-online input").last()).toHaveValue("4821");
+    await expect.poll(() => p.url()).toBe(`${ORIGEM_PUBLICA}/`);
+  }
+
+  // RECARREGAR: a barra já está limpa — volta a Home de sempre, sem painel e sem convite.
+  await p1.reload();
+  await expect(p1.getByRole("button", { name: "Jogar com amigos" })).toBeVisible();
+  await expect(p1.locator(".hm-online")).toHaveCount(0);
+
+  // VOLTAR E AVANÇAR: o link não reaparece na barra, e nada conecta.
+  await p2.goBack();
+  await p2.goForward();
+  await expect.poll(() => p2.url()).toBe(`${ORIGEM_PUBLICA}/`);
+  await p2.waitForTimeout(1500);
+  expect([...doJogo, ...doJogo2], "algum caminho conectou ao servidor do jogo sem toque").toEqual([]);
+  await ctx.close();
+});

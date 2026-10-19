@@ -4,6 +4,7 @@
  * O que trava aqui: o avatar aparece no lobby, é o do estado sincronizado, é o MESMO desenho
  * que a Mesa usa depois — e o bot, agora que tem nome de gente, continua declarado como bot.
  */
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parse, type HTMLElement } from "node-html-parser";
@@ -235,5 +236,20 @@ describe("avatar pendente no lobby", () => {
     expect(root.querySelectorAll(".sl-pendente")).toHaveLength(0);
     expect(root.querySelectorAll(".sl-lugar.pendente")).toHaveLength(0);
     expect(root.querySelectorAll(".row .btn").find((b) => b.text.includes("Estou pronto"))).toBeTruthy();
+  });
+});
+
+describe("o Convidar do lobby", () => {
+  it("fica na MESMA linha do código (largura, não altura), com o rótulo Convidar", () => {
+    const root = render(SEATS.map((s) => assento(s)));
+    const linha = root.querySelector(".sl-cod-linha")!;
+    expect(linha.querySelector(".sl-cod")!.text).toContain("0315");
+    expect(linha.querySelector(".sl-convidar")!.text.trim()).toBe("Convidar");
+  });
+
+  it("o código nunca vai para o analytics: os dois gestos de convite saem SEM propriedade", () => {
+    const fonte = readFileSync(new URL("./Sala.tsx", import.meta.url), "utf8");
+    expect(fonte.match(/analytics\.track\("invite_code_copied", \{\}\)/g)).toHaveLength(2);
+    expect(fonte).not.toMatch(/analytics\.track\([^)]*(codigo|link)/);
   });
 });

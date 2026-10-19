@@ -82,6 +82,27 @@ test("HOME: nenhuma ação necessária fica fora de alcance", async ({ page }, t
   expect(vp.height).toBeGreaterThan(0);
 });
 
+test("HOME COM CONVITE: o link abre o painel pronto, e nada sai do alcance — nem com o aviso", async ({ page }, ti) => {
+  await prepararSessao(page);
+  // O pior caso de altura é o link inválido: o painel ganha a linha do aviso.
+  for (const [url, codigo] of [["/?sala=0315", "0315"], ["/?sala=12ab", ""]] as const) {
+    await page.goto(url);
+    await expect(page.locator(".hm-online")).toBeVisible();
+    await expect(page.locator(".hm-online input").last()).toHaveValue(codigo);
+    expect(new URL(page.url()).search, "a barra ficou com o convite").toBe("");
+    // O foco vai para "Entrar na sala", e a Home rola até o painel: nas telas baixas o logo e o
+    // slogan sobem — são decoração. AÇÃO nenhuma (botão ou campo) pode ficar acima do topo.
+    const acaoAcimaDoTopo = await page.locator(".home button, .home input").evaluateAll(
+      (els) => els.filter((e) => e.getBoundingClientRect().top < -1).map((e) => (e.textContent || (e as HTMLInputElement).placeholder || e.tagName).trim()),
+    );
+    expect(acaoAcimaDoTopo, `[${ti.project.name}] ${url}: ação acima do topo: ${acaoAcimaDoTopo.join(", ")}`).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), "rolagem lateral").toBe(false);
+    const entrar = page.getByRole("button", { name: "Entrar na sala" });
+    await entrar.scrollIntoViewIfNeeded();
+    await expect(entrar).toBeInViewport();
+  }
+});
+
 // ───────────────────────────── LOBBY ─────────────────────────────
 
 test("LOBBY: ESTOU PRONTO fica 100% visível, sem precisar rolar", async ({ page }, ti) => {
@@ -110,6 +131,17 @@ test("LOBBY: ESTOU PRONTO fica 100% visível, sem precisar rolar", async ({ page
     vp.height,
   );
   expect(assentos, "assentos cortados").toBe(0);
+
+  // CONVIDAR (convite por link): na linha do código, inteiro na tela, sem encostar no código e
+  // sem abrir rolagem lateral — e a mesma régua dos assentos acima continua valendo.
+  const convidar = await caixa(page, ".sl-convidar");
+  expect(
+    convidar.t >= 0 && convidar.b <= vp.height && convidar.l >= 0 && convidar.r <= vp.width,
+    `[${ti.project.name}] Convidar fora da tela: ${fmt(convidar)}`,
+  ).toBe(true);
+  expect(cruza(convidar, codigo), `Convidar sobre o código: ${fmt(convidar)} × ${fmt(codigo)}`).toBe(false);
+  expect(convidar.h, "Convidar não pode ser mais alto que o código ao lado").toBeLessThanOrEqual(codigo.h);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), "rolagem lateral no lobby").toBe(false);
 });
 
 // ───────────────────────────── MESA ─────────────────────────────
