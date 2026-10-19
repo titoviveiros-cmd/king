@@ -505,9 +505,19 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
  * parte da falha que ele vê, e uma frase errada é um defeito tão real quanto um estado errado.
  */
 export function mensagemDeFalha(e: unknown): string {
-  const m = e instanceof Error ? e.message : String(e);
-  if (/not found|does not exist|404/i.test(m)) return "Sala não encontrada. Confira o código.";
-  if (/full|4002/i.test(m)) return "Essa sala já tem quatro jogadores.";
+  // O CÓDIGO NUMÉRICO ENTRA NO TEXTO COMPARADO. O erro do Colyseus traz a mensagem do servidor
+  // (em português, sem o número) e o código à parte, em `code`: "A sala já tem quatro jogadores"
+  // com `code: 4002` caía no genérico "Não foi possível conectar". Visto no e2e do convite por
+  // link (sala lotada por bots entre abrir o link e tocar em Entrar).
+  // E O QUE VEM ENTRE ASPAS SAI: é o código da SALA (`room "4004" is locked`), nunca código de
+  // erro — sem isso, a sala 4004 lotada virava "você já está nesta mesa".
+  const codigo = (e as { code?: unknown } | null)?.code;
+  const texto = (e instanceof Error ? e.message : String(e)).replace(/"[^"]*"/g, '""');
+  const m = `${texto}${typeof codigo === "number" ? ` ${codigo}` : ""}`;
+  if (/not found|does not exist|disposed|404/i.test(m)) return "Sala não encontrada. Confira o código.";
+  // `is locked`: o Colyseus trava a sala quando os QUATRO assentos são de gente (`maxClients`) —
+  // a recusa chega sem o 4002, e caía no genérico (achado do red team da Fase 7).
+  if (/full|is locked|4002/i.test(m)) return "Essa sala já tem quatro jogadores.";
   // Os dois lados do mesmo desencontro cabem numa frase só: o app e o servidor não falam a
   // mesma versão. Dizer "recarregue a página" seria um palpite — quando quem está velho é o
   // servidor, recarregar não muda nada, e mandar alguém repetir um gesto inútil é pior que

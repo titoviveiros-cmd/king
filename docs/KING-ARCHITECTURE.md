@@ -111,6 +111,31 @@ Fonte única de verdade UI × multiplayer:
 - Entrada/saída de jogador preserva o motion: entra → card com pop/stagger + som social curto;
   sai → saída suave; bot adicionado → feedback próprio, distinto de humano.
 
+### Convite por link (Fase 7)
+- **Formato:** `https://playkingcards.com.br/?sala=CODIGO`, só os 4 dígitos da regra acima. A
+  origem é FIXA (no app nativo `location.origin` é `localhost`). Qualquer outra coisa (letra,
+  tamanho errado, endereço, parâmetro repetido) é **link inválido**: nunca vira URL,
+  redirecionamento nem texto na tela. Módulo puro: `apps/web/src/net/convite.ts`.
+- **Limpeza imediata:** `capturarConvite()` roda no `main.tsx` **antes** de `iniciarAnalytics()`.
+  Ele lê o parâmetro e o apaga da barra com `history.replaceState`, sem recarregar e sem entrada
+  nova no histórico. Recarregar abre a Home de sempre; voltar não traz o link de volta.
+- **Nenhuma entrada automática:** a Home abre o painel "Jogar com amigos" com o código preenchido
+  e o foco em "Entrar na sala" (rolagem mínima), e **só o toque entra**. O e2e prova que nenhum
+  pedido chega ao servidor do jogo antes dele. O preparo vale uma vez: voltar de uma partida abre
+  a Home de sempre.
+- **Falha na entrada** (sala cheia, encerrada, inexistente): o app volta para o painel com o
+  motivo escrito, o apelido e o código mantidos. A frase sai do código numérico do erro do
+  Colyseus (`code`), e não só do texto.
+- **Botão Convidar no lobby,** na mesma linha do código (largura, não altura):
+  - usa a folha de compartilhar quando existe: `url` = o link, texto sem o link;
+  - senão copia "Vem jogar KING comigo 👑 / Entre na minha sala: <link>";
+  - se tudo falhar, pede para ditar o código;
+  - o retorno aparece no próprio botão.
+- **Privacidade:** o código vive só no campo da Home e na conexão com o servidor; nunca no
+  analytics (ver KING-ANALYTICS.md §4).
+- **Fora desta fase:** deep link nativo (App Link / Universal Link) fica para a fase mobile/RC.
+  No celular, o link abre no navegador, onde o convite funciona.
+
 ## Timeout (seção 40)
 Política parametrizável: tempo normal → aviso → crítico → ação após timeout. Nunca travar a
 partida indefinidamente; nunca curto a ponto de prejudicar iniciantes.

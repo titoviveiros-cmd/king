@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
@@ -6,6 +6,7 @@ import { AVATARES, desenhoDoAvatar, type Avatar } from "./avatares.js";
 import type { ContaDaHome } from "../auth/useConta.js";
 import type { ProgressoDoJogador } from "../auth/progresso.js";
 import { ProgressoNaHome } from "./Progresso.js";
+import type { Convite } from "../net/convite.js";
 
 /**
  * O código da sala tem QUATRO DÍGITOS e é sempre string.
@@ -25,6 +26,25 @@ export interface TutorialDaHome {
   concluido: boolean;
 }
 
+/**
+ * O QUE A HOME ABRE PRONTO: o painel "Jogar com amigos" já aberto, com o que veio junto — o código
+ * de um convite por link, ou a volta de uma entrada que falhou (apelido, código e o motivo). A
+ * Home NUNCA entra sozinha: "Entrar na sala" continua sendo o toque de quem foi convidado.
+ */
+export interface PreparoDaHome {
+  codigo?: string;
+  nick?: string;
+  aviso?: string;
+}
+
+export const AVISO_DE_LINK_INVALIDO = "Esse link de convite não é válido. Digite o código da sala.";
+
+/** O convite lido da URL, do jeito que a Home abre. */
+export function preparoDoConvite(c: Convite | null): PreparoDaHome | null {
+  if (!c) return null;
+  return "codigo" in c ? { codigo: c.codigo } : { aviso: AVISO_DE_LINK_INVALIDO };
+}
+
 export interface OnlineDaHome {
   /** `null` quando o multiplayer está disponível; texto explicativo quando não está. */
   indisponivel: string | null;
@@ -32,6 +52,10 @@ export interface OnlineDaHome {
   onCriar: (nick: string, avatar: Avatar) => void;
   onEntrar: (codigo: string, nick: string, avatar: Avatar) => void;
   onVoltar: () => void;
+  /** O painel pronto (convite ou volta de uma entrada que falhou). Lido UMA vez, na montagem. */
+  preparo?: PreparoDaHome | null;
+  /** Avisa que o preparo já foi lido — voltar à Home depois disso abre a Home de sempre. */
+  onPreparoLido?: () => void;
 }
 
 export function Home({
@@ -50,9 +74,24 @@ export function Home({
    */
   progresso?: ProgressoDoJogador | null;
 }) {
-  const [painel, setPainel] = useState(false);
-  const [nick, setNick] = useState("");
-  const [codigo, setCodigo] = useState("");
+  const preparo = online?.preparo ?? null;
+  const [painel, setPainel] = useState(() => !!preparo);
+  const [nick, setNick] = useState(() => (preparo?.nick ?? "").slice(0, 14));
+  const [codigo, setCodigo] = useState(() => (preparo?.codigo ?? "").replace(SOMENTE_DIGITOS, "").slice(0, TAMANHO_CODIGO));
+  const [aviso, setAviso] = useState<string | null>(() => preparo?.aviso ?? null);
+  const entrarRef = useRef<HTMLButtonElement>(null);
+  // O preparo vale UMA vez, na montagem: o App é avisado de que foi lido, e o foco vai para
+  // "Entrar na sala" quando o código já está completo. Focar não é entrar — o toque é da pessoa.
+  // A rolagem é a MÍNIMA para o botão aparecer (`nearest`), e o foco não rola de novo: nas telas
+  // baixas, o "centro" do foco padrão jogava a fileira de ações para cima do topo (852x300).
+  useEffect(() => {
+    if (!preparo) return;
+    online?.onPreparoLido?.();
+    const entrar = entrarRef.current;
+    if (codigo.length !== TAMANHO_CODIGO || !entrar) return;
+    entrar.scrollIntoView?.({ block: "nearest" });
+    entrar.focus({ preventScroll: true });
+  }, []);
   /**
    * NENHUM AVATAR VEM ESCOLHIDO, e a escolha é pedida quando faz falta.
    *
@@ -169,14 +208,16 @@ export function Home({
               <span>Código da sala</span>
               <input
                 value={codigo}
-                onChange={(e) => setCodigo(e.target.value.replace(SOMENTE_DIGITOS, "").slice(0, TAMANHO_CODIGO))}
+                onChange={(e) => { setAviso(null); setCodigo(e.target.value.replace(SOMENTE_DIGITOS, "").slice(0, TAMANHO_CODIGO)); }}
                 placeholder="0000"
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 spellCheck={false}
               />
             </label>
+            {aviso && <p className="hm-aviso hm-aviso-convite" role="status">{aviso}</p>}
             <button
+              ref={entrarRef}
               className="btn gold wide"
               disabled={codigo.length < TAMANHO_CODIGO}
               onClick={() => { sfxTap(); comAvatar((a) => online.onEntrar(codigo, nome, a)); }}

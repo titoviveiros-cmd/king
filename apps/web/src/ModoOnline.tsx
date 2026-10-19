@@ -10,6 +10,7 @@ import { Mesa, type MesaMultiplayer } from "./ui/Mesa.js";
 import { Sala } from "./ui/Sala.js";
 import { useBotaoVoltar } from "./ui/useBotaoVoltar.js";
 import type { Entrada } from "./modos.js";
+import type { PreparoDaHome } from "./ui/Home.js";
 import { leitorDeProgressoConfigurado } from "./auth/progresso.js";
 
 export default function ModoOnline({
@@ -17,7 +18,8 @@ export default function ModoOnline({
 }: {
   entrada: Entrada;
   onOpenAudio: () => void;
-  onSair: () => void;
+  /** Sair do online. Com `retorno`, a Home abre o painel pronto (entrada que falhou). */
+  onSair: (retorno?: PreparoDaHome) => void;
 }) {
   const g = useKingOnline();
   const disparado = useRef(false);
@@ -35,6 +37,19 @@ export default function ModoOnline({
 
   const { sairDaSala } = g;
   const sair = useCallback(() => { sairDaSala(); onSair(); }, [sairDaSala, onSair]);
+
+  // A ENTRADA QUE FALHOU VOLTA PARA O PAINEL. Sala cheia, encerrada ou inexistente: em vez de um
+  // lobby vazio dizendo "Sem conexão", a pessoa volta para a Home com o painel aberto, o apelido e o
+  // código mantidos e o motivo escrito — corrige o código ou tenta de novo, sem redigitar nada.
+  // Só a ENTRADA (nunca chegou a ter sala): queda no meio do lobby continua tratada lá.
+  // NÃO passa por `sairDaSala`: ele esquece a recuperação, que vale para TODAS as abas — o
+  // anfitrião que toca o próprio link no mesmo celular (4004) perderia o "Voltar para a minha
+  // sala" da partida de verdade. Entrada que falhou não abriu sessão: não há o que fechar.
+  const falhou = entrada.tipo === "entrar" && !g.sala && g.conexao === "erro" && !!g.erro;
+  useEffect(() => {
+    if (!falhou || entrada.tipo !== "entrar") return;
+    onSair({ codigo: entrada.codigo, nick: entrada.nick, aviso: g.erro ?? undefined });
+  }, [falhou, entrada, g.erro, onSair]);
   useBotaoVoltar(g.screen === "mesa", sair);
 
   if (g.screen !== "mesa" || !g.game) {

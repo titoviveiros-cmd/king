@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useKingGame } from "./game/useKingGame.js";
-import { Home, type OnlineDaHome, type TutorialDaHome } from "./ui/Home.js";
+import { Home, preparoDoConvite, type OnlineDaHome, type PreparoDaHome, type TutorialDaHome } from "./ui/Home.js";
 import { Mesa } from "./ui/Mesa.js";
 import { AudioPanel } from "./ui/AudioPanel.js";
 import { RotateGate } from "./ui/RotateGate.js";
@@ -8,6 +8,7 @@ import { useBotaoVoltar } from "./ui/useBotaoVoltar.js";
 import { servidorConfigurado } from "./net/servidor.js";
 import { lerRecuperacao } from "./net/recuperacao.js";
 import type { Entrada } from "./modos.js";
+import type { Convite } from "./net/convite.js";
 import { anunciarAbertura } from "./analytics/iniciar.js";
 import { armazenamentoLocal } from "./tutorial/persistencia.js";
 import { useConta } from "./auth/useConta.js";
@@ -32,9 +33,13 @@ const ModoOnline = lazy(() => import("./ModoOnline.js"));
  */
 const Tutorial = lazy(() => import("./tutorial/Tutorial.js").then((m) => ({ default: m.Tutorial })));
 
-export function App() {
+export function App({ convite = null }: { convite?: Convite | null } = {}) {
   const [audioOpen, setAudioOpen] = useState(false);
   const [entrada, setEntrada] = useState<Entrada | null>(null);
+  // O QUE A HOME ABRE PRONTO: o convite do link (código preenchido, ou o aviso de link inválido)
+  // e, depois, a volta de uma entrada que falhou (apelido e código mantidos, com o motivo). Vale
+  // UMA vez: a Home avisa que leu, e voltar de uma partida depois disso abre a Home de sempre.
+  const [preparo, setPreparo] = useState<PreparoDaHome | null>(() => preparoDoConvite(convite));
   // O TUTORIAL NUNCA SE ABRE SOZINHO. Quem abre o KING cai na Home, sempre — mesmo na primeira
   // vez, mesmo com armazenamento zerado. O APRENDA KING é um convite na Home ("Aprenda KING" /
   // "Rever como se joga"), e só o toque nele monta o tutorial. O progresso salvo continua valendo:
@@ -55,7 +60,11 @@ export function App() {
   }, [audioOpen]);
 
   const abrirAudio = useCallback(() => setAudioOpen(true), []);
-  const voltarParaLocal = useCallback(() => setEntrada(null), []);
+  const voltarParaLocal = useCallback((retorno?: PreparoDaHome) => {
+    setPreparo(retorno ?? null);
+    setEntrada(null);
+  }, []);
+  const preparoLido = useCallback(() => setPreparo(null), []);
 
   const tutorial: TutorialDaHome = {
     onAbrir: () => setTutorialAberto(true),
@@ -73,7 +82,10 @@ export function App() {
           <Tutorial onSair={fecharTutorial} onOpenAudio={abrirAudio} />
         </Suspense>
       ) : entrada === null ? (
-        <ModoLocal onOpenAudio={abrirAudio} onIrParaOnline={setEntrada} tutorial={tutorial} />
+        <ModoLocal
+          onOpenAudio={abrirAudio} onIrParaOnline={setEntrada} tutorial={tutorial}
+          preparo={preparo} onPreparoLido={preparoLido}
+        />
       ) : (
         <Suspense fallback={<Carregando texto="Conectando…" />}>
           <ModoOnline entrada={entrada} onOpenAudio={abrirAudio} onSair={voltarParaLocal} />
@@ -98,11 +110,13 @@ function Carregando({ texto }: { texto: string }) {
 // ─────────────────────────────── MODO LOCAL / BOTS ───────────────────────────────
 
 function ModoLocal({
-  onOpenAudio, onIrParaOnline, tutorial,
+  onOpenAudio, onIrParaOnline, tutorial, preparo, onPreparoLido,
 }: {
   onOpenAudio: () => void;
   onIrParaOnline: (e: Entrada) => void;
   tutorial: TutorialDaHome;
+  preparo: PreparoDaHome | null;
+  onPreparoLido: () => void;
 }) {
   const g = useKingGame();
   const { screen, goHome } = g;
@@ -127,6 +141,8 @@ function ModoLocal({
     onCriar: (nick, avatar) => onIrParaOnline({ tipo: "criar", nick, avatar }),
     onEntrar: (codigo, nick, avatar) => onIrParaOnline({ tipo: "entrar", codigo, nick, avatar }),
     onVoltar: () => onIrParaOnline({ tipo: "voltar" }),
+    preparo,
+    onPreparoLido,
   };
 
   if (screen === "home" || !g.game) {

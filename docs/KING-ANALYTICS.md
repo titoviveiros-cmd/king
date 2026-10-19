@@ -147,9 +147,17 @@ se forçado, não sai.
 
 **Fora de propósito:**
 - `second_session`, `d1`, `d7` — **não são eventos**: são métricas derivadas de `app_open` (§8).
-- `invite_shared` — o KING **não tem** link de convite nem folha de compartilhar o convite; o único
-  gesto de convite hoje é copiar o código (`invite_code_copied`). O evento entra junto com o fluxo,
-  se ele existir. Um evento declarado que nunca dispara seria um zero enganoso no painel.
+- `invite_shared` — **continua fora do contrato**, por decisão do dono na Fase 7. O KING passou a
+  ter link de convite (`?sala=`, botão **Convidar** no lobby), mas a folha de compartilhar não gera
+  evento. `invite_code_copied` conta a CÓPIA bem-sucedida, tanto do código (toque no número)
+  quanto do texto do convite (Convidar sem folha ou com a folha recusada). Compartilhar pela folha
+  não é medido; medir isso pede um evento novo e uma decisão.
+
+**O código da sala nunca é dado.** Além de nenhuma propriedade carregar código ou URL (§6), o
+`?sala=` do convite é lido e **apagado da barra antes de o analytics iniciar** (`main.tsx`:
+`capturarConvite()` antes de `iniciarAnalytics()`, travado em `src/net/convite.test.ts`). O e2e
+`convite por link` procura o código em todo evento, nos dois aparelhos, e no que o PostHog guarda
+no aparelho.
 
 **Sem duplicar:** `app_open` tem trava por página; `first_match_started` tem marca local gravada
 **antes** do envio (clique duplo e StrictMode não repetem); a partida online é deduplicada pelo id

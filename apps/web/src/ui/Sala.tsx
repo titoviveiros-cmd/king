@@ -19,6 +19,7 @@ import { AudioButton } from "./AudioPanel.js";
 import { FullscreenButton } from "./FullscreenButton.js";
 import { sfxTap } from "../audio/sounds.js";
 import { analytics } from "../analytics/analytics.js";
+import { enviarConvite, linkDoConvite } from "../net/convite.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao } from "../game/useKingOnline.js";
 import { AVATARES, desenhoDoAvatar } from "./avatares.js";
@@ -69,6 +70,8 @@ export function Sala({
   onOpenAudio: () => void;
 }) {
   const [copiado, setCopiado] = useState(false);
+  /** O retorno do Convidar, no próprio botão: não abre modal nem acrescenta linha à tela. */
+  const [retornoDoConvite, setRetornoDoConvite] = useState<{ ok: boolean; texto: string } | null>(null);
   const [abrindoAvatar, setAbrindoAvatar] = useState(false);
   const assentos = sala?.seats ?? [];
   const ocupados = assentos.filter((a) => a.playerId !== "").length;
@@ -119,6 +122,29 @@ export function Sala({
     );
   };
 
+  /**
+   * CONVIDAR: o link da sala (`?sala=`), que abre o KING com o código já preenchido — e quem foi
+   * convidado ainda precisa tocar em "Entrar na sala".
+   *
+   * Folha de compartilhar quando existe (o link vai no campo `url`; o texto vai sem ele, senão o
+   * WhatsApp repete o endereço); senão, copia o texto inteiro. Desistir da folha não é erro. Só a
+   * CÓPIA conta `invite_code_copied` — o contrato de analytics não tem evento de compartilhar
+   * convite, e um evento novo não entra sem decisão. O código nunca vai junto: é a chave da sala.
+   */
+  const link = linkDoConvite(codigo);
+  const convidar = async () => {
+    sfxTap();
+    if (!link) return;
+    const envio = await enviarConvite(link, {
+      compartilhar: typeof navigator.share === "function" ? (d) => navigator.share(d) : undefined,
+      copiar: navigator.clipboard ? (t) => navigator.clipboard.writeText(t) : undefined,
+    });
+    if (!envio) return;
+    if (envio.ok && envio.via === "copia") analytics.track("invite_code_copied", {});
+    setRetornoDoConvite({ ok: envio.ok, texto: envio.texto });
+    window.setTimeout(() => setRetornoDoConvite(null), 2200);
+  };
+
   return (
     <div className="home sala">
       <div className="kw">KING</div>
@@ -126,10 +152,24 @@ export function Sala({
       {codigo ? (
         <div className="sl-codigo">
           <span className="sl-lb">Código da sala</span>
-          <button className="sl-cod" onClick={copiar} title="Copiar o código">
-            {codigo}
-            <i>{copiado ? "copiado ✓" : "copiar"}</i>
-          </button>
+          {/* O Convidar vai NA MESMA LINHA do código: largura, não altura. Esta tela já perdeu o
+              quarto lugar para uma faixa de 38px a 667x375; um botão embaixo repetiria o erro. */}
+          <div className="sl-cod-linha">
+            <button className="sl-cod" onClick={copiar} title="Copiar o código">
+              {codigo}
+              <i>{copiado ? "copiado ✓" : "copiar"}</i>
+            </button>
+            {link && (
+              <button
+                className={`sl-convidar${retornoDoConvite ? (retornoDoConvite.ok ? " ok" : " falha") : ""}`}
+                onClick={() => { void convidar(); }}
+                aria-live="polite"
+                title="Mandar o link da sala"
+              >
+                {retornoDoConvite?.texto ?? "Convidar"}
+              </button>
+            )}
+          </div>
           <span className="sl-hint">Quem for jogar digita estes 4 números para entrar.</span>
         </div>
       ) : (

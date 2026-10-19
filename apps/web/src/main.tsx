@@ -6,6 +6,7 @@ import "@fontsource/nunito/700.css";
 import "./ui/theme.css";
 import { App } from "./App.js";
 import { iniciarAnalytics } from "./analytics/iniciar.js";
+import { capturarConvite } from "./net/convite.js";
 
 /**
  * A altura visível vem do CSS: `--vh` é `1dvh` onde existe e `1vh` como reserva (ver theme.css).
@@ -17,10 +18,14 @@ import { iniciarAnalytics } from "./analytics/iniciar.js";
  * aquela versão, tinha outra causa (a barriga do arco) e foi resolvido em `--ymax`.
  */
 
+// O CONVITE ANTES DE TUDO. O `?sala=` é lido e APAGADO da barra aqui, antes de o analytics ler a
+// URL: o código da sala é a chave dela, e não pode virar dado de ninguém. Travado em convite.test.ts.
+const convite = capturarConvite();
+
 // Antes da primeira tela: decide o destino da medição (PostHog ou silêncio) e o contexto. Não
 // baixa nada aqui — o SDK, quando configurado, chega depois, num arquivo à parte.
 iniciarAnalytics();
 
 // Sem StrictMode: o loop de bots usa um setInterval; o double-invoke do StrictMode em dev
 // poderia duplicar passos. Em produção não faria diferença, mas mantemos previsível.
-ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")!).render(<App convite={convite} />);
