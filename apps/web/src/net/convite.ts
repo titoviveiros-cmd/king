@@ -39,6 +39,22 @@ export function lerConvite(search: string): Convite | null {
   return valores.length === 1 && FORMATO_DO_CODIGO.test(valor) ? { codigo: valor } : { invalido: true };
 }
 
+/**
+ * O CONVITE QUE ABRE O APP — App Link (Android) ou Universal Link (iOS): o sistema entrega o
+ * endereço inteiro. Só a origem pública oficial passa (`https://playkingcards.com.br`, sem usuário
+ * nem senha embutidos); esquema próprio, http, outro domínio ou um parecido (`…com.br.outro.com`)
+ * não. O resultado é o MESMO de `lerConvite`: no máximo um código para o campo da Home — nunca uma
+ * entrada na sala. (A ligação com o sistema, `appUrlOpen`, entra junto com a associação do domínio;
+ * ver docs/KING-MOBILE-RC.md.)
+ */
+export function conviteDoLinkDoApp(url: string): Convite | null {
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  const oficial = new URL(ORIGEM_DO_CONVITE);
+  if (u.protocol !== oficial.protocol || u.host !== oficial.host || u.username || u.password) return null;
+  return lerConvite(u.search);
+}
+
 /** O mesmo endereço sem o parâmetro do convite — os demais parâmetros e o fragmento ficam. */
 export function enderecoSemConvite(href: string): string {
   const u = new URL(href);

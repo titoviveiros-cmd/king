@@ -138,6 +138,22 @@ describe("filtrarEventoDoPostHog — a última barreira", () => {
     expect(r).not.toHaveProperty("$unset");
   });
 
+  it("no APP (origem https://localhost / capacitor://localhost): sala, token e credencial na URL não saem", () => {
+    for (const url of [
+      "https://localhost/?sala=4821&code=codigo-secreto&access_token=tok-secreto",
+      "capacitor://localhost/?sala=4821#access_token=tok-secreto&id_token=idt-secreto",
+    ]) {
+      const r = filtrarEventoDoPostHog(ev("app_open", {
+        token: "phc_x", distinct_id: "019a-anon", $current_url: url, $host: "localhost", $pathname: "/",
+        $referrer: url, $initial_current_url: url, platform: "android",
+      }));
+      const saida = JSON.stringify(r);
+      for (const proibido of ["4821", "sala=", "codigo-secreto", "tok-secreto", "idt-secreto", "localhost"]) {
+        expect(saida, `${proibido} saiu no evento (${url})`).not.toContain(proibido);
+      }
+    }
+  });
+
   it("$process_person_profile é SEMPRE falso — nenhum perfil de pessoa nasce destes eventos", () => {
     const r = filtrarEventoDoPostHog(ev("match_started", { $process_person_profile: true, modo: "local" }));
     expect((r!.properties as Record<string, unknown>).$process_person_profile).toBe(false);

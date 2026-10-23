@@ -2,9 +2,44 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  CHAMADA_DO_CONVITE, ORIGEM_DO_CONVITE, capturarConvite, enderecoSemConvite, enviarConvite, lerConvite,
-  linkDoConvite, textoDoConvite, type JanelaDoConvite,
+  CHAMADA_DO_CONVITE, ORIGEM_DO_CONVITE, capturarConvite, conviteDoLinkDoApp, enderecoSemConvite, enviarConvite,
+  lerConvite, linkDoConvite, textoDoConvite, type JanelaDoConvite,
 } from "./convite.js";
+
+describe("o link que ABRE O APP (App Link / Universal Link)", () => {
+  it("o link oficial vira o código — e só o código (nunca uma entrada na sala)", () => {
+    expect(conviteDoLinkDoApp("https://playkingcards.com.br/?sala=4821")).toEqual({ codigo: "4821" });
+    expect(conviteDoLinkDoApp("https://PLAYKINGCARDS.com.br:443/qualquer?sala=0315#x")).toEqual({ codigo: "0315" });
+    expect(conviteDoLinkDoApp(linkDoConvite("7342")!)).toEqual({ codigo: "7342" });
+  });
+
+  it("código que não é código continua inválido (o painel avisa), e sem parâmetro não há convite", () => {
+    expect(conviteDoLinkDoApp("https://playkingcards.com.br/?sala=12ab")).toEqual({ invalido: true });
+    expect(conviteDoLinkDoApp("https://playkingcards.com.br/?sala=1234&sala=5678")).toEqual({ invalido: true });
+    expect(conviteDoLinkDoApp("https://playkingcards.com.br/")).toBeNull();
+  });
+
+  it("qualquer outra origem é ignorada: outro domínio, domínio parecido, http, esquema próprio, usuário embutido", () => {
+    for (const url of [
+      "https://evil.com/?sala=4821",
+      "https://playkingcards.com.br.evil.com/?sala=4821",
+      "https://evil-playkingcards.com.br/?sala=4821",
+      "https://www.playkingcards.com.br/?sala=4821",
+      "https://playkingcards.com.br@evil.com/?sala=4821",
+      "https://tito@playkingcards.com.br/?sala=4821",
+      "http://playkingcards.com.br/?sala=4821",
+      "https://playkingcards.com.br:8443/?sala=4821",
+      "king://sala/4821",
+      "capacitor://localhost/?sala=4821",
+      "https://localhost/?sala=4821",
+      "javascript:alert(1)//?sala=4821",
+      "não é url",
+      "",
+    ]) {
+      expect(conviteDoLinkDoApp(url), url).toBeNull();
+    }
+  });
+});
 
 /** Uma janela de mentira: registra cada `replaceState` e anda a barra como o navegador andaria. */
 function janela(href: string): JanelaDoConvite & { trocas: string[] } {
