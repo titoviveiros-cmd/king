@@ -32,8 +32,9 @@ const config: CapacitorConfig = {
   webDir: "dist",
 
   server: {
-    // Android serve de `http://localhost` em vez de `http://192.168.x.x`: origem estável, que é
-    // o que faz o CORS conferido acima valer sempre.
+    // Android serve de `https://localhost` (origem estável, contexto seguro — o que libera
+    // `crypto.subtle` para o nonce do login nativo). O servidor reflete a origem, então o CORS
+    // conferido acima vale para ela também.
     androidScheme: "https",
     iosScheme: "capacitor",
   },

@@ -13,7 +13,7 @@
 // O que ele NÃO faz: instalar SDK, compilar, assinar ou publicar. Compilar iOS exige macOS com
 // Xcode e CocoaPods; este projeto vive no Windows, então o build de iOS roda em runner macOS de
 // CI. O Android compila em qualquer runner Linux com o SDK.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const RAIZ = new URL("../apps/web/", import.meta.url);
@@ -50,6 +50,17 @@ function ajustar(arquivo, rotulo, de, para, jaAplicado) {
   feitos.push(`${rotulo} — aplicado`);
 }
 
+/** Um arquivo inteiro que é NOSSO (não do modelo do Capacitor): grava se faltar ou divergir. */
+function escrever(arquivo, rotulo, conteudo) {
+  const pasta = caminho(arquivo.slice(0, arquivo.lastIndexOf("/") + 1));
+  if (!existsSync(caminho(arquivo.split("/")[0] + "/"))) { pulados.push(`${rotulo} — ${arquivo.split("/")[0]}/ não existe (rode "npx cap add" antes)`); return; }
+  const alvo = caminho(arquivo);
+  if (existsSync(alvo) && readFileSync(alvo, "utf8") === conteudo) { feitos.push(`${rotulo} — já estava aplicado`); return; }
+  mkdirSync(pasta, { recursive: true });
+  writeFileSync(alvo, conteudo);
+  feitos.push(`${rotulo} — aplicado`);
+}
+
 /** Como `ajustar`, mas troca TODAS as ocorrências: o Xcode repete chaves por configuração. */
 function ajustarTodos(arquivo, rotulo, de, para) {
   const alvo = caminho(arquivo);
@@ -74,6 +85,46 @@ ajustar(
   /(\n\s*android:name="\.MainActivity")/,
   '\n            android:screenOrientation="sensorLandscape"$1',
   (s) => s.includes("android:screenOrientation"),
+);
+
+// BACKUP: a sessão do convidado não pode ser CLONADA. O WebView guarda em `app_webview/` o
+// localStorage — inclusive a sessão do Supabase, com o refresh token do convidado. Com o backup
+// padrão do Android, restaurar num segundo aparelho (ou a transferência entre aparelhos, que no
+// Android 12+ não obedece a `allowBackup`) CLONA a identidade: os dois renovam o mesmo token, o
+// Supabase detecta o reuso e derruba os dois (red team da Fase 8). O progresso acompanha o jogador
+// pela conta vinculada (Google/Apple), não pela cópia do aparelho.
+const EXCLUSAO_DO_WEBVIEW = '<exclude domain="root" path="app_webview/" />';
+escrever(
+  "android/app/src/main/res/xml/data_extraction_rules.xml",
+  "Android: sessão fora do backup e da transferência (Android 12+)",
+  `<?xml version="1.0" encoding="utf-8"?>
+<!-- KING: o localStorage do WebView (sessão do convidado) não vai para backup nem transferência. -->
+<data-extraction-rules>
+    <cloud-backup>
+        ${EXCLUSAO_DO_WEBVIEW}
+    </cloud-backup>
+    <device-transfer>
+        ${EXCLUSAO_DO_WEBVIEW}
+    </device-transfer>
+</data-extraction-rules>
+`,
+);
+escrever(
+  "android/app/src/main/res/xml/backup_rules.xml",
+  "Android: sessão fora do backup (Android 11 e anteriores)",
+  `<?xml version="1.0" encoding="utf-8"?>
+<!-- KING: o localStorage do WebView (sessão do convidado) não vai para o backup. -->
+<full-backup-content>
+    ${EXCLUSAO_DO_WEBVIEW}
+</full-backup-content>
+`,
+);
+ajustar(
+  "android/app/src/main/AndroidManifest.xml",
+  "Android: regras de backup ligadas no manifesto",
+  /(\n\s*android:allowBackup="true")/,
+  '$1\n        android:dataExtractionRules="@xml/data_extraction_rules"\n        android:fullBackupContent="@xml/backup_rules"',
+  (s) => s.includes("android:dataExtractionRules") && s.includes("android:fullBackupContent"),
 );
 
 ajustar(
@@ -110,6 +161,27 @@ ajustar(
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	${LANDSCAPE_IOS}`,
   (s) => !s.includes("UIInterfaceOrientationPortrait"),
+);
+
+// SÓ IPHONE no 1º envio (decisão de produto, 23/10/2026). Paisagem fixa num iPad obrigaria a abrir
+// mão da multitarefa, e a chave que fazia isso (`UIRequiresFullScreen`) foi depreciada no iPadOS 26
+// — e por decisão NÃO é a saída futura. Suporte a iPad (retrato, janelas redimensionáveis) é
+// evolução posterior, não bloqueio deste lançamento.
+ajustarTodos(
+  "ios/App/App.xcodeproj/project.pbxproj",
+  "iOS: só iPhone (TARGETED_DEVICE_FAMILY = 1)",
+  /TARGETED_DEVICE_FAMILY = [^;]+;/g,
+  "TARGETED_DEVICE_FAMILY = 1;",
+);
+
+// Exportação: o KING só usa a criptografia do sistema (HTTPS/WSS). Declarar isso no Info.plist
+// evita a pergunta de conformidade de exportação a cada envio ao App Store Connect.
+ajustar(
+  "ios/App/App/Info.plist",
+  "iOS: criptografia isenta (só HTTPS/TLS do sistema)",
+  /(\n\s*<key>CFBundleDevelopmentRegion<\/key>)/,
+  "\n\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>$1",
+  (s) => s.includes("ITSAppUsesNonExemptEncryption"),
 );
 
 ajustarTodos(

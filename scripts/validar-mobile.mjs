@@ -86,6 +86,28 @@ if (pedido === "android" && !TEM_ANDROID) {
   if (!versionCode || Number(versionCode) < 1) falhar("versionCode ausente ou inválido");
   else ok(`versionCode: ${versionCode}`);
 
+  // BACKUP: a sessão do convidado mora no localStorage do WebView (`app_webview/`). Ela não pode ir
+  // para o backup nem para a transferência entre aparelhos — isso clonaria a identidade.
+  const regras = (arquivo) => existsSync(caminho(`apps/web/android/app/src/main/res/xml/${arquivo}`))
+    ? ler(`apps/web/android/app/src/main/res/xml/${arquivo}`) : "";
+  const extracao = regras("data_extraction_rules.xml");
+  const exclui = (xml, secao) => new RegExp(`<${secao}>[\\s\\S]*domain="root" path="app_webview/"[\\s\\S]*</${secao}>`).test(xml);
+  if (!/android:dataExtractionRules="@xml\/data_extraction_rules"/.test(manifest) || !/android:fullBackupContent="@xml\/backup_rules"/.test(manifest)) {
+    falhar("manifesto sem as regras de backup (dataExtractionRules/fullBackupContent) — rode mobile:preparar");
+  } else if (!exclui(extracao, "cloud-backup") || !exclui(extracao, "device-transfer") || !exclui(regras("backup_rules.xml"), "full-backup-content")) {
+    falhar("regras de backup não excluem app_webview/ (a sessão do convidado) — rode mobile:preparar");
+  } else ok("sessão do convidado fora do backup e da transferência entre aparelhos");
+
+  // API ALVO: desde 31/08/2026 a Play só aceita app novo (e atualização) mirando a API 36
+  // (Android 16). O Capacitor 7 parava na 35 — foi isso que levou ao Capacitor 8.
+  const variaveis = existsSync(caminho("apps/web/android/variables.gradle")) ? ler("apps/web/android/variables.gradle") : "";
+  for (const [nome, minimo] of [["targetSdkVersion", 36], ["compileSdkVersion", 36]]) {
+    const valor = Number(new RegExp(`${nome}\\s*=\\s*(\\d+)`).exec(variaveis)?.[1]);
+    if (!valor) falhar(`${nome} não encontrado em android/variables.gradle`);
+    else if (valor < minimo) falhar(`${nome} ${valor} — a Play exige ${minimo} para app novo desde 31/08/2026`);
+    else ok(`${nome}: ${valor}`);
+  }
+
   // O WebView do Capacitor só existe se o webDir foi copiado. Sem isso o app abre em branco —
   // e compila perfeitamente, que é justamente o perigo.
   if (existsSync(caminho("apps/web/android/app/src/main/assets/public/index.html"))) {
@@ -150,8 +172,21 @@ if (pedido === "ios" && !TEM_IOS) {
 
   const alvo = /IPHONEOS_DEPLOYMENT_TARGET = ([^;]+);/.exec(pbx)?.[1]?.trim();
   if (!alvo) falhar("IPHONEOS_DEPLOYMENT_TARGET ausente");
-  else if (Number(alvo) < 14) falhar(`IPHONEOS_DEPLOYMENT_TARGET ${alvo} — abaixo do exigido pelo Capacitor 7`);
+  else if (Number(alvo) < 15) falhar(`IPHONEOS_DEPLOYMENT_TARGET ${alvo} — abaixo do exigido pelo Capacitor 8`);
   else ok(`deployment target: iOS ${alvo}`);
+
+  // SÓ IPHONE no 1º envio (decisão de produto, 23/10/2026): paisagem fixa num iPad exigiria abrir
+  // mão da multitarefa, e `UIRequiresFullScreen` (a saída antiga) foi depreciado no iPadOS 26.
+  const familias = [...pbx.matchAll(/TARGETED_DEVICE_FAMILY = ([^;]+);/g)].map((m) => m[1].replace(/"/g, "").trim());
+  if (familias.length === 0) falhar("TARGETED_DEVICE_FAMILY ausente");
+  else if (familias.some((f) => f !== "1")) {
+    falhar(`TARGETED_DEVICE_FAMILY ${[...new Set(familias)].join(", ")} — o RC é só iPhone ("1"); rode mobile:preparar`);
+  } else ok("só iPhone (TARGETED_DEVICE_FAMILY = 1)");
+  if (/UIRequiresFullScreen/.test(plist)) falhar("UIRequiresFullScreen presente — depreciado no iPadOS 26; decisão: não usar");
+  else ok("sem UIRequiresFullScreen");
+
+  if (/<key>ITSAppUsesNonExemptEncryption<\/key>\s*<false\/>/.test(plist)) ok("criptografia declarada isenta (só HTTPS/TLS)");
+  else falhar("ITSAppUsesNonExemptEncryption ausente — rode mobile:preparar");
 
   if (existsSync(caminho("apps/web/ios/App/App/public/index.html"))) {
     ok("assets web copiados (index.html presente)");
