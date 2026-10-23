@@ -70,7 +70,14 @@ export interface NoiseOpts {
   space?: number;
 }
 
-class AudioEngine {
+/** Estados do contexto. "interrupted" é do Safari/iOS e não está em toda tipagem do TypeScript. */
+type EstadoDoContexto = AudioContextState | "interrupted";
+
+/** iPhone/iPad (o iPad se apresenta como Mac com toque). Todo navegador lá é WebKit. */
+const ehIOS = () => typeof navigator !== "undefined"
+  && (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private musicBus: GainNode | null = null;
@@ -166,9 +173,123 @@ class AudioEngine {
       this.sfxBus = ctx.createGain();
       this.sfxBus.gain.value = this.prefs.sfx ? this.prefs.sfxVol : 0;
       this.sfxBus.connect(comp);
+      this.instalarCicloDeVida();
     }
-    if (this.ctx.state === "suspended") void this.ctx.resume();
+    const estado = this.ctx.state as EstadoDoContexto;
+    if (estado === "suspended" || estado === "interrupted") void this.ctx.resume();
     if (this.prefs.music) this.startMusic();
+  }
+
+  // ---- segundo plano e volta ----
+  // O defeito (22/10/2026, aparelho real): com o som tocando, ir ao WhatsApp e voltar deixava o
+  // KING mudo. Em segundo plano o navegador suspende o contexto (no Safari/iOS ele vira
+  // "interrupted", que o `unlock` nem tentava retomar), o `unlock` só roda em três gestos raros, e o
+  // `musicTimer` seguia marcado como ativo — o `startMusic` virava no-op. Agora: escondido, a música
+  // PARA (sem tocar nas preferências); visível, o contexto é retomado e a música recomeça se estiver
+  // ligada. Se o navegador recusar retomar sem gesto, o PRÓXIMO gesto de verdade tenta de novo.
+  // Nunca cria contexto: quem nunca tocou em nada continua esperando o primeiro gesto, como sempre.
+  private cicloInstalado = false;
+  private recuperando: Promise<void> | null = null;
+  private aoGesto: (() => void) | null = null;
+  private chuteDoIOSPendente = false;
+  /** Fim (no relógio do contexto) do último compasso agendado, e a espera para recomeçar depois dele. */
+  private fimDoCompasso = 0;
+  private musicaAgendada: ReturnType<typeof setTimeout> | null = null;
+
+  /** UMA vez, quando o contexto nasce: antes dele não há o que recuperar. */
+  private instalarCicloDeVida(): void {
+    if (this.cicloInstalado || typeof document === "undefined" || typeof window === "undefined") return;
+    this.cicloInstalado = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") this.aoIrParaSegundoPlano();
+      else void this.aoVoltarParaPrimeiroPlano();
+    });
+    // Volta pelo cache de página (voltar/avançar do navegador): o `visibilitychange` pode não vir.
+    window.addEventListener("pageshow", (e) => {
+      if ((e as PageTransitionEvent).persisted) void this.aoVoltarParaPrimeiroPlano();
+    });
+  }
+
+  /** Escondido: para o agendador da música. Preferência nenhuma muda, nada é gravado. */
+  aoIrParaSegundoPlano(): void {
+    this.stopMusic();
+    if (ehIOS()) this.chuteDoIOSPendente = true;
+  }
+
+  /**
+   * Visível de novo: retoma o contexto que JÁ existia ("suspended" ou "interrupted"), reaplica os
+   * níveis e recomeça a música se ela estiver ligada. Uma recuperação por vez; se a página voltou a
+   * ficar escondida no meio do caminho, a música não recomeça.
+   */
+  aoVoltarParaPrimeiroPlano(): Promise<void> {
+    const ctx = this.ctx;
+    if (!ctx || (ctx.state as EstadoDoContexto) === "closed") return Promise.resolve();
+    if (this.recuperando) return this.recuperando;
+    this.recuperando = (async () => {
+      if ((ctx.state as EstadoDoContexto) !== "running") {
+        // Sem permissão, o resume pode ficar PENDENTE para sempre (é o que a especificação manda) —
+        // então o gesto já fica armado antes, e a espera tem prazo.
+        this.armarGesto();
+        try {
+          await Promise.race([ctx.resume(), new Promise((ok) => setTimeout(ok, 1500))]);
+        } catch { /* o navegador recusou sem gesto: o próximo gesto tenta */ }
+      }
+      const visivel = typeof document === "undefined" || document.visibilityState !== "hidden";
+      if ((ctx.state as EstadoDoContexto) === "running") {
+        this.applyLevels();
+        if (visivel && this.prefs.music) this.recomecarMusicaDepoisDoCompasso();
+      }
+      // iOS pode voltar "running" e mudo: o chute controlado só acontece DENTRO de um gesto.
+      if ((ctx.state as EstadoDoContexto) !== "running" || this.chuteDoIOSPendente) this.armarGesto();
+      else this.desarmarGesto();
+    })().finally(() => { this.recuperando = null; });
+    return this.recuperando;
+  }
+
+  /**
+   * O compasso que estava tocando quando o navegador congelou o relógio termina sozinho na volta;
+   * recomeçar na hora sobrepunha dois acordes por ~1,4 s. Espera ele acabar (nenhum som muda).
+   */
+  private recomecarMusicaDepoisDoCompasso(): void {
+    if (this.musicTimer !== null || this.musicaAgendada !== null || !this.ctx) return;
+    const resta = this.fimDoCompasso - this.ctx.currentTime;
+    if (resta <= 0.05) { this.startMusic(); return; }
+    this.musicaAgendada = setTimeout(() => {
+      this.musicaAgendada = null;
+      this.startMusic();
+    }, resta * 1000);
+  }
+
+  /**
+   * O próximo gesto que LIBERA áudio tenta de novo: `touchend`, `click` e `keydown` — `pointerdown` e
+   * `touchstart` de toque não contam como gesto (o iOS libera áudio no `touchend`). Um ouvinte só,
+   * removido no sucesso.
+   */
+  private static readonly GESTOS = ["touchend", "click", "keydown"] as const;
+  private armarGesto(): void {
+    if (this.aoGesto || typeof window === "undefined") return;
+    const aoGesto = () => {
+      const ctx = this.ctx;
+      if (!ctx) return;
+      // Sem ativação de verdade, nada: um resume recusado não pode virar um suspend sem volta.
+      const ativacao = (navigator as { userActivation?: { isActive: boolean } }).userActivation;
+      if (ativacao && !ativacao.isActive) return;
+      // As chamadas são SÍNCRONAS, dentro do gesto — é o gesto que autoriza o resume no iOS; a fila
+      // de controle do contexto as processa em ordem. iOS: um suspend→resume acorda o contexto que
+      // voltou "running" e mudo; só lá, uma vez por volta. No Chrome/Android o resume comum basta.
+      const chute = this.chuteDoIOSPendente && (ctx.state as EstadoDoContexto) === "running";
+      this.chuteDoIOSPendente = false;
+      if (chute) void ctx.suspend().catch(() => {});
+      void ctx.resume().catch(() => {}).then(() => this.aoVoltarParaPrimeiroPlano());
+    };
+    this.aoGesto = aoGesto;
+    for (const ev of AudioEngine.GESTOS) window.addEventListener(ev, aoGesto, { capture: true, passive: true });
+  }
+
+  private desarmarGesto(): void {
+    if (!this.aoGesto || typeof window === "undefined") return;
+    for (const ev of AudioEngine.GESTOS) window.removeEventListener(ev, this.aoGesto, true);
+    this.aoGesto = null;
   }
 
   get ready(): boolean {
@@ -358,7 +479,10 @@ class AudioEngine {
   }
 
   startMusic(): void {
-    if (this.musicTimer !== null || !this.ctx || !this.prefs.music) return;
+    if (this.musicTimer !== null || this.musicaAgendada !== null || !this.ctx || !this.prefs.music) return;
+    // Escondido, não agenda (ex.: a partida online acaba em segundo plano e a comemoração pede
+    // música): a volta para o primeiro plano é que recomeça, com o andamento certo.
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     const S = AudioEngine.SIXTEENTH;
     const festa = this.celebrando;
     const bar = () => {
@@ -367,6 +491,7 @@ class AudioEngine {
       const c = AudioEngine.BOSSA[n % AudioEngine.BOSSA.length];
       const comp = (festa ? AudioEngine.COMP_FESTA : AudioEngine.COMP)[n % 2];
       const lead = 0.12; // folga para o agendamento não chegar atrasado
+      this.fimDoCompasso = this.ctx.currentTime + lead + (festa ? AudioEngine.BAR_MS_FESTA : AudioEngine.BAR_MS) / 1000;
 
       if (festa) {
         // melodia brilhante por cima, palmas nos tempos 2 e 4
@@ -432,6 +557,10 @@ class AudioEngine {
   }
 
   stopMusic(): void {
+    if (this.musicaAgendada !== null) {
+      clearTimeout(this.musicaAgendada);
+      this.musicaAgendada = null;
+    }
     if (this.musicTimer !== null) {
       clearInterval(this.musicTimer);
       this.musicTimer = null;
