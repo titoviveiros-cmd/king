@@ -77,6 +77,44 @@ type EstadoDoContexto = AudioContextState | "interrupted";
 const ehIOS = () => typeof navigator !== "undefined"
   && (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
+const visivel = () => typeof document === "undefined" || document.visibilityState !== "hidden";
+
+/** Gesto que de fato libera áudio (sem a API, confia no evento). */
+const ativacaoReal = () => {
+  const a = typeof navigator !== "undefined"
+    ? (navigator as { userActivation?: { isActive: boolean } }).userActivation
+    : undefined;
+  return !a || a.isActive;
+};
+
+/** Fases do ciclo de vida do áudio — a máquina de estados inteira. */
+export type FaseDoAudio =
+  | "ocioso" // ainda sem contexto: só um gesto real cria (o 1º unlock)
+  | "ativo" // contexto em uso, com o relógio andando
+  | "fundo" // página escondida: música parada, nada em voo
+  | "recuperando" // voltou: assentando, retomando ou medindo o relógio
+  | "esperando-gesto" // a volta sozinha não bastou: o próximo gesto real resolve
+  | "reconstruindo"; // dentro de um gesto: trocando por um contexto novo
+
+/** Tudo o que pertence a UM contexto — trocado de uma vez só. */
+interface Grafo {
+  ctx: AudioContext;
+  master: GainNode;
+  reverbIn: GainNode;
+  musicBus: GainNode;
+  sfxBus: GainNode;
+  noiseBuf: AudioBuffer;
+}
+
+interface OpcoesDaRecuperacao {
+  /** Volta do fundo: espera o navegador assentar antes de mexer. */
+  assentar?: boolean;
+  /** Começou dentro de um gesto real: se nem assim o contexto partir, conta como falha. */
+  porGesto?: boolean;
+  /** Janelas de medição do relógio (contexto recém-criado ganha mais). */
+  janelas?: number;
+}
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -129,17 +167,45 @@ export class AudioEngine {
   // ---- ciclo de vida ----
   /** Cria/retoma o contexto. PRECISA rodar dentro de um gesto real — exigência do iOS. */
   unlock(): void {
-    if (!this.ctx) {
-      const Ctor: typeof AudioContext | undefined =
-        window.AudioContext ??
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctor) return; // sem Web Audio: o jogo segue mudo, sem quebrar
-      const ctx = new Ctor();
-      this.ctx = ctx;
-      this.noiseBuf = this.makeNoise(ctx, 1.2);
+    let ctx = this.ctx;
+    if (!ctx) {
+      let g: Grafo | null;
+      try {
+        g = this.montarGrafo();
+      } catch {
+        g = null; // o aparelho não deu contexto: segue mudo, sem derrubar quem chamou (Iniciar, painel)
+      }
+      if (!g) return; // sem Web Audio: o jogo segue mudo, sem quebrar
+      this.assumir(g);
+      this.fase = "ativo";
+      this.instalarCicloDeVida();
+      ctx = g.ctx;
+    }
+    const estado = ctx.state as EstadoDoContexto;
+    if (estado === "suspended" || estado === "interrupted") void ctx.resume().catch(() => {});
+    if (this.prefs.music) this.startMusic();
+    // Ainda parado (contexto que acabou de nascer, ou unlock chamado fora de um gesto): confere, e
+    // se não partir sozinho o próximo gesto real retoma — a música nasce quando o relógio andar.
+    if ((ctx.state as EstadoDoContexto) !== "running" && this.fase === "ativo" && !this.recuperacao) {
+      void this.iniciarRecuperacao({});
+    }
+  }
 
-      this.master = ctx.createGain();
-      this.master.gain.value = 0.9;
+  /**
+   * O grafo inteiro de UM contexto — o mesmo de sempre (timbre, volumes e mix não mudam). Serve ao
+   * 1º unlock e à reconstrução, e não mexe no motor: quem troca é o `assumir`, de uma vez.
+   */
+  private montarGrafo(): Grafo | null {
+    const Ctor: typeof AudioContext | undefined =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return null;
+    const ctx = new Ctor();
+    try {
+      const noiseBuf = this.makeNoise(ctx, 1.2);
+
+      const master = ctx.createGain();
+      master.gain.value = 0.9;
 
       // Limitador suave: impede que King capturado + música + carta jogada estourem juntos.
       const comp = ctx.createDynamicsCompressor();
@@ -148,8 +214,8 @@ export class AudioEngine {
       comp.ratio.value = 3.2;
       comp.attack.value = 0.004;
       comp.release.value = 0.22;
-      comp.connect(this.master);
-      this.master.connect(ctx.destination);
+      comp.connect(master);
+      master.connect(ctx.destination);
 
       // Reverb por convolução com resposta impulsiva gerada na hora (nenhum arquivo).
       const conv = ctx.createConvolver();
@@ -159,42 +225,115 @@ export class AudioEngine {
       const damp = ctx.createBiquadFilter(); // corta o brilho do rabo do reverb
       damp.type = "lowpass";
       damp.frequency.value = 3200;
-      this.reverbIn = ctx.createGain();
-      this.reverbIn.gain.value = 1;
-      this.reverbIn.connect(conv);
+      const reverbIn = ctx.createGain();
+      reverbIn.gain.value = 1;
+      reverbIn.connect(conv);
       conv.connect(damp);
       damp.connect(wet);
       wet.connect(comp);
 
-      this.musicBus = ctx.createGain();
-      this.musicBus.gain.value = this.musicTarget;
-      this.musicBus.connect(comp);
+      const musicBus = ctx.createGain();
+      musicBus.gain.value = this.musicTarget;
+      musicBus.connect(comp);
 
-      this.sfxBus = ctx.createGain();
-      this.sfxBus.gain.value = this.prefs.sfx ? this.prefs.sfxVol : 0;
-      this.sfxBus.connect(comp);
-      this.instalarCicloDeVida();
+      const sfxBus = ctx.createGain();
+      sfxBus.gain.value = this.prefs.sfx ? this.prefs.sfxVol : 0;
+      sfxBus.connect(comp);
+      return { ctx, master, reverbIn, musicBus, sfxBus, noiseBuf };
+    } catch {
+      // nasceu, mas o grafo quebrou no meio: fecha (melhor esforço) e avisa quem tentou a troca
+      void ctx.close().catch(() => {});
+      this.grafoQuebrou = true;
+      return null;
     }
-    const estado = this.ctx.state as EstadoDoContexto;
-    if (estado === "suspended" || estado === "interrupted") void this.ctx.resume();
-    if (this.prefs.music) this.startMusic();
   }
 
-  // ---- segundo plano e volta ----
-  // O defeito (22/10/2026, aparelho real): com o som tocando, ir ao WhatsApp e voltar deixava o
-  // KING mudo. Em segundo plano o navegador suspende o contexto (no Safari/iOS ele vira
-  // "interrupted", que o `unlock` nem tentava retomar), o `unlock` só roda em três gestos raros, e o
-  // `musicTimer` seguia marcado como ativo — o `startMusic` virava no-op. Agora: escondido, a música
-  // PARA (sem tocar nas preferências); visível, o contexto é retomado e a música recomeça se estiver
-  // ligada. Se o navegador recusar retomar sem gesto, o PRÓXIMO gesto de verdade tenta de novo.
-  // Nunca cria contexto: quem nunca tocou em nada continua esperando o primeiro gesto, como sempre.
-  private cicloInstalado = false;
-  private recuperando: Promise<void> | null = null;
+  /** Troca ATÔMICA: o motor inteiro passa a apontar para o grafo novo numa tacada só. */
+  private assumir(g: Grafo): void {
+    this.ctx = g.ctx;
+    this.master = g.master;
+    this.reverbIn = g.reverbIn;
+    this.musicBus = g.musicBus;
+    this.sfxBus = g.sfxBus;
+    this.noiseBuf = g.noiseBuf;
+    this.ultimoEstado = g.ctx.state as EstadoDoContexto;
+    this.zumbi = false;
+    this.naoConfiavel = false;
+    this.relogio = null;
+    this.vereditoZumbi = null;
+    this.falhasDoGesto = 0;
+    this.fimDoCompasso = 0;
+    const ctx = g.ctx;
+    ctx.onstatechange = () => this.aoMudarEstado(ctx);
+  }
+
+  private grafoAtual(): Grafo | null {
+    const { ctx, master, reverbIn, musicBus, sfxBus, noiseBuf } = this;
+    return ctx && master && reverbIn && musicBus && sfxBus && noiseBuf
+      ? { ctx, master, reverbIn, musicBus, sfxBus, noiseBuf }
+      : null;
+  }
+
+  // ---- segundo plano e volta: a máquina de estados ----
+  // V1 (22/10/2026): com o som tocando, ir ao WhatsApp e voltar deixava o KING mudo — o `unlock` não
+  // retomava "interrupted", ninguém ouvia a volta e o agendador seguia marcado como ativo.
+  // V2 (23/10/2026, aparelho real): a V1 recuperava a 1ª volta e emudecia na 2ª. Ela confiava em
+  // `state === "running"`, e o WebKit tem contexto que volta "running" com o relógio parado (zumbi),
+  // `resume()` que nunca responde e saída muda depois de interrupção — e o "chute" suspend→resume
+  // mexia sempre no MESMO contexto. Agora cada ida ao fundo abre uma GERAÇÃO nova (o que estava em
+  // voo fica velho e não toca em mais nada); a volta assenta, retoma com prazo e MEDE o relógio; se o
+  // contexto não presta, o próximo gesto real cria um NOVO — o mesmo caminho do 1º unlock, o único
+  // provado no aparelho. Nunca cria contexto sem gesto, nunca grava preferência.
+  private fase: FaseDoAudio = "ocioso";
+  /** Sobe a cada ida ao fundo e a cada reconstrução: o que é de geração velha não mexe em nada. */
+  private geracao = 0;
+  /** Geração cuja volta já começou: visibilitychange + pageshow da mesma volta = UMA recuperação. */
+  private voltaTratada = 0;
+  private recuperacao: Promise<void> | null = null;
+  /** Esperas em curso (assentar, prazo do resume, janelas da medição): canceláveis, nunca penduram. */
+  private esperas = new Set<() => void>();
   private aoGesto: (() => void) | null = null;
-  private chuteDoIOSPendente = false;
+  private cicloInstalado = false;
+  private ultimoEstado: EstadoDoContexto = "suspended";
+  /** O relógio não andou com a página visível: só um contexto novo resolve. */
+  private zumbi = false;
+  /** Onde o relógio estava no veredito de zumbi: se ele andar depois, o contexto só demorou a partir. */
+  private vereditoZumbi: number | null = null;
+  /** Retomadas DENTRO de gesto que não chegaram a "running": duas condenam o contexto (vale entre voltas). */
+  private falhasDoGesto = 0;
+  /** A última troca falhou há pouco (o click que segue o touchend não tenta de novo). */
+  private trocaFalhouEm = -Infinity;
+  /** Um contexto novo nasceu e o grafo quebrou no meio: não insiste até a próxima volta (não vaza contextos). */
+  private trocaBloqueada = false;
+  private grafoQuebrou = false;
+  /**
+   * iOS: o jogo foi ao fundo (ou o WebKit tirou o áudio). O JS não tem como saber se a saída física
+   * voltou — o WebKit pode seguir "running", com relógio andando, e mudo. Então a música volta
+   * sozinha se o relógio andar, e o 1º gesto real troca o contexto por um novo.
+   */
+  private naoConfiavel = false;
+  /** Medição começada na volta com o contexto "running": o gesto pode julgá-la antes de ela acabar. */
+  private relogio: { ctx: number; real: number } | null = null;
   /** Fim (no relógio do contexto) do último compasso agendado, e a espera para recomeçar depois dele. */
   private fimDoCompasso = 0;
   private musicaAgendada: ReturnType<typeof setTimeout> | null = null;
+  /** Início do último compasso agendado: com o relógio parado, ele nunca começa — e nenhum outro empilha. */
+  private inicioDoCompasso = -Infinity;
+
+  /** O iOS reativa a sessão de áudio um instante DEPOIS de a página voltar — e avisos repetidos se juntam. */
+  private static readonly ASSENTAR_MS = 300;
+  private static readonly PRAZO_DO_RESUME_MS = 1500;
+  /** Medição: até 6 janelas de 250 ms, e andar 50 ms basta — folga para a saída demorar a partir. */
+  private static readonly JANELA_MS = 250;
+  private static readonly JANELAS = 6;
+  /** Contexto recém-criado pode demorar a partir (sessão de áudio do iOS): 3 s de folga. */
+  private static readonly JANELAS_DO_NOVO = 12;
+  private static readonly AVANCO_MINIMO = 0.05;
+  /** Relógio "running" parado há tanto tempo, com a página visível, já condena no gesto (Bluetooth reabre devagar). */
+  private static readonly GESTO_CONDENA_MS = 1000;
+  private static readonly FALHAS_QUE_CONDENAM = 2;
+  /** Gestos que de fato liberam áudio: `pointerdown`/`touchstart` de toque não contam (o iOS libera no `touchend`). */
+  private static readonly GESTOS = ["touchend", "click", "keydown"] as const;
 
   /** UMA vez, quando o contexto nasce: antes dele não há o que recuperar. */
   private instalarCicloDeVida(): void {
@@ -210,40 +349,134 @@ export class AudioEngine {
     });
   }
 
-  /** Escondido: para o agendador da música. Preferência nenhuma muda, nada é gravado. */
+  /**
+   * Escondido: geração nova, tudo o que estava em voo cancelado, música parada. Não fecha nem
+   * suspende o contexto (o navegador cuida da interrupção) e não toca nas preferências.
+   */
   aoIrParaSegundoPlano(): void {
+    if (!this.ctx) return;
+    this.geracao++;
+    this.cancelarEsperas();
+    this.recuperacao = null;
+    this.desarmarGesto();
     this.stopMusic();
-    if (ehIOS()) this.chuteDoIOSPendente = true;
+    this.relogio = null;
+    this.zumbi = false; // a próxima volta mede de novo
+    this.vereditoZumbi = null;
+    this.trocaBloqueada = false;
+    if (ehIOS()) this.naoConfiavel = true; // ida ao fundo no iPhone = interrupção real
+    this.fase = "fundo";
+  }
+
+  /** Visível de novo (ou de volta do cache de página): UMA recuperação por volta. Nunca cria contexto. */
+  aoVoltarParaPrimeiroPlano(): Promise<void> {
+    if (!this.ctx || !visivel()) return Promise.resolve();
+    if (this.voltaTratada === this.geracao) return this.recuperacao ?? Promise.resolve();
+    this.voltaTratada = this.geracao;
+    return this.iniciarRecuperacao({ assentar: true });
+  }
+
+  private iniciarRecuperacao(o: OpcoesDaRecuperacao): Promise<void> {
+    this.fase = "recuperando";
+    this.armarGesto(); // o 1º toque depois de voltar já pode resolver, mesmo com a medição em curso
+    const p: Promise<void> = this.recuperar(this.geracao, o).finally(() => {
+      if (this.recuperacao === p) this.recuperacao = null;
+    });
+    this.recuperacao = p;
+    return p;
+  }
+
+  /** Assenta → recuperação leve (resume com prazo) → mede o relógio → decide. Geração velha sai sem mexer. */
+  private async recuperar(g: number, o: OpcoesDaRecuperacao): Promise<void> {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const vivo = () => g === this.geracao && ctx === this.ctx;
+    const estado = () => ctx.state as EstadoDoContexto;
+    // "running" já na volta: a medição começa agora, e o gesto pode usá-la antes de ela terminar
+    let ref = estado() === "running" ? { ctx: ctx.currentTime, real: Date.now() } : null;
+    if (o.assentar) this.relogio = ref;
+    if (o.assentar && !(await this.dormir(AudioEngine.ASSENTAR_MS))) return;
+    if (!vivo()) return;
+    if (estado() === "closed") return this.esperarGesto();
+    if (estado() !== "running") {
+      this.relogio = null;
+      ref = null; // o relógio estava parado até aqui: a medição começa depois de retomar
+      try {
+        // sem permissão, o resume pode nunca responder (a especificação permite): espera com prazo
+        await Promise.race([ctx.resume(), this.dormir(AudioEngine.PRAZO_DO_RESUME_MS)]);
+      } catch { /* recusado sem gesto: o próximo gesto resolve */ }
+      if (!vivo()) return;
+      if (estado() !== "running") {
+        // nem com gesto: na 2ª vez seguida o contexto fica condenado e o próximo gesto troca por um novo
+        if (o.porGesto) this.falhasDoGesto++;
+        return this.esperarGesto();
+      }
+    }
+    const saude = await this.medirSaude(ctx, g, ref, o.janelas ?? AudioEngine.JANELAS);
+    if (saude === "abortada" || !vivo()) return;
+    this.relogio = null;
+    if (saude !== "saudavel" || estado() !== "running") {
+      // zumbi: "running" com o relógio parado — só um contexto novo resolve. Parado: o navegador tirou
+      // o áudio no meio da medição — o próximo gesto retoma, ou ele devolve sozinho. Nos dois, sem música.
+      this.stopMusic();
+      if (saude === "zumbi") {
+        this.zumbi = true;
+        this.vereditoZumbi = ctx.currentTime;
+      }
+      return this.esperarGesto();
+    }
+    this.falhasDoGesto = 0;
+    this.applyLevels();
+    if (this.prefs.music) this.recomecarMusicaDepoisDoCompasso();
+    if (this.naoConfiavel) return this.esperarGesto(); // já tocando; o 1º gesto real troca o contexto
+    this.fase = "ativo";
+    this.desarmarGesto();
   }
 
   /**
-   * Visível de novo: retoma o contexto que JÁ existia ("suspended" ou "interrupted"), reaplica os
-   * níveis e recomeça a música se ela estiver ligada. Uma recuperação por vez; se a página voltou a
-   * ficar escondida no meio do caminho, a música não recomeça.
+   * "running" não prova nada no WebKit: o relógio TEM de andar com a página visível. Limite do
+   * método: relógio andando não prova saída física — por isso o iPhone ainda troca no 1º gesto.
+   * Estado que sai de "running" no meio é "parado" (o navegador tirou o áudio), não zumbi.
    */
-  aoVoltarParaPrimeiroPlano(): Promise<void> {
-    const ctx = this.ctx;
-    if (!ctx || (ctx.state as EstadoDoContexto) === "closed") return Promise.resolve();
-    if (this.recuperando) return this.recuperando;
-    this.recuperando = (async () => {
-      if ((ctx.state as EstadoDoContexto) !== "running") {
-        // Sem permissão, o resume pode ficar PENDENTE para sempre (é o que a especificação manda) —
-        // então o gesto já fica armado antes, e a espera tem prazo.
-        this.armarGesto();
-        try {
-          await Promise.race([ctx.resume(), new Promise((ok) => setTimeout(ok, 1500))]);
-        } catch { /* o navegador recusou sem gesto: o próximo gesto tenta */ }
-      }
-      const visivel = typeof document === "undefined" || document.visibilityState !== "hidden";
-      if ((ctx.state as EstadoDoContexto) === "running") {
-        this.applyLevels();
-        if (visivel && this.prefs.music) this.recomecarMusicaDepoisDoCompasso();
-      }
-      // iOS pode voltar "running" e mudo: o chute controlado só acontece DENTRO de um gesto.
-      if ((ctx.state as EstadoDoContexto) !== "running" || this.chuteDoIOSPendente) this.armarGesto();
-      else this.desarmarGesto();
-    })().finally(() => { this.recuperando = null; });
-    return this.recuperando;
+  private async medirSaude(
+    ctx: AudioContext,
+    g: number,
+    ref: { ctx: number; real: number } | null,
+    janelas: number,
+  ): Promise<"saudavel" | "zumbi" | "parado" | "abortada"> {
+    const r = ref ?? { ctx: ctx.currentTime, real: Date.now() };
+    for (let i = 0; ; i++) {
+      if ((ctx.state as EstadoDoContexto) !== "running") return "parado";
+      if (ctx.currentTime - r.ctx >= AudioEngine.AVANCO_MINIMO) return "saudavel";
+      if (i === janelas) return "zumbi";
+      if (!(await this.dormir(AudioEngine.JANELA_MS)) || g !== this.geracao || ctx !== this.ctx) return "abortada";
+    }
+  }
+
+  private esperarGesto(): void {
+    this.fase = "esperando-gesto";
+    this.armarGesto();
+  }
+
+  /** Espera cancelável: termina `true` no prazo, ou `false` na hora se o ciclo acabar. Nunca pendura. */
+  private dormir(ms: number): Promise<boolean> {
+    return new Promise((ok) => {
+      let id: ReturnType<typeof setTimeout> | undefined;
+      const cancelar = () => {
+        clearTimeout(id);
+        this.esperas.delete(cancelar);
+        ok(false);
+      };
+      id = setTimeout(() => {
+        this.esperas.delete(cancelar);
+        ok(true);
+      }, ms);
+      this.esperas.add(cancelar);
+    });
+  }
+
+  private cancelarEsperas(): void {
+    for (const cancelar of [...this.esperas]) cancelar();
   }
 
   /**
@@ -260,28 +493,10 @@ export class AudioEngine {
     }, resta * 1000);
   }
 
-  /**
-   * O próximo gesto que LIBERA áudio tenta de novo: `touchend`, `click` e `keydown` — `pointerdown` e
-   * `touchstart` de toque não contam como gesto (o iOS libera áudio no `touchend`). Um ouvinte só,
-   * removido no sucesso.
-   */
-  private static readonly GESTOS = ["touchend", "click", "keydown"] as const;
+  /** O próximo gesto real decide. Um ouvinte só (touchend, click e keydown), removido quando o ciclo fecha. */
   private armarGesto(): void {
     if (this.aoGesto || typeof window === "undefined") return;
-    const aoGesto = () => {
-      const ctx = this.ctx;
-      if (!ctx) return;
-      // Sem ativação de verdade, nada: um resume recusado não pode virar um suspend sem volta.
-      const ativacao = (navigator as { userActivation?: { isActive: boolean } }).userActivation;
-      if (ativacao && !ativacao.isActive) return;
-      // As chamadas são SÍNCRONAS, dentro do gesto — é o gesto que autoriza o resume no iOS; a fila
-      // de controle do contexto as processa em ordem. iOS: um suspend→resume acorda o contexto que
-      // voltou "running" e mudo; só lá, uma vez por volta. No Chrome/Android o resume comum basta.
-      const chute = this.chuteDoIOSPendente && (ctx.state as EstadoDoContexto) === "running";
-      this.chuteDoIOSPendente = false;
-      if (chute) void ctx.suspend().catch(() => {});
-      void ctx.resume().catch(() => {}).then(() => this.aoVoltarParaPrimeiroPlano());
-    };
+    const aoGesto = () => this.aoGestoReal();
     this.aoGesto = aoGesto;
     for (const ev of AudioEngine.GESTOS) window.addEventListener(ev, aoGesto, { capture: true, passive: true });
   }
@@ -290,6 +505,163 @@ export class AudioEngine {
     if (!this.aoGesto || typeof window === "undefined") return;
     for (const ev of AudioEngine.GESTOS) window.removeEventListener(ev, this.aoGesto, true);
     this.aoGesto = null;
+  }
+
+  /**
+   * Dentro do gesto, e SÍNCRONO: um `await` aqui gastaria a ativação que o iOS exige. Contexto que
+   * não presta é trocado; contexto só suspenso (o autoplay recusou sem gesto) é retomado, sem trocar.
+   */
+  private aoGestoReal(): void {
+    const ctx = this.ctx;
+    if (!ctx || this.fase === "reconstruindo" || !ativacaoReal()) return;
+    // o "zumbi" voltou a andar (só demorou a partir): absolvido — confere de novo em vez de trocar
+    if (this.zumbi && this.vereditoZumbi !== null && (ctx.state as EstadoDoContexto) === "running"
+      && ctx.currentTime - this.vereditoZumbi >= AudioEngine.AVANCO_MINIMO) {
+      this.zumbi = false;
+      this.vereditoZumbi = null;
+    }
+    if (this.precisaReconstruir(ctx)) {
+      // uma tentativa por toque (o click que segue o touchend não tenta de novo); grafo que quebrou
+      // no meio não insiste até a próxima volta — cada tentativa pode deixar um contexto aberto
+      if (this.trocaBloqueada || Date.now() - this.trocaFalhouEm < 1000) return;
+      return this.reconstruir();
+    }
+    if ((ctx.state as EstadoDoContexto) !== "running") void ctx.resume().catch(() => {});
+    if (!this.recuperacao) void this.iniciarRecuperacao({ porGesto: true }); // confere o relógio depois do gesto
+  }
+
+  private precisaReconstruir(ctx: AudioContext): boolean {
+    if ((ctx.state as EstadoDoContexto) === "closed" || this.zumbi || this.naoConfiavel) return true;
+    if (this.falhasDoGesto >= AudioEngine.FALHAS_QUE_CONDENAM) return true; // não parte nem com gesto
+    // a medição ainda corre, mas o relógio "running" já está parado há meio segundo, página à vista
+    const r = this.relogio;
+    return r !== null && (ctx.state as EstadoDoContexto) === "running"
+      && Date.now() - r.real >= AudioEngine.GESTO_CONDENA_MS
+      && ctx.currentTime - r.ctx < AudioEngine.AVANCO_MINIMO;
+  }
+
+  /**
+   * A troca, DENTRO do gesto: invalida o que estava em voo, cria contexto e grafo novos, retoma o
+   * novo ainda no gesto e só então troca as referências — de uma vez. Nada de `await old.close()`
+   * antes: isso gastaria a ativação. O velho sai depois, sem ninguém esperar por ele.
+   */
+  private reconstruir(): void {
+    const velho = this.grafoAtual();
+    this.fase = "reconstruindo";
+    this.geracao++;
+    this.voltaTratada = this.geracao;
+    this.cancelarEsperas();
+    this.recuperacao = null;
+    this.desarmarGesto();
+    this.stopMusic(); // o agendador e a espera do compasso eram do contexto velho
+    this.grafoQuebrou = false;
+    let novo: Grafo | null;
+    try {
+      novo = this.montarGrafo();
+    } catch {
+      novo = null;
+    }
+    if (!novo) {
+      // o aparelho não deu outro contexto (limite), ou o grafo quebrou no meio: fica no atual, se ele
+      // ainda puder servir; senão, o próximo gesto tenta de novo (o que quebrou no meio, só na próxima volta)
+      this.trocaFalhouEm = Date.now();
+      if (this.grafoQuebrou) this.trocaBloqueada = true;
+      this.naoConfiavel = false;
+      const atual = this.ctx;
+      const serve = atual && !this.zumbi && this.falhasDoGesto < AudioEngine.FALHAS_QUE_CONDENAM
+        && (atual.state as EstadoDoContexto) !== "closed";
+      if (atual && serve) {
+        void atual.resume().catch(() => {}); // ainda dentro do gesto
+        void this.iniciarRecuperacao({ porGesto: true });
+      } else {
+        this.esperarGesto();
+      }
+      return;
+    }
+    void novo.ctx.resume().catch(() => {}); // ainda dentro do gesto
+    this.assumir(novo);
+    this.applyLevels();
+    if (this.prefs.music) this.startMusic(); // só sai se o novo já estiver rodando; senão, a conferência liga
+    if (velho) this.aposentar(velho);
+    // confere o novo (com folga para partir devagar): se até ele nascer zumbi, o próximo gesto cria outro
+    void this.iniciarRecuperacao({ janelas: AudioEngine.JANELAS_DO_NOVO });
+  }
+
+  /** O velho sai sem travar o novo: fade curto e close() de melhor esforço, com prazo — ninguém espera por ele. */
+  private aposentar(v: Grafo): void {
+    v.ctx.onstatechange = null; // aposentado não manda mais nada
+    try {
+      v.master.gain.setTargetAtTime(0, v.ctx.currentTime, 0.015);
+    } catch { /* contexto zumbi: nada a desligar */ }
+    setTimeout(() => {
+      let fechar: Promise<void>;
+      try {
+        fechar = v.ctx.close();
+      } catch {
+        fechar = Promise.resolve();
+      }
+      void Promise.race([fechar, new Promise((ok) => setTimeout(ok, 1000))])
+        .catch(() => {})
+        .finally(() => {
+          try { v.master.disconnect(); } catch { /* já fechado */ }
+        });
+    }, 80);
+  }
+
+  /** O navegador mudou o estado do contexto ATUAL (aposentado não conta). */
+  private aoMudarEstado(ctx: AudioContext): void {
+    if (ctx !== this.ctx) return;
+    const antes = this.ultimoEstado;
+    const agora = ctx.state as EstadoDoContexto;
+    this.ultimoEstado = agora;
+    if (antes === "running" && agora !== "running") {
+      // tiraram o áudio (fundo, ligação, outro app); no iPhone, este contexto fica sob suspeita
+      if (ehIOS()) this.naoConfiavel = true;
+      if (this.fase !== "fundo" && visivel()) {
+        this.stopMusic(); // relógio parado empilharia compassos — em QUALQUER fase
+        if (this.fase === "ativo") this.esperarGesto();
+      }
+    } else if (agora === "running" && antes !== "running" && this.fase === "esperando-gesto"
+      && visivel() && !this.recuperacao && !this.zumbi) {
+      void this.iniciarRecuperacao({}); // devolveram sozinhos: confere o relógio, e a música volta
+    }
+  }
+
+  /** Retrato do ciclo de vida (testes e diagnóstico). */
+  estadoDoCiclo(): {
+    fase: FaseDoAudio;
+    geracao: number;
+    gestoArmado: boolean;
+    recuperando: boolean;
+    musica: boolean;
+    esperaDaMusica: boolean;
+  } {
+    return {
+      fase: this.fase,
+      geracao: this.geracao,
+      gestoArmado: this.aoGesto !== null,
+      recuperando: this.recuperacao !== null,
+      musica: this.musicTimer !== null,
+      esperaDaMusica: this.musicaAgendada !== null,
+    };
+  }
+
+  /** Invariantes da máquina — vazio = coerente. Os testes conferem a cada ciclo. */
+  invariantesVioladas(): string[] {
+    const v: string[] = [];
+    const gesto = this.aoGesto !== null;
+    const recuperando = this.recuperacao !== null;
+    const musica = this.musicTimer !== null || this.musicaAgendada !== null;
+    if ((this.fase === "ocioso") !== (this.ctx === null)) v.push(`fase "${this.fase}" e contexto ${this.ctx ? "existente" : "ausente"}`);
+    if (this.fase === "fundo" && (gesto || recuperando || musica)) v.push("no fundo com gesto, recuperação ou música viva");
+    if (this.fase === "ativo" && (gesto || recuperando)) v.push("ativo com gesto armado ou recuperação pendente");
+    if (this.fase === "esperando-gesto" && !gesto) v.push("esperando gesto sem ouvinte");
+    if (this.fase === "recuperando" && !recuperando) v.push("recuperando sem recuperação em curso");
+    if (this.fase === "reconstruindo") v.push("reconstrução não terminou");
+    if (this.musicTimer !== null && this.musicaAgendada !== null) v.push("agendador e espera do compasso juntos");
+    if (this.fase === "ativo" && this.ctx && (this.ctx.state as EstadoDoContexto) === "closed") v.push("ativo num contexto fechado");
+    if (this.musicTimer !== null && this.ctx && (this.ctx.state as EstadoDoContexto) !== "running") v.push("música viva com o contexto parado");
+    return v;
   }
 
   get ready(): boolean {
@@ -483,14 +855,20 @@ export class AudioEngine {
     // Escondido, não agenda (ex.: a partida online acaba em segundo plano e a comemoração pede
     // música): a volta para o primeiro plano é que recomeça, com o andamento certo.
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    // Relógio parado não recebe compasso: quem confere o contexto liga a música quando ele rodar.
+    if ((this.ctx.state as EstadoDoContexto) !== "running") return;
     const S = AudioEngine.SIXTEENTH;
     const festa = this.celebrando;
+    this.inicioDoCompasso = -Infinity;
     const bar = () => {
       if (!this.prefs.music || !this.ctx) return;
+      // O compasso anterior ainda nem começou (relógio parado, ou "running" zumbi): não empilha outro.
+      if (this.ctx.currentTime < this.inicioDoCompasso) return;
       const n = this.musicStep++;
       const c = AudioEngine.BOSSA[n % AudioEngine.BOSSA.length];
       const comp = (festa ? AudioEngine.COMP_FESTA : AudioEngine.COMP)[n % 2];
       const lead = 0.12; // folga para o agendamento não chegar atrasado
+      this.inicioDoCompasso = this.ctx.currentTime + lead;
       this.fimDoCompasso = this.ctx.currentTime + lead + (festa ? AudioEngine.BAR_MS_FESTA : AudioEngine.BAR_MS) / 1000;
 
       if (festa) {
