@@ -25,8 +25,12 @@
 // comparar o "antes" com o "depois" quando o navegador volta do Google — e é ela que falta quando
 // alguém abre a URL de retorno por conta própria, caso em que o vínculo simplesmente não acontece.
 import type { IdentidadeVinculada, PortaDeAutenticacao } from "./clienteSupabase.js";
+import { nonceDoIdToken, type FonteDeCredencialNativa } from "./credencialNativa.js";
 
 export type EstadoDaConta = "guest" | "google" | "indisponivel" | "processando" | "erro";
+
+/** Os provedores que podem ser PENDURADOS no convidado. Nenhum deles "entra" — todos vinculam. */
+export type ProvedorVinculavel = "google" | "apple";
 
 /** Por que o vínculo não aconteceu. A UI traduz isto para uma frase neutra. */
 export type MotivoDaFalha =
@@ -36,7 +40,22 @@ export type MotivoDaFalha =
   | "callback-invalido"
   | "troca-de-usuario"
   | "nao-vinculado"
-  | "provedor-recusou";
+  | "provedor-recusou"
+  /** O jogador fechou a tela do Google/Apple. Nada mudou. */
+  | "cancelado"
+  /** Esse Google/Apple já pertence a OUTRO jogador do KING. Não se funde, não se troca: o convidado segue. */
+  | "identidade-de-outra-conta";
+
+/** O ID token que o app nativo obteve, mais o nonce BRUTO cujo hash está dentro dele. */
+export interface CredencialDeVinculo {
+  idToken: string;
+  nonce: string;
+  accessToken?: string;
+}
+
+export type ResultadoDoVinculo =
+  | { ok: true; jaVinculado: boolean; userId: string }
+  | { ok: false; motivo: MotivoDaFalha };
 
 export type ResultadoDoInicio =
   | { ok: true; jaVinculado: true }
@@ -63,6 +82,8 @@ export interface DependenciasDaConta {
   urlAtual: () => string;
   /** Troca a URL da barra de endereços sem recarregar (limpeza do `code`). */
   trocarUrl: (nova: string) => void;
+  /** Rodando dentro do app (Capacitor)? Lá o OAuth por redirecionamento não existe. */
+  nativo?: () => boolean;
 }
 
 export const CHAVE_DA_TRANSACAO = "king:vinculo";
@@ -105,15 +126,20 @@ export function destinoInterno(pedido: string | null | undefined, origem: string
 /** A mesma URL sem nada do OAuth — nem `code`, nem `sb_flow_id`, nem o marcador. */
 export function urlLimpa(url: string): string {
   const u = new URL(url);
-  for (const p of ["code", "sb_flow_id", "error", "error_description", PARAM_RETORNO]) {
+  for (const p of ["code", "sb_flow_id", "error", "error_code", "error_description", PARAM_RETORNO]) {
     u.searchParams.delete(p);
   }
   u.hash = "";
   return `${u.pathname}${u.search}${u.hash}`;
 }
 
+const temProvedor = (identidades: IdentidadeVinculada[] | undefined, provedor: string, userId?: string): boolean =>
+  (identidades ?? []).some((i) => i.provider === provedor && (!userId || !i.user_id || i.user_id === userId));
 const temGoogle = (identidades: IdentidadeVinculada[] | undefined, userId?: string): boolean =>
-  (identidades ?? []).some((i) => i.provider === PROVEDOR && (!userId || !i.user_id || i.user_id === userId));
+  temProvedor(identidades, PROVEDOR, userId);
+
+/** O Supabase avisa assim quando a identidade já pertence a outro usuário. */
+const JA_PERTENCE_A_OUTRO = "identity_already_exists";
 
 export function criarConta(d: DependenciasDaConta) {
   const lerTransacao = (): Transacao | null => {
@@ -156,6 +182,10 @@ export function criarConta(d: DependenciasDaConta) {
    * e o jogador voltaria dono de uma conta vazia, com a antiga órfã.
    */
   async function vincularGoogle(): Promise<ResultadoDoInicio> {
+    // No APP isto não existe: o Google recusa OAuth em WebView embutido, e a origem do app
+    // (`https://localhost` / `capacitor://localhost`) não é endereço de retorno. Lá o vínculo é
+    // `vincularNoApp`, com o ID token do plugin nativo.
+    if (d.nativo?.()) return { ok: false, motivo: "indisponivel" };
     let porta: PortaDeAutenticacao | null = null;
     try { porta = await d.porta(); } catch { return { ok: false, motivo: "indisponivel" }; }
     if (!porta) return { ok: false, motivo: "indisponivel" };
@@ -201,9 +231,22 @@ export function criarConta(d: DependenciasDaConta) {
       return r;
     };
 
-    if (parametros.get("error")) return encerrar({ tipo: "erro", motivo: "provedor-recusou" });
+    if (parametros.get("error")) {
+      apagarTransacao();
+      if (parametros.get("error_code") !== JA_PERTENCE_A_OUTRO) return encerrar({ tipo: "erro", motivo: "provedor-recusou" });
+      // "já vinculada" pode ser deste MESMO jogador (toque duplo, corrida): a identidade decide.
+      try {
+        const porta = await d.porta();
+        const sessao = porta ? (await porta.getSession()).data.session : null;
+        const userId = sessao?.user?.id;
+        if (porta && userId && temGoogle((await porta.getUserIdentities()).data?.identities, userId)) {
+          return encerrar({ tipo: "vinculado", userId });
+        }
+      } catch { /* sem como conferir: cai no aviso abaixo */ }
+      return encerrar({ tipo: "erro", motivo: "identidade-de-outra-conta" });
+    }
     const codigo = parametros.get("code");
-    if (!codigo) return encerrar({ tipo: "erro", motivo: "callback-invalido" });
+    if (!codigo) { apagarTransacao(); return encerrar({ tipo: "erro", motivo: "callback-invalido" }); }
 
     // A TRANSAÇÃO VEM PRIMEIRO. Sem ela não há "antes" com que comparar o "depois", e um vínculo
     // sem comparação é exatamente o que esta fase existe para impedir.
@@ -241,7 +284,97 @@ export function criarConta(d: DependenciasDaConta) {
     }
   }
 
-  return { obterEstadoDaConta, vincularGoogle, concluirRetornoOAuth };
+  /**
+   * O VÍNCULO POR CREDENCIAL — a camada comum de Google e Apple (`linkProvider`, conceitualmente).
+   *
+   * As mesmas travas do retorno da web, sem redirecionamento: a sessão do convidado é EXIGIDA (e
+   * nunca criada aqui); a identidade nova entra por `linkIdentity` sobre ela; o usuário que volta
+   * tem de ser o mesmo que saiu; e só a identidade em `getUserIdentities` prova o vínculo. Se o
+   * Google/Apple já for de OUTRO jogador, nada se funde nem se troca — o convidado segue o mesmo.
+   * Nenhum token é guardado: o ID token vai direto para o Supabase.
+   */
+  async function vincularComCredencial(provedor: ProvedorVinculavel, c: CredencialDeVinculo): Promise<ResultadoDoVinculo> {
+    let porta: PortaDeAutenticacao | null = null;
+    try { porta = await d.porta(); } catch { return { ok: false, motivo: "indisponivel" }; }
+    if (!porta) return { ok: false, motivo: "indisponivel" };
+    try {
+      const sessao = (await porta.getSession()).data.session;
+      const userId = sessao?.user?.id;
+      if (!sessao || !userId) return { ok: false, motivo: "sem-sessao" };
+
+      const { data: antes } = await porta.getUserIdentities();
+      if (temProvedor(antes?.identities, provedor, userId)) return { ok: true, jaVinculado: true, userId };
+
+      const { data, error } = await porta.linkIdentity({
+        provider: provedor,
+        token: c.idToken,
+        nonce: c.nonce,
+        ...(c.accessToken ? { access_token: c.accessToken } : {}),
+      });
+      if (error) {
+        if (error.code !== JA_PERTENCE_A_OUTRO) return { ok: false, motivo: "provedor-recusou" };
+        // "já vinculada" pode ser deste MESMO jogador (toque duplo, corrida): a identidade decide.
+        const { data: agora } = await porta.getUserIdentities();
+        return temProvedor(agora?.identities, provedor, userId)
+          ? { ok: true, jaVinculado: true, userId }
+          : { ok: false, motivo: "identidade-de-outra-conta" };
+      }
+      const depois = data?.session?.user?.id ?? data?.user?.id ?? undefined;
+      if (depois && depois !== userId) return { ok: false, motivo: "troca-de-usuario" };
+
+      const { data: identidades } = await porta.getUserIdentities();
+      if (!temProvedor(identidades?.identities, provedor, userId)) return { ok: false, motivo: "nao-vinculado" };
+      return { ok: true, jaVinculado: false, userId };
+    } catch {
+      return { ok: false, motivo: "provedor-recusou" };
+    }
+  }
+
+  /**
+   * O VÍNCULO NO APP: confere a sessão ANTES de abrir a tela do Google/Apple (sem convidado não há
+   * a quem vincular, e ninguém deve entrar no Google à toa), gera o nonce, pede a credencial ao
+   * plugin nativo e entrega à camada comum.
+   */
+  async function vincularNoApp(
+    provedor: ProvedorVinculavel,
+    fonte: FonteDeCredencialNativa | null,
+    novoNonce: () => Promise<{ bruto: string; hash: string }>,
+  ): Promise<ResultadoDoVinculo> {
+    if (!fonte) return { ok: false, motivo: "indisponivel" };
+    let porta: PortaDeAutenticacao | null = null;
+    try { porta = await d.porta(); } catch { return { ok: false, motivo: "indisponivel" }; }
+    if (!porta) return { ok: false, motivo: "indisponivel" };
+    try {
+      const sessao = (await porta.getSession()).data.session;
+      const userId = sessao?.user?.id;
+      if (!sessao || !userId) return { ok: false, motivo: "sem-sessao" };
+      const { data: ids } = await porta.getUserIdentities();
+      if (temProvedor(ids?.identities, provedor, userId)) return { ok: true, jaVinculado: true, userId };
+      // Até duas tentativas: o SDK nativo pode devolver um token EM CACHE, de outro pedido, cujo
+      // nonce não é o deste. Ele nem vai ao Supabase: esquece-se a credencial e pede-se de novo, uma vez.
+      for (let tentativa = 0; tentativa < 2; tentativa++) {
+        const nonce = await novoNonce();
+        const r = await fonte.obter(provedor, nonce.hash);
+        if (r.tipo === "cancelado") return { ok: false, motivo: "cancelado" };
+        if (r.tipo === "erro" || !r.credencial.idToken) return { ok: false, motivo: "provedor-recusou" };
+        const noToken = nonceDoIdToken(r.credencial.idToken);
+        if (noToken !== undefined && noToken !== nonce.hash) {
+          await fonte.esquecer?.(provedor);
+          continue;
+        }
+        return await vincularComCredencial(provedor, {
+          idToken: r.credencial.idToken,
+          nonce: nonce.bruto,
+          ...(r.credencial.accessToken ? { accessToken: r.credencial.accessToken } : {}),
+        });
+      }
+      return { ok: false, motivo: "provedor-recusou" };
+    } catch {
+      return { ok: false, motivo: "provedor-recusou" };
+    }
+  }
+
+  return { obterEstadoDaConta, vincularGoogle, concluirRetornoOAuth, vincularComCredencial, vincularNoApp };
 }
 
 export type ContaDoJogador = ReturnType<typeof criarConta>;

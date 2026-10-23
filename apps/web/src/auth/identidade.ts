@@ -29,6 +29,7 @@
 
 import { criarConta, type ContaDoJogador } from "./conta.js";
 import { portaDeAutenticacao } from "./clienteSupabase.js";
+import { ehAppNativo, fonteNativa, plataformaNativa } from "./credencialNativa.js";
 
 /**
  * Quem sabe conseguir uma credencial. Uma função, não um objeto de sessão: a única pergunta que o
@@ -129,6 +130,12 @@ export function identidadeSupabase(cfg: { url: string; anonKey: string }): Prove
         const atual = await porta.getSession();
         const token = atual.data.session?.access_token;
         if (token) return token;
+        // A RENOVAÇÃO FALHOU (rede, 5xx, 429 passageiro): o SDK MANTÉM a sessão do convidado
+        // guardada e responde `session: null` COM `error`. Criar convidado aqui gravaria OUTRO
+        // usuário por cima do único que o aparelho conhece — no celular, voltar do segundo plano
+        // com o token vencido e a rede piscando bastaria para o jogador perder a conta (provado
+        // com o SDK real no red team de 23/10/2026). Sem token agora; a próxima tentativa renova.
+        if (atual.error) return undefined;
         // ENTRAR PARA JOGAR PODE CRIAR CONVIDADO. É uma conta de verdade, sem cadastro — e é ela
         // que, mais tarde, o jogador vincula ao Google sem perder o que já é dele.
         //
@@ -169,10 +176,16 @@ export function vinculoDeContaLigado(): boolean {
 export function contaConfigurada(): ContaDoJogador | null {
   const r = identidadeConfigurada();
   if (!r.configurado || !vinculoDeContaLigado()) return null;
+  // No app, sem o plugin nativo registrado não há como vincular: a conta nem aparece na tela.
+  if (ehAppNativo() && !fonteNativa()) return null;
+  // iPhone: oferecer Google obriga a oferecer Sign in with Apple (diretriz 4.8 da App Store), e a
+  // Home ainda só tem o botão do Google. Até o da Apple existir, a conta não aparece no iOS.
+  if (plataformaNativa() === "ios") return null;
   return criarConta({
     porta: () => portaDeAutenticacao(r),
     armazenamento: () => { try { return localStorage ?? null; } catch { return null; } },
     urlAtual: () => window.location.href,
     trocarUrl: (nova) => window.history.replaceState(null, "", nova),
+    nativo: () => ehAppNativo(),
   });
 }

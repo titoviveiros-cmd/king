@@ -9,6 +9,7 @@
 // coisa gravar histórico.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ContaDoJogador, MotivoDaFalha } from "./conta.js";
+import { ehAppNativo, fonteNativa, gerarNonce } from "./credencialNativa.js";
 import { contaConfigurada } from "./identidade.js";
 
 export type EstadoVisivelDaConta = "guest" | "google" | "processando" | "erro";
@@ -32,9 +33,11 @@ const AVISOS: Record<MotivoDaFalha, string> = {
   "sem-sessao": "Entre numa sala uma vez antes de conectar o Google.",
   "sem-transacao": "Não foi possível concluir. Tente conectar de novo.",
   "callback-invalido": "Não foi possível concluir. Tente conectar de novo.",
-  "troca-de-usuario": "A conta que voltou do Google não é a mesma. Nada foi alterado.",
+  "troca-de-usuario": "A conta que voltou não é a mesma deste aparelho. O vínculo não foi feito.",
   "nao-vinculado": "O Google não ficou conectado. Tente de novo.",
   "provedor-recusou": "O Google não concluiu a conexão. Tente de novo.",
+  cancelado: "Conexão cancelada. O jogo continua do mesmo jeito.",
+  "identidade-de-outra-conta": "Essa conta já está ligada a outro jogador do KING. Nada foi alterado aqui.",
 };
 
 export function useConta(): ContaDaHome | null {
@@ -68,6 +71,14 @@ export function useConta(): ContaDaHome | null {
     setAviso(null);
     setEstado("processando");
     void (async () => {
+      // No app: credencial nativa (sem sair da tela); na web: redirecionamento para o Google.
+      if (ehAppNativo()) {
+        const n = await c.vincularNoApp("google", fonteNativa(), () => gerarNonce());
+        if (n.ok) { setEstado("google"); return; }
+        setAviso(AVISOS[n.motivo]);
+        setEstado("guest");
+        return;
+      }
       const r = await c.vincularGoogle();
       if (r.ok && r.jaVinculado) { setEstado("google"); return; }
       if (r.ok) return; // o navegador está saindo para o Google; a tela não muda mais

@@ -37,7 +37,8 @@ export interface ErroDoProvedor { message?: string; code?: string }
  * a porta inteira por uma dublê determinística — sem rede, sem navegador, sem Google.
  */
 export interface PortaDeAutenticacao {
-  getSession(): Promise<{ data: { session: SessaoSupabase | null } }>;
+  /** `error` vem quando a renovação falhou — a sessão continua guardada; NÃO é "sem convidado". */
+  getSession(): Promise<{ data: { session: SessaoSupabase | null }; error?: ErroDoProvedor | null }>;
   signInAnonymously(): Promise<{ data: { session: SessaoSupabase | null } }>;
   getUserIdentities(): Promise<{
     data: { identities: IdentidadeVinculada[] } | null;
@@ -47,6 +48,21 @@ export interface PortaDeAutenticacao {
     provider: string;
     options?: { redirectTo?: string; skipBrowserRedirect?: boolean; scopes?: string };
   }): Promise<{ data: { url?: string | null } | null; error: ErroDoProvedor | null }>;
+  /**
+   * O vínculo do APP NATIVO: o ID token que o Google ou a Apple entregaram ao plugin nativo. O SDK
+   * manda o JWT da sessão atual com `link_identity: true` — a identidade nova entra no MESMO
+   * usuário. (`signInWithIdToken` NÃO está nesta porta, de propósito: aquilo é "entrar", e criaria
+   * outro usuário.)
+   */
+  linkIdentity(credenciais: {
+    provider: "google" | "apple";
+    token: string;
+    nonce?: string;
+    access_token?: string;
+  }): Promise<{
+    data: { session?: SessaoSupabase | null; user?: { id?: string } | null } | null;
+    error: ErroDoProvedor | null;
+  }>;
   exchangeCodeForSession(codigo: string): Promise<{
     data: { session: SessaoSupabase | null; user?: { id?: string } | null } | null;
     error: ErroDoProvedor | null;
