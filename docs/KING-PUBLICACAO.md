@@ -83,18 +83,20 @@ publicidade, câmera, microfone, notificações push, compras.
 
 ## 2. Matriz de prontidão mobile
 
+> **Fase 8 (23/10/2026):** o estado detalhado do RC mobile — Capacitor 8 / API 36, só iPhone, vínculo nativo de Google e Apple, convite no app, exclusão de conta — está em [KING-MOBILE-RC.md](KING-MOBILE-RC.md). As linhas abaixo foram atualizadas onde mudaram.
+
 | Item | Android | iOS | Estado | Blocker? | Depende de | Próxima ação |
 |---|---|---|---|---|---|---|
-| **Capacitor** | 7.6.8 | 7.6.8 | 🟢 configurado | não | — | — |
+| **Capacitor** | 8.5.3 (API 36) | 8.5.3 (iOS 15, SPM) | 🟢 configurado (era 7.6.8: a Play exige API 36 desde 31/08/2026) | não | — | — |
 | **Projeto nativo** | gerado por `cap add` | gerado por `cap add` | 🟢 geração limpa provada | não | — | ver §3 |
 | **Bundle / application id** | `br.com.playkingcards.king` | `br.com.playkingcards.king` | 🟡 **provisório** | **P0 quando publicar** | decisão do titular | **congelar** (ver §4) |
 | **Versão (marketing)** | `0.1.0` | `0.1.0` | 🟢 fonte única | não | — | virar `1.0.0` no release |
 | **Build number** | `versionCode` | `CURRENT_PROJECT_VERSION` | 🟢 de `KING_BUILD_NUMBER` | não | — | — |
-| **Orientação landscape** | `sensorLandscape` | iPhone **e** iPad | 🟢 aplicado e validado | não | — | QA físico |
+| **Orientação landscape** | `sensorLandscape` (o Android 16 ignora em tablet; o aviso de girar cobre) | **só iPhone** no 1º envio (decisão 23/10) | 🟢 aplicado e validado | não | — | QA físico |
 | **Safe areas / notch / Dynamic Island** | `env(safe-area-inset-*)` | idem + `viewport-fit=cover` | 🟡 só simulado | não | aparelho | QA físico |
 | **WSS / TLS** | sem cleartext | ATS padrão | 🟢 medido | não | — | — |
-| **CORS de origem nativa** | `http://localhost` | `capacitor://localhost` | 🟢 medido em produção | não | — | — |
-| **Compilação** | `assembleDebug` | `xcodebuild` simulador | 🟠 **não executado** | **P0 desta rodada** | escopo `workflow` no token | ver §5 |
+| **CORS de origem nativa** | `https://localhost` (`androidScheme: "https"`) | `capacitor://localhost` | 🟢 o servidor reflete a origem (medido em produção) | não | — | — |
+| **Compilação** | `assembleDebug` 🟢 **verde** (23/10, local) | `xcodebuild` simulador 🟠 não executado (sem Mac) | 🟡 Android provado | iOS: P0 | Mac/runner macOS; escopo `workflow` no token | ver §5 |
 | **Ícone do app** | adaptive icon | AppIcon set | 🔴 ausente | **P0** | arte | brief aprovado |
 | **Splash** | splash | LaunchScreen | 🔴 ausente | **P0** | arte | brief aprovado |
 | **Assinatura** | keystore | certificado + provisioning | 🔴 ausente | **P0** | contas de desenvolvedor | autorização |

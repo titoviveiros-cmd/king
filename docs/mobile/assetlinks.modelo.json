@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "br.com.playkingcards.king",
+      "sha256_cert_fingerprints": [
+        "TROCAR-PELO-SHA-256-DO-CERTIFICADO-DE-ASSINATURA-DO-APP-NA-PLAY (Play Console > Integridade do app > Assinatura de apps)"
+      ]
+    }
+  }
+]

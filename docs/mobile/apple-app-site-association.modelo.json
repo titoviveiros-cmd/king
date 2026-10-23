@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TROCAR-PELO-TEAM-ID.br.com.playkingcards.king"],
+        "components": [
+          {
+            "/": "/",
+            "?": { "sala": "????" },
+            "comment": "Só o convite: a raiz com ?sala= de quatro caracteres. O app confere os quatro dígitos e nunca entra sozinho."
+          }
+        ]
+      }
+    ]
+  }
+}
