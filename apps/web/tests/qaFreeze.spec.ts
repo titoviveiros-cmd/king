@@ -12,7 +12,7 @@
  *     está registrada no `PROTOCOL_VERSION`, e o que se trava aqui é o outro lado: escolher
  *     QUALQUER mesa não pode mudar nada além da cor.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, errors, type Locator, type Page } from "@playwright/test";
 import { boxOf, SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
 import { insideViewport, intersects, type Box } from "./helpers/geometry.js";
 import { mesaEmPartida } from "./helpers/multiplayer.js";
@@ -21,6 +21,22 @@ const SUBPIXEL = 1;
 const PASTA = process.env.KING_SHOTS;
 
 /** Espera chegar a vez do humano em alguma das duas telas e devolve quem pode jogar. */
+/**
+ * Um toque na vez do jogador, com PRAZO CURTO. Entre achar a carta e tocá-la, a vez pode acabar —
+ * a jogada já confirmada pelo servidor (a carta "em voo" some) ou o prazo da vez vencido — e um
+ * `click()` sem prazo esperaria até estourar os 180 s do teste (CI 40096218147). Só esse caso é
+ * desculpado: se ainda é a vez dele (`.youtag.active` — "nenhuma carta jogável" NÃO serve, o leque
+ * trava com a carta em voo e a vez viva), o toque falhou de verdade, e isso reprova.
+ */
+async function tocarNaVez(page: Page, alvo: Locator): Promise<void> {
+  try {
+    await alvo.click({ timeout: 5_000 });
+  } catch (e) {
+    if (!(e instanceof errors.TimeoutError)) throw e;
+    if (await page.locator(SEL.youtagActive).count()) throw e;
+  }
+}
+
 async function quemJoga(a: Page, b: Page): Promise<Page | null> {
   for (let i = 0; i < 40; i++) {
     for (const p of [a, b]) {
@@ -131,10 +147,14 @@ for (const tema of ["imperial", "verde"] as const) {
       const page = await quemJoga(m.anfitriao, m.convidado);
       test.skip(page === null, "a vez do humano não chegou dentro do orçamento");
       const antes = await page!.locator(SEL.handCard).count();
-      await page!.locator(SEL.handCardLegal).first().click();
+      await tocarNaVez(page!, page!.locator(SEL.handCardLegal).first());
       if (await page!.locator(SEL.handCardSelected).count()) {
-        await page!.locator(SEL.handCardSelected).first().click();
+        await tocarNaVez(page!, page!.locator(SEL.handCardSelected).first());
       }
+      // A carta tem de SAIR da mão. 20 s ficam ABAIXO do menor prazo de vez (25 s): a jogada
+      // automática do servidor não pode servir de prova para um toque que não funcionou (o red team
+      // provou: com 40 s, clique engolido, jogada perdida e jogada recusada ficavam verdes). Nos
+      // casos desculpados por `tocarNaVez`, a carta já saiu — a prova passa na hora.
       await expect(page!.locator(SEL.handCard)).toHaveCount(antes - 1, { timeout: 20_000 });
 
       if (PASTA) await m.anfitriao.screenshot({ path: `${PASTA}/mesa-${tema}.png` });
