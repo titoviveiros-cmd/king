@@ -1,6 +1,6 @@
 // O CONVIDADO NÃO PODE SER TROCADO POR UM SOLUÇO DE REDE (red team da Fase 8, 23/10/2026).
 //
-// Quando a renovação da sessão falha (rede, 5xx, 429 passageiro), o SDK do Supabase MANTÉM a sessão
+// Quando a renovação da sessão falha (rede ou 5xx; o 429 o SDK não repete), o SDK do Supabase MANTÉM a sessão
 // guardada e responde `getSession() = { session: null, error }`. O `token()` antigo lia isso como
 // "não há convidado" e criava OUTRO por cima — o jogador perdia a conta. No celular é rotina:
 // voltar do segundo plano com o token vencido e a rede piscando.

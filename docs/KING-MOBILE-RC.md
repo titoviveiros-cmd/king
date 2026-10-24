@@ -11,6 +11,18 @@ Decisões de produto registradas nesta fase:
   saída** (depreciado no iPadOS 26).
 - Rota mobile continua sendo **Capacitor** (o mesmo `dist/` da web dentro do app).
 
+**Decisões de identidade e backup — CONGELADAS (23/10/2026, Tito):**
+
+- **A — Backup do Android:** a sessão do convidado NÃO participa de backup, restauração nem
+  transferência entre aparelhos (copiar a sessão clonaria a identidade). Implementado e validado no
+  portão (seção 2). Trocar de aparelho recupera o progresso pela conta vinculada (Google/Apple).
+- **B — iCloud / backup do iPhone:** a MESMA política. Nesta fase: política e arquitetura (seção 3);
+  o código nativo é gate do RC (depende de Mac/Xcode).
+- **C — Dois fluxos distintos:** "Vincular conta" (o convidado atual ganha Google/Apple pelo
+  `linkIdentity`, mesmo `auth.users.id`) e "Já tenho uma conta" (recuperação EXPLÍCITA de uma
+  identidade existente — nunca `linkIdentity` sobre o convidado novo). Arquitetura na seção 19;
+  a implementação é **P0 da Fase 9**.
+
 ---
 
 ## 1. Estado real
@@ -50,7 +62,7 @@ para QA de identidade. O build de QA tem de usar a mesma configuração pública
 | AGP / Gradle | 8.13.0 / 8.14.3 | ✅ |
 | Permissões | só `INTERNET` | ✅ |
 | Texto claro | proibido (sem `usesCleartextTraffic`, sem `networkSecurityConfig`) | ✅ |
-| Backup / transferência entre aparelhos | `app_webview/` (onde mora a sessão do convidado) **excluído** do backup na nuvem e da transferência (`dataExtractionRules` + `fullBackupContent`), validado no portão — restaurar a sessão noutro aparelho CLONARIA a identidade e o Supabase derrubaria as duas (red team) | ✅ (decisão a confirmar pelo Tito) |
+| Backup / transferência entre aparelhos | `app_webview/` (onde mora a sessão do convidado) **excluído** do backup na nuvem e da transferência (`dataExtractionRules` + `fullBackupContent`), validado no portão — restaurar a sessão noutro aparelho CLONARIA a identidade e o Supabase derrubaria as duas (red team) | ✅ (decisão A, congelada) |
 | Orientação | `sensorLandscape`; **o Android 16 ignora a trava em tela grande (tablet)** — o `RotateGate` (aviso de girar) cobre o retrato | P1 |
 | Margens edge-to-edge | o Capacitor 8 tirou `adjustMarginsForEdgeToEdge`; o KING usa `env(safe-area-inset-*)` — **conferir em aparelho com recorte** | gate de QA |
 | Assinatura de release | **não existe** (upload key + Play App Signing) | **P0** (ação do Tito) |
@@ -75,7 +87,7 @@ para QA de identidade. O build de QA tem de usar a mesma configuração pública
 | Ícone (1024×1024) / tela de abertura | padrão | **P0** (arte) |
 | Manifesto de privacidade / App Privacy | não preenchidos | P1 (fase de compliance) |
 | Região de desenvolvimento | `en` (o app é pt-BR) | P2 |
-| Backup do iCloud / Início Rápido | levam os dados do WKWebView (a sessão do convidado) — mesmo risco de clonar a identidade do Android; excluir pede código nativo | P1 (decisão) |
+| Backup do iCloud / Início Rápido | **decisão B: a sessão do convidado não vai para outro aparelho.** Hoje o iCloud e o Início Rápido levam os dados do WKWebView. Caminho previsto: a sessão do Supabase sai do localStorage do WebView para o **Keychain com acesso `…ThisDeviceOnly`** (item que nunca migra por backup nem restauração) — o mesmo passo resolve o armazenamento durável (seção 8); alternativa mínima: marcar a pasta de dados do WebKit com `isExcludedFromBackup` no arranque | **gate do RC** (código nativo, Mac/Xcode) |
 
 **Depende de Mac + Apple Developer** (não dá para fazer daqui): compilar no Xcode 26, escolher a
 equipe, ligar as capacidades (Sign in with Apple, Associated Domains), assinar, subir ao App Store
@@ -140,12 +152,10 @@ exclusão de conta.
 foto). App Privacy, Data safety e a Política de Privacidade precisam declarar isso, e a exclusão de
 conta precisa apagar. Os avisos da tela ainda falam "Google" — quando a Apple entrar, ficam neutros.
 
-**Sem caminho de volta (decisão de produto pendente):** depois de reinstalar ou trocar de aparelho,
-ligar o mesmo Google/Apple responde "já ligada a outro jogador" — não existe "entrar na conta
-ligada". O botão diz "Salvar progresso", o que promete recuperação. E a revisão da Apple reutiliza o
-próprio Apple ID entre envios: na 2ª revisão, o Sign in with Apple mostraria esse aviso. Saídas:
-mudar o texto e explicar nas notas da revisão, ou um "entrar na conta ligada" com confirmação (que
-troca o convidado do aparelho pela conta — decisão do Tito).
+**Caminho de volta = decisão C:** depois de reinstalar ou trocar de aparelho, ligar o mesmo
+Google/Apple hoje responde "já ligada a outro jogador". A saída decidida é o fluxo separado
+"Já tenho uma conta" (seção 19), P0 da Fase 9 — inclusive porque a revisão da Apple reutiliza o
+próprio Apple ID entre envios.
 
 ## 6. Sign in with Apple
 
@@ -183,8 +193,9 @@ Provado em teste (`vinculoNativo.test.ts`, `conta.test.ts`, `tokenConvidado.test
 de vínculo chama `signInAnonymously`, `signInWithOAuth`, `signInWithIdToken` ou cria sessão nova; o
 `userId` antes e depois é o mesmo; conta já ligada a outro jogador não troca o jogador de dono.
 
-**Corrigido nesta fase (red team, P0, defeito anterior):** quando a renovação da sessão falhava (rede,
-5xx, 429 passageiro), o SDK mantinha a sessão guardada e respondia `session: null` com `error` — e o
+**Corrigido nesta fase (red team, P0, defeito anterior):** quando a renovação da sessão falhava (rede
+ou 5xx — os erros que o SDK trata como passageiros; o 429 NÃO é um deles, ver o P1 dos limites de
+taxa abaixo), o SDK mantinha a sessão guardada e respondia `session: null` com `error` — e o
 `token()` criava OUTRO convidado por cima. No celular, voltar do segundo plano com o token vencido e
 a rede piscando bastava. Agora erro de renovação = "sem token agora", nunca convidado novo.
 
@@ -283,8 +294,9 @@ Nenhum `npm audit fix --force`, nenhum major além do Capacitor.
 (seção 5) **antes** de mostrar o Google no app; Sign in with Apple no iOS junto com o Google;
 exclusão de conta (seção 13); conta Apple Developer + Mac/CI macOS.
 
-**P1:** sessão do convidado em armazenamento durável no app; limites de taxa do Supabase; backup do
-iCloud (decisão); caminho de volta para conta ligada (decisão); declarar e-mail/nome/foto nos
+**P0 da Fase 9 (decidido):** "Já tenho uma conta" (seção 19); sessão fora do iCloud (decisão B).
+
+**P1:** sessão do convidado em armazenamento durável no app; limites de taxa do Supabase; declarar e-mail/nome/foto nos
 formulários; QA de `crypto.subtle` no `capacitor://localhost` (nonce); App Links / Universal Links; `@capacitor/app` + comportamento do link com o app aberto;
 `mobile.yml` no remoto (token com escopo `workflow`); `versionCode` automático; QA em aparelho (áudio,
 reconexão, recortes, tablet); servidor: `proxy-addr`/`qs`; manifesto de privacidade e formulários
@@ -301,3 +313,76 @@ das lojas.
 5. Arte: ícone e splash.
 6. Autorizar o `mobile.yml` (token com escopo `workflow`) ou um runner macOS.
 7. Aparelhos para o QA (iPhone e Android).
+
+## 19. "Já tenho uma conta" — arquitetura (decisão C; implementação = P0 da Fase 9)
+
+Dois fluxos que nunca se misturam:
+
+| | **Vincular conta** (existe) | **Já tenho uma conta** (Fase 9) |
+|---|---|---|
+| Quem | o convidado que quer proteger a conta ATUAL | quem reinstalou, trocou de aparelho ou perdeu os dados |
+| Operação | `linkIdentity` sobre o convidado | recuperar a conta que JÁ tem esse Google/Apple |
+| Resultado | o MESMO `auth.users.id` ganha a identidade | o aparelho passa a usar a conta existente |
+
+Regras do "Já tenho uma conta":
+
+1. ação separada e explícita ("Já tenho uma conta"), nunca disparada sozinha;
+2. a sessão do convidado do aparelho **não é tocada** até a confirmação: a recuperação roda num
+   cliente de autenticação ISOLADO (memória, sem gravar), e qualquer falha — rede, cancelamento,
+   provedor — deixa tudo como estava;
+3. **nada é criado**: se nenhuma conta tem esse Google/Apple, a resposta é "não existe conta com
+   ele" (e a tela oferece "Vincular conta" para proteger o convidado atual). Como entrar por ID
+   token no Supabase CRIA usuário quando a identidade é desconhecida, a existência é conferida
+   ANTES por um endpoint no servidor (Edge Function que confere o ID token e procura a identidade —
+   chave de serviço só lá dentro) — sem isso nasceria um jogador paralelo;
+4. se a identidade já é deste convidado: nada a fazer;
+5. se o convidado do aparelho tem progresso relevante: **confirmação clara** antes de trocar ("o
+   progresso deste convidado não vai junto") — sem fusão de contas;
+6. a troca é atômica (a sessão recuperada entra de uma vez); o convidado deixado para trás segue a
+   regra de expurgo de convidados abandonados (filtrar por "sem identidades", nunca por `is_anonymous`);
+7. Google e Apple pela mesma política (o provedor é parâmetro).
+
+Contrato previsto (só desenho; nada disto existe em código ainda):
+
+```ts
+type ResultadoDaRecuperacao =
+  | { tipo: "mesma-conta" }                                   // a identidade já é deste convidado
+  | { tipo: "sem-conta" }                                     // ninguém tem essa identidade; nada criado
+  | { tipo: "confirmar"; convidadoTemProgresso: boolean; trocar: () => Promise<ResultadoDaRecuperacao> }
+  | { tipo: "recuperada"; userId: string }
+  | { tipo: "erro"; motivo: "cancelado" | "rede" | "provedor-recusou" | "indisponivel" };
+
+recuperarConta(provedor: "google" | "apple"): Promise<ResultadoDaRecuperacao>;
+```
+
+## 20. Fase 9 — Identidade mobile + exclusão de conta (plano)
+
+| Peça | Só código | Tito | Google Cloud | Apple Developer | Mac/Xcode |
+|---|---|---|---|---|---|
+| Plugin nativo Google/Apple (`@capgo/capacitor-social-login`) + `registrarFonteNativa` | ✔ | | client IDs | capacidade + chave | build iOS |
+| "Vincular conta" no app (Google e Apple) | ✔ (camada pronta) | | ✔ | ✔ | teste |
+| "Já tenho uma conta" (seção 19) + endpoint de verificação | ✔ | decisão do texto | ✔ | ✔ | teste |
+| Sessão em armazenamento durável (Keystore / Keychain `ThisDeviceOnly`) — resolve durabilidade e a decisão B | ✔ (plugin) | | | | build iOS |
+| Exclusão de conta no app + endpoint + página web da Play | ✔ | prazo/política | | revogação do token (chave) | |
+| App Links / Universal Links + `@capacitor/app` | ✔ | publicar os arquivos | | Team ID + capacidade | build iOS |
+| QA físico (áudio, reconexão, recortes, link, login) | | aparelhos | | | iPhone |
+| Compliance (App Privacy, Data safety, Política) | textos | revisão e envio | | | |
+
+## 21. Próximos passos externos (no máximo 3 por vez)
+
+Ordem pelo caminho crítico: a Apple tem o prazo mais longo (inscrição e verificação podem levar
+dias) e trava o iOS inteiro — o relógio dela começa primeiro; o Google é rápido e destrava o teste
+no Android.
+
+1. **Apple Developer:** confirmar se a conta do programa já existe (pessoa física ou empresa). Se
+   não existir, iniciar a inscrição. Resultado esperado: o **Team ID** (não é segredo).
+2. **Google Cloud (OAuth):** criar o cliente **Web** e o cliente **Android** (pacote
+   `br.com.playkingcards.king` + SHA-1 da chave de depuração, para os testes). Resultado: os dois
+   **client IDs** (não são segredo; o *client secret* do cliente Web vai só para o painel do Supabase,
+   pelo próprio Tito, nunca para o chat).
+3. **Play Console:** criar o app KING (`br.com.playkingcards.king`) com a **Play App Signing**.
+   Resultado: o SHA-1/SHA-256 do certificado de assinatura (para o cliente OAuth de produção e para
+   o `assetlinks.json`).
+
+Depois destes: cliente iOS do Google, Supabase (Client IDs), capacidade Sign in with Apple e chave,
+arte (ícone e splash), upload key.

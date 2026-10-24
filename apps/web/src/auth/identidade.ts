@@ -130,7 +130,7 @@ export function identidadeSupabase(cfg: { url: string; anonKey: string }): Prove
         const atual = await porta.getSession();
         const token = atual.data.session?.access_token;
         if (token) return token;
-        // A RENOVAÇÃO FALHOU (rede, 5xx, 429 passageiro): o SDK MANTÉM a sessão do convidado
+        // A RENOVAÇÃO FALHOU (rede ou 5xx, que o SDK trata como passageiros): o SDK MANTÉM a sessão do convidado
         // guardada e responde `session: null` COM `error`. Criar convidado aqui gravaria OUTRO
         // usuário por cima do único que o aparelho conhece — no celular, voltar do segundo plano
         // com o token vencido e a rede piscando bastaria para o jogador perder a conta (provado
