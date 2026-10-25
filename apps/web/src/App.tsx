@@ -11,7 +11,8 @@ import type { Entrada } from "./modos.js";
 import type { Convite } from "./net/convite.js";
 import { anunciarAbertura } from "./analytics/iniciar.js";
 import { armazenamentoLocal } from "./tutorial/persistencia.js";
-import { useConta } from "./auth/useConta.js";
+import { useConta, usePainelDaConta } from "./auth/useConta.js";
+import { PainelConta } from "./ui/PainelConta.js";
 import { leitorDeProgressoConfigurado } from "./auth/progresso.js";
 import { useMeuProgresso } from "./game/useMeuProgresso.js";
 
@@ -125,6 +126,10 @@ function ModoLocal({
   // A conta vive na Home, e o retorno do Google é processado aqui dentro, uma vez. `null` quando
   // esta publicação não vincula contas — e aí a Home é exatamente a de sempre.
   const conta = useConta();
+  // O PAINEL "CONTA" (Fase 9): vincular, "Já tenho uma conta" e excluir. Oferecido no app sempre
+  // que houver identidade; na web, só para quem já tem conta neste navegador.
+  const painelDaConta = usePainelDaConta();
+  const [contaAberta, setContaAberta] = useState(false);
 
   // O PROGRESSO É RELIDO CADA VEZ QUE A HOME APARECE — é assim que o XP de uma partida online
   // aparece na volta dela. Só leitura, e só com sessão já guardada neste aparelho: quem nunca
@@ -147,14 +152,26 @@ function ModoLocal({
 
   if (screen === "home" || !g.game) {
     return (
-      <Home
-        onStart={g.start}
-        onOpenAudio={onOpenAudio}
-        online={online}
-        tutorial={tutorial}
-        conta={conta ?? undefined}
-        progresso={progresso}
-      />
+      <>
+        <Home
+          onStart={g.start}
+          onOpenAudio={onOpenAudio}
+          online={online}
+          tutorial={tutorial}
+          conta={conta ?? undefined}
+          progresso={progresso}
+          onAbrirConta={painelDaConta.oferecer ? () => setContaAberta(true) : undefined}
+        />
+        {contaAberta && (
+          <PainelConta
+            conta={conta}
+            servicos={painelDaConta.servicos}
+            onFechar={() => setContaAberta(false)}
+            // Trocar ou excluir a conta muda QUEM joga: o app recomeça do zero, sem estado antigo.
+            onRecomecar={() => window.location.reload()}
+          />
+        )}
+      </>
     );
   }
   return (

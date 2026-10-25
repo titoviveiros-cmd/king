@@ -59,7 +59,7 @@ export interface OnlineDaHome {
 }
 
 export function Home({
-  onStart, onOpenAudio, online, tutorial, conta, progresso,
+  onStart, onOpenAudio, online, tutorial, conta, progresso, onAbrirConta,
 }: {
   onStart: (avatar: Avatar) => void;
   onOpenAudio: () => void;
@@ -73,6 +73,11 @@ export function Home({
    * a Home continua a de sempre. Nunca um "0 XP" desenhado para quem não tem conta.
    */
   progresso?: ProgressoDoJogador | null;
+  /**
+   * Abre o painel "Conta" (vincular, "Já tenho uma conta", excluir). Ausente = nada a gerenciar
+   * nesta publicação (sem identidade, ou web sem conta neste navegador) — e o botão não aparece.
+   */
+  onAbrirConta?: () => void;
 }) {
   const preparo = online?.preparo ?? null;
   const [painel, setPainel] = useState(() => !!preparo);
@@ -140,6 +145,11 @@ export function Home({
         )}
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
+        {onAbrirConta && (
+          <button className="audiobtn contabtn" onClick={() => { sfxTap(); onAbrirConta(); }} aria-label="Conta" title="Conta">
+            👤
+          </button>
+        )}
       </div>
 
       {/* O PROGRESSO FICA ABAIXO DAS AÇÕES, e é o card do jogador, não um painel: quem abre o jogo
@@ -163,8 +173,18 @@ export function Home({
           conta, e é isso que o botão faz. */}
       {conta && (
         <div className="hm-conta">
-          {conta.estado === "google" ? (
-            <p className="hm-conta-ok" role="status">Google conectado</p>
+          {conta.estado === "google" || conta.estado === "apple" ? (
+            <p className="hm-conta-ok" role="status">{conta.estado === "apple" ? "Apple conectada" : "Google conectado"}</p>
+          ) : conta.nativo ? (
+            // NO APP, o provedor se escolhe no painel "Conta" — e no iPhone a Apple vem primeiro
+            // (diretriz 4.8): aqui não cabe um botão "com Google" sozinho.
+            <button
+              className="hm-conta-btn"
+              disabled={conta.estado === "processando" || !onAbrirConta}
+              onClick={() => { sfxTap(); onAbrirConta?.(); }}
+            >
+              {conta.estado === "processando" ? "Conectando…" : "Salvar progresso"}
+            </button>
           ) : (
             <button
               className="hm-conta-btn"
