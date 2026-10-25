@@ -256,6 +256,10 @@ desligado; sem autocapture; `person_profiles: identified_only`. Teste novo com a
 
 ## 13. Exclusão de conta — lacunas
 
+> **Fase 9 (25/10/2026): implementada** — no app, na web e no servidor; ver seção 22. A tabela abaixo
+> é o retrato da Fase 8, mantido como histórico. Ficam em aberto: prazo de retenção do banco do jogo e
+> o expurgo de convidados abandonados (decisões do titular, seção 22.8).
+
 | Exigência | Hoje | O que falta |
 |---|---|---|
 | Apple 5.1.1(v): excluir a conta **dentro do app** (vale para convidado persistente também) | não existe | tela "Excluir conta" com confirmação |
@@ -295,6 +299,8 @@ Nenhum `npm audit fix --force`, nenhum major além do Capacitor.
 exclusão de conta (seção 13); conta Apple Developer + Mac/CI macOS.
 
 **P0 da Fase 9 (decidido):** "Já tenho uma conta" (seção 19); sessão fora do iCloud (decisão B).
+→ **Implementados na Fase 9** (seção 22), junto com exclusão de conta, revogação da Apple, página da
+Play e App Links; o que resta são os gates manuais da seção 22.7.
 
 **P1:** sessão do convidado em armazenamento durável no app; limites de taxa do Supabase; declarar e-mail/nome/foto nos
 formulários; QA de `crypto.subtle` no `capacitor://localhost` (nonce); App Links / Universal Links; `@capacitor/app` + comportamento do link com o app aberto;
@@ -342,7 +348,14 @@ Regras do "Já tenho uma conta":
    regra de expurgo de convidados abandonados (filtrar por "sem identidades", nunca por `is_anonymous`);
 7. Google e Apple pela mesma política (o provedor é parâmetro).
 
-Contrato previsto (só desenho; nada disto existe em código ainda):
+> **Premissa corrigida na Fase 9 (antes de implementar):** em vez do endpoint que conferiria o ID
+> token e procuraria a identidade (regra 3), a garantia de "nada é criado" ficou no PRÓPRIO Supabase
+> Auth: o gancho "Before User Created" recusa qualquer usuário que nasceria com Google/Apple (seção
+> 22.3). É atômico (sem a janela entre "conferir" e "entrar"), não manda ID token para servidor nosso
+> e não exige guardar os client IDs em mais um lugar. Defesa em profundidade no app: uma conta que
+> "nasceu junto" com a identidade é desfeita e nunca adotada.
+
+Contrato previsto na Fase 8 (o implementado está em `apps/web/src/auth/recuperacaoDeConta.ts`):
 
 ```ts
 type ResultadoDaRecuperacao =
@@ -370,6 +383,8 @@ recuperarConta(provedor: "google" | "apple"): Promise<ResultadoDaRecuperacao>;
 
 ## 21. Próximos passos externos (no máximo 3 por vez)
 
+> Atualizado na seção 22.7 (Fase 9): a ordem continua a mesma; a 22.7 traz todos os gates, em sequência.
+
 Ordem pelo caminho crítico: a Apple tem o prazo mais longo (inscrição e verificação podem levar
 dias) e trava o iOS inteiro — o relógio dela começa primeiro; o Google é rápido e destrava o teste
 no Android.
@@ -386,3 +401,137 @@ no Android.
 
 Depois destes: cliente iOS do Google, Supabase (Client IDs), capacidade Sign in with Apple e chave,
 arte (ícone e splash), upload key.
+
+## 22. Fase 9 — Identidade mobile + exclusão de conta (implementado, 25/10/2026)
+
+Branch `feat/mobile-identity-compliance`. Nada publicado: nem Production, nem lojas, nem a função,
+nem a migração, nem os arquivos de domínio. Fontes oficiais conferidas antes de instalar (25/10):
+Capacitor 8.5.3; `@capgo/capacitor-social-login` 8.7.5 (peer `@capacitor/core >=8`, código lido);
+`@aparajita/capacitor-secure-storage` 8.0.1 (código lido); `@capacitor/app` 8.1.2; Supabase Auth
+(manual linking, `linkIdentity` com ID token, gancho "Before User Created"); Sign in with Apple REST
+API (`/auth/token`, `/auth/revoke`); App Review 4.8 e 5.1.1(v); Google Play "Account deletion".
+
+### 22.1 Quem faz o quê
+
+| Peça | Onde | Garantia |
+|---|---|---|
+| Sessão durável | `auth/sessaoNativa.ts`, `nativo/arranque.ts` | iOS: Keychain `afterFirstUnlockThisDeviceOnly`, sem iCloud. Android: AES-GCM com chave do Keystore; o arquivo fica fora de backup/transferência. Só um marcador sem segredo no localStorage. Migração única do WebView (apaga só depois de gravar). Cofre que não abre → memória (nunca texto puro). |
+| Google/Apple nativos | `nativo/loginSocial.ts` | provedor recebe o hash do nonce; Apple pede só e-mail e devolve o código para a revogação; `USER_CANCELLED` = cancelado; a cópia de token que o plugin grava (UserDefaults/SharedPreferences) é apagada com `logout` após TODO pedido; SDK do Facebook fora do pacote (config + `mobile:validar`). |
+| Vincular conta | `auth/conta.ts` | `linkIdentity` com ID token sobre o convidado: o mesmo `auth.users.id`. |
+| Já tenho uma conta | `auth/recuperacaoDeConta.ts` + gancho do banco | cliente isolado sem persistência; identidade sem conta → recusa no servidor; conta "recém-nascida" → desfeita e nunca adotada; progresso → confirmação; troca só vale conferida na sessão. |
+| Excluir conta | `auth/exclusaoDeConta.ts` + `supabase/functions/excluir-conta` | JWT do próprio projeto (JWKS); só o `sub` do token; confirmação `EXCLUIR`; idempotente; Apple revogada ANTES de apagar (falha não bloqueia); exclusão real + cascata; o aparelho só esquece a conta depois do OK. |
+| Página da Play | `public/excluir-conta.html`, `vercel.json` | estática, sem script; amarrada por teste aos rótulos reais da tela. |
+| App Links | `nativo/linkDoApp.ts`, `preparar-mobile.mjs`, `scripts/gerar-well-known.mjs` | só `https://playkingcards.com.br/` (raiz exata); o link vira no máximo um código no campo da Home — nunca entrada na sala. |
+| Privacidade | `privacidadeDaIdentidade.test.ts` e testes de log da função | identidade nunca vai para analytics nem console; `$geoip_disable=true` mantido. |
+| Crédito com conta excluída | migração `20261025130000` | quem excluiu a conta (lápide em `king_private.contas_excluidas`, só id + hora) não derruba o XP da mesa; id que nunca foi jogador continua reprovando tudo. |
+| Manifesto de privacidade iOS | `preparar-mobile.mjs` → `PrivacyInfo.xcprivacy` | UserDefaults (CA92.1) declarado; sem rastreamento; tipos de dado da política. |
+| Sessão que não some calada | `auth/clienteSupabase.ts` | 429 na renovação vira 503 (a sessão fica); sessão encerrada pelo servidor deixa aviso ao jogador. |
+
+### 22.2 Provedores por plataforma
+
+- **Android:** Google (Credential Manager). Apple no Android exigiria servidor de redirecionamento — P2.
+- **iPhone:** Apple sempre; Google só com o client ID iOS, e nunca sem a Apple (diretriz 4.8).
+- **Web:** Google por OAuth (vínculo, como antes). "Já tenho uma conta" na web — P2.
+- Consequência conhecida (P2): quem salvou SÓ com Apple no iPhone não recupera no Android, e vice-versa
+  sem Google no iPhone. Mitigação: oferecer os dois no iPhone assim que houver o client ID iOS.
+
+### 22.3 O gancho "conta só nasce como convidado"
+
+`supabase/migrations/20261025120000_cadastro_so_convidado.sql` cria
+`public.king_antes_de_criar_usuario(event jsonb)`: recusa (403) quem nasceria com Google/Apple
+(`app_metadata.provider`, `app_metadata.providers` ou `identities`); aceita o convidado anônimo;
+nunca lança (lançar travaria o cadastro do convidado); só `supabase_auth_admin` executa. Testado em
+Postgres real (`npm run test:cadastro-sql`: 8 testes + 6 mutações). Ativar no painel DEPOIS de aplicar;
+desfazer = desligar no painel ANTES do rollback.
+
+### 22.4 Exclusão: o que some e o que fica
+
+Some: o usuário (convidado também), as identidades Google/Apple, `players` (apelido, avatar),
+`progresso` (XP, nível, sequência) e `xp_eventos` — pela cascata das FKs. Fica: `king_private.partidas`
+(início, fim, quantos humanos/bots — sem id de jogador) e a medição anônima do PostHog (nunca ligada à
+conta). Apple: troca do código novo + `/auth/revoke`; sem código (fora do iPhone) ou com falha, a
+exclusão segue e a tela mostra o caminho manual (Ajustes → ID Apple → Iniciar Sessão com a Apple).
+
+### 22.5 Configuração (nenhum segredo no repositório)
+
+| Nome | Onde | Segredo? |
+|---|---|---|
+| `VITE_KING_GOOGLE_LINK=1` | build do app/web | não (liga o vínculo) |
+| `VITE_KING_GOOGLE_WEB_CLIENT_ID` | build do app | não (aud do token no Android) |
+| `VITE_KING_GOOGLE_IOS_CLIENT_ID` | build do app **e** `mobile:preparar` (esquema de URL) | não |
+| `KING_APPLE_TEAM_ID`, `KING_APPLE_KEY_ID`, `KING_APPLE_CLIENT_ID` (= `br.com.playkingcards.king`) | segredos da função | não |
+| `KING_APPLE_PRIVATE_KEY` (o `.p8` inteiro) | segredos da função | **sim** — só no Supabase, digitado pelo Tito |
+| `KING_ORIGENS_EXTRAS` | segredos da função (opcional, só `https://`) | não |
+| `KING_ANDROID_SHA256`, `KING_APPLE_TEAM_ID` | `node scripts/gerar-well-known.mjs` | não |
+
+`SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` o Supabase injeta na função; a chave de serviço nunca vai
+para app, repositório nem servidor do jogo.
+
+### 22.6 Provas
+
+Testes novos: sessão no cofre (17, inclusive com o SDK real), sessão perdida (4, SDK real; 3 mutantes),
+login nativo (11), vínculo/visibilidade (+4), vínculo em aparelho novo (4 novos no lugar de 1 da Fase 8;
+2 mutantes), recuperação
+(30, Google e Apple; 8 mutantes mortos), exclusão no app (10), painel e Home (8), página da Play (8),
+links do app (8), privacidade (4); função de exclusão (22, com JWT ES256 real; 9 mutantes mortos);
+gancho em Postgres real (8 + 6 mutações); crédito com conta excluída (X1–X6 na suíte de progresso:
+58/58 e 33 mutações, inclusive a exclusão feita pelo papel do Auth); arquivos de domínio (6); variável
+do build (1); e2e do painel no navegador real (24, 6 viewports, inclusive 852×300); `mobile:validar`
+com 36 verificações (cada verificação nova reprovou antes da correção).
+
+### 22.7 Gates manuais, na ordem segura
+
+1. **Supabase (painel):** "Manual linking" ligado; provedor Google com Client IDs = Web (+ iOS, quando
+   houver); provedor Apple com Client ID = `br.com.playkingcards.king`; recomendado desligar cadastro
+   por e-mail.
+2. **Supabase (SQL Editor do Tito):** aplicar `20261025120000_cadastro_so_convidado.sql`; ligar
+   Authentication → Hooks → "Before User Created" → `public.king_antes_de_criar_usuario`; **conferir
+   na hora** que um convidado novo ainda nasce (aba anônima → entrar online). Se não nascer: desligar
+   o gancho. Depois, aplicar `20261025130000_credito_com_conta_excluida.sql` — **ANTES** de publicar a
+   função de exclusão (sem ela, excluir a conta pode custar o XP da mesa inteira).
+3. **Função:** `supabase functions deploy excluir-conta --no-verify-jwt` + segredos da 22.5. Em
+   Authentication → URL Configuration, incluir `https://playkingcards.com.br/vincular` nas Redirect
+   URLs (o retorno do Google na web saiu da raiz).
+4. **Google Cloud:** clientes Web, Android (SHA-1 de depuração e, depois, o da Play) e iOS.
+5. **Apple Developer:** no App ID, ligar "Sign in with Apple" e "Associated Domains"; criar a chave do
+   Sign in with Apple (.p8) e pôr nos segredos da função.
+6. **Play Console:** app + Play App Signing → SHA-256 → `gerar-well-known` → commit → publicar só com
+   autorização (junto com a main).
+7. **Build de teste** com as variáveis da 22.5 e o QA físico (vincular, já tenho uma conta, excluir,
+   reinstalar, link de convite) em Android e iPhone.
+
+### 22.8 Decisões pendentes do titular
+
+Nome do desenvolvedor como aparecerá na loja (a página cita "Tito Viveiros"); retenção do banco do
+jogo e expurgo de convidados abandonados; prazo de resposta a pedidos de exclusão por e-mail; conferir
+os tipos de dado do `PrivacyInfo.xcprivacy` contra a ficha "Privacidade do app" do App Store Connect.
+
+**Notas para a revisão da Apple (colar no App Store Connect):** "O KING não pede cadastro: o jogador
+começa como convidado. Para criar e salvar a conta: tela inicial → Conta (ícone 👤 no topo) →
+Continuar com a Apple. Para recuperá-la em outro aparelho: Conta → Já tenho uma conta. Para excluir:
+Conta → Excluir conta → digitar EXCLUIR → Excluir minha conta (a Apple pede confirmação e o acesso é
+revogado)."
+
+### 22.9 Red team da Fase 9 (um) — o que foi achado e o que foi feito
+
+| # | Achado | Gravidade | Desfecho |
+|---|---|---|---|
+| 1 | Excluir a conta derrubava o crédito de XP da mesa inteira (FK 23503), com retentativa eterna | P0 | corrigido: lápide + crédito tolerante (3351a97), T12 preservado, X5 provou a exclusão pelo papel do Auth |
+| 2 | Sem `PrivacyInfo.xcprivacy`: envio barrado (ITMS-91053, UserDefaults do plugin) | P0 | corrigido (86eba90) |
+| 3 | Aparelho novo: todo "Continuar com a Apple/Google" dava erro (revisor) | P1 | corrigido: o convidado nasce depois da credencial (125c79d) |
+| 4 | 429 na renovação apagava a sessão e criava convidado novo calado | P1 | corrigido: 429→503 só na renovação + aviso de sessão encerrada (6e56485) |
+| 5 | App Link do Android capturaria o retorno do Google na web | P2 | corrigido: retorno em `/vincular` (b3feea0) |
+| 6 | Cofre que recusa a migração faria nascer outro convidado | P2 | corrigido (db4593c) |
+| 7 | Conta sumia se o plugin registrasse depois do arranque | P2 | corrigido (db4593c) |
+| 8 | Política não citava nome/foto do Google guardados pelo Supabase | P2 | corrigido (db4593c) |
+| 9 | Esquema de URL do Google no iOS lido só do ambiente (não do `.env.local`) | P2 | corrigido (456e8c9) |
+| 10 | Fechar o painel na confirmação não revogava a sessão nova; fechar após trocar não recomeçava | P2 | corrigido (db4593c) |
+| 11 | "Outra conta" Apple na exclusão deixava o acesso recém-criado | P2 | corrigido (fdfef76) |
+| 12 | Conta só com Apple não se recupera no Android/web (e vice-versa) | P2 | aberto — oferecer Google no iPhone quando houver o client ID iOS |
+| 13 | A função aceita access token de sessão já encerrada (≤ 1 h) | P2 | aberto — conferir a sessão com `/auth/v1/user` numa rodada própria |
+| 14 | No iPhone, se a leitura das identidades falhar, a exclusão segue sem revogar | P2 | aceito — o servidor avisa e a tela mostra o caminho manual |
+| 15 | O plugin só limpa a cópia do token Google no Android se `clearRestoreCredential` der certo | P2 | mitigado — arquivo fora do backup; conferir no aparelho |
+| 16 | Sem política de retenção para convidados abandonados | P2 | decisão do titular (22.8) |
+
+A sugestão do red team de tratar 23503 como erro permanente no servidor NÃO foi adotada: com a lápide,
+23503 só sobra na corrida "exclusão no meio do crédito", e é a retentativa que a resolve.
