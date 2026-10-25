@@ -14,7 +14,9 @@ import {
   armazenamentoNoCofre,
   armazenamentoSoNaMemoria,
   migrarSessaoDoWebView,
+  limparSessaoDoCofre,
   prepararCofre,
+  registrarLimpezaDoCofre,
   sincronizarMarcador,
   type ArmazenamentoDaSessao,
   type CofreDoSistema,
@@ -57,6 +59,7 @@ export async function prepararSessaoNativa(d: DependenciasDaSessaoNativa = depen
       await prepararCofre(cofre);
       await migrarSessaoDoWebView(cofre, chave, local);
       await sincronizarMarcador(cofre, chave, local);
+      registrarLimpezaDoCofre(() => limparSessaoDoCofre(cofre, chave, local));
       return armazenamentoNoCofre(cofre, chave, local);
     } catch {
       let antiga: string | null = null;

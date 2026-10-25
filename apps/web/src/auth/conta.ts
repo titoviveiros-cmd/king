@@ -27,7 +27,7 @@
 import type { IdentidadeVinculada, PortaDeAutenticacao } from "./clienteSupabase.js";
 import { nonceDoIdToken, type FonteDeCredencialNativa } from "./credencialNativa.js";
 
-export type EstadoDaConta = "guest" | "google" | "indisponivel" | "processando" | "erro";
+export type EstadoDaConta = "guest" | "google" | "apple" | "indisponivel" | "processando" | "erro";
 
 /** Os provedores que podem ser PENDURADOS no convidado. Nenhum deles "entra" — todos vinculam. */
 export type ProvedorVinculavel = "google" | "apple";
@@ -168,7 +168,8 @@ export function criarConta(d: DependenciasDaConta) {
       const userId = sessao?.user?.id;
       if (!sessao || !userId) return "guest";
       const { data } = await porta.getUserIdentities();
-      return temGoogle(data?.identities, userId) ? "google" : "guest";
+      if (temGoogle(data?.identities, userId)) return "google";
+      return temProvedor(data?.identities, "apple", userId) ? "apple" : "guest";
     } catch {
       return "erro";
     }

@@ -173,6 +173,18 @@ export function marcadorDeSessao(local: LocalSimples | null): boolean {
   try { return local?.getItem(MARCADOR_DE_SESSAO) === "1"; } catch { return false; }
 }
 
+let limpezaRegistrada: (() => Promise<void>) | null = null;
+
+/** O arranque nativo registra como limpar o cofre que ele preparou. Na web, nunca é chamado. */
+export function registrarLimpezaDoCofre(limpar: (() => Promise<void>) | null): void {
+  limpezaRegistrada = limpar;
+}
+
+/** Limpa o cofre do app, se houver um (na web, não faz nada). Nunca lança. */
+export async function limparCofreRegistrado(): Promise<void> {
+  try { await limpezaRegistrada?.(); } catch { /* o marcador já foi apagado pela remoção da sessão */ }
+}
+
 /**
  * APAGA A SESSÃO DO APARELHO — sair da conta e excluir a conta passam por aqui. O cofre perde
  * todas as chaves do KING, o marcador apaga, e nenhuma cópia antiga sobra no localStorage.
