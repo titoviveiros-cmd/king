@@ -14,6 +14,7 @@
 // Xcode e CocoaPods; este projeto vive no Windows, então o build de iOS roda em runner macOS de
 // CI. O Android compila em qualquer runner Linux com o SDK.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { variavelDoBuild } from "./lib/ambiente-vite.mjs";
 import { fileURLToPath } from "node:url";
 
 const RAIZ = new URL("../apps/web/", import.meta.url);
@@ -280,7 +281,8 @@ ajustarTodos(
 // — sem ele o SDK ENCERRA o app ao abrir o login. O valor é o mesmo do build web
 // (`VITE_KING_GOOGLE_IOS_CLIENT_ID`), que não é segredo. Sem ele, o Google simplesmente não é
 // oferecido no iPhone (ver apps/web/src/nativo/loginSocial.ts), e a Apple segue sozinha.
-const CLIENTE_GOOGLE_IOS = (process.env.VITE_KING_GOOGLE_IOS_CLIENT_ID ?? "").trim();
+// Lido como o Vite lê (ambiente e .env*), para o esquema e o pacote web nunca discordarem.
+const CLIENTE_GOOGLE_IOS = (variavelDoBuild("VITE_KING_GOOGLE_IOS_CLIENT_ID", RAIZ) ?? "").trim();
 if (/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(CLIENTE_GOOGLE_IOS)) {
   const esquema = CLIENTE_GOOGLE_IOS.split(".").reverse().join(".");
   ajustar(

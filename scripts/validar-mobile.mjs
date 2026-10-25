@@ -12,6 +12,7 @@
 //
 // Sai 0 se tudo passa, 1 se qualquer verificação falha. É portão de CI, não relatório.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { variavelDoBuild } from "./lib/ambiente-vite.mjs";
 import { fileURLToPath } from "node:url";
 
 const RAIZ = new URL("../", import.meta.url);
@@ -283,7 +284,8 @@ if (pedido === "ios" && !TEM_IOS) {
 
   // GOOGLE NO IPHONE: com o client ID iOS no build, o esquema invertido TEM de estar no Info.plist —
   // sem ele o Google Sign-In encerra o app ao abrir o login.
-  const clienteIos = (process.env.VITE_KING_GOOGLE_IOS_CLIENT_ID ?? "").trim();
+  // Lido como o Vite lê (ambiente e .env*): o que vale é o que foi para dentro do pacote.
+  const clienteIos = (variavelDoBuild("VITE_KING_GOOGLE_IOS_CLIENT_ID", new URL("apps/web/", RAIZ)) ?? "").trim();
   if (clienteIos) {
     const esquema = clienteIos.split(".").reverse().join(".");
     if (!plist.includes(`<string>${esquema}</string>`)) {
