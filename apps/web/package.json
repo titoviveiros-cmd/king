@@ -19,6 +19,9 @@
     "test:e2e:sequencia:compat": "npm run build:e2e-sequencia && playwright test -c playwright.sequencia-compat.config.ts"
   },
   "dependencies": {
+    "@aparajita/capacitor-secure-storage": "8.0.1",
+    "@capacitor/app": "8.1.2",
+    "@capgo/capacitor-social-login": "8.7.5",
     "@colyseus/sdk": "^0.17.43",
     "@fontsource/gabarito": "^5.0.0",
     "@fontsource/nunito": "^5.0.0",
