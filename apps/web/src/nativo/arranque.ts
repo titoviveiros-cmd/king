@@ -57,7 +57,13 @@ export async function prepararSessaoNativa(d: DependenciasDaSessaoNativa = depen
     try {
       const cofre = await d.carregarCofre();
       await prepararCofre(cofre);
-      await migrarSessaoDoWebView(cofre, chave, local);
+      // O cofre abriu mas recusou a sessão antiga: esta execução segue com ELA, na memória (o
+      // cofre vazio faria nascer outro convidado, e no próximo arranque a cópia antiga sumiria).
+      if ((await migrarSessaoDoWebView(cofre, chave, local)) === "falhou") {
+        let antiga: string | null = null;
+        try { antiga = local?.getItem(chave) ?? null; } catch { antiga = null; }
+        return armazenamentoSoNaMemoria(antiga ? { chave, valor: antiga } : null);
+      }
       await sincronizarMarcador(cofre, chave, local);
       registrarLimpezaDoCofre(() => limparSessaoDoCofre(cofre, chave, local));
       return armazenamentoNoCofre(cofre, chave, local);

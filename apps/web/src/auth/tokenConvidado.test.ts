@@ -12,7 +12,7 @@ vi.mock("./clienteSupabase.js", () => ({
   clienteCompartilhado: async () => null,
 }));
 const { identidadeSupabase, contaConfigurada, provedoresDaConta } = await import("./identidade.js");
-const { registrarFonteNativa } = await import("./credencialNativa.js");
+const { registrarFonteNativa, aoMudarFonteNativa } = await import("./credencialNativa.js");
 
 function porta(sessao: { session: unknown; error?: unknown }) {
   const chamadas: string[] = [];
@@ -97,6 +97,20 @@ describe("a conta na Home dentro do app", () => {
     expect(provedoresDaConta()).toEqual(["apple"]);
     registrarFonteNativa(fonte(["apple", "google"]));
     expect(provedoresDaConta()).toEqual(["apple", "google"]);
+  });
+
+  it("plugin que se registra DEPOIS da primeira tela: quem ouve é avisado, e a conta passa a existir", () => {
+    ligar();
+    vi.stubGlobal("Capacitor", { isNativePlatform: () => true, getPlatform: () => "android" });
+    expect(contaConfigurada(), "sem plugin ainda").toBeNull();
+    let avisos = 0;
+    const parar = aoMudarFonteNativa(() => { avisos++; });
+    registrarFonteNativa(fonte(["google"]));
+    expect(avisos).toBe(1);
+    expect(contaConfigurada()).not.toBeNull();
+    parar();
+    registrarFonteNativa(null);
+    expect(avisos, "cancelado, não ouve mais").toBe(1);
   });
 
   it("na web, o provedor é o Google (OAuth)", () => {

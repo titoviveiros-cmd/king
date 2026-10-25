@@ -67,10 +67,22 @@ export function nonceDoIdToken(idToken: string): string | undefined {
 }
 
 let fonteRegistrada: FonteDeCredencialNativa | null = null;
+const ouvintesDaFonte = new Set<() => void>();
 
 /** O adaptador do plugin se registra aqui no arranque do app. Na web, nunca há fonte. */
 export function registrarFonteNativa(fonte: FonteDeCredencialNativa | null): void {
   fonteRegistrada = fonte;
+  for (const o of ouvintesDaFonte) { try { o(); } catch { /* um ouvinte não derruba os outros */ } }
+}
+
+/**
+ * Avisa quando a fonte muda. O arranque não segura a primeira tela por mais de um instante: se o
+ * plugin terminar DEPOIS, a tela que já se montou sem conta precisa saber — senão a conta sumiria
+ * naquela execução inteira. Devolve o cancelamento.
+ */
+export function aoMudarFonteNativa(ouvinte: () => void): () => void {
+  ouvintesDaFonte.add(ouvinte);
+  return () => { ouvintesDaFonte.delete(ouvinte); };
 }
 
 export function fonteNativa(): FonteDeCredencialNativa | null {

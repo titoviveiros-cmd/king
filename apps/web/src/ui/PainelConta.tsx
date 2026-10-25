@@ -118,7 +118,15 @@ export function PainelConta({
     }
   };
 
-  const fechar = () => { if (!ocupado) { sfxTap(); onFechar(); } };
+  const fechar = () => {
+    if (ocupado) return;
+    sfxTap();
+    // Trocou ou excluiu a conta: quem joga mudou, e o app recomeça limpo mesmo fechando pelo fundo.
+    if (tela.nome === "recuperada" || tela.nome === "excluida") { onRecomecar(); return; }
+    // No meio da confirmação: fechar é CANCELAR — a sessão nova, ainda não adotada, é revogada.
+    if (tela.nome === "confirmar") void tela.pendente.cancelar();
+    onFechar();
+  };
   const statusDaConta = conta?.estado === "google"
     ? "Seu progresso está salvo com o Google."
     : conta?.estado === "apple"

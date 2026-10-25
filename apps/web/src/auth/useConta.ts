@@ -12,7 +12,7 @@
 // (sempre que houver identidade configurada: convidado também é conta). Ver `usePainelDaConta`.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ContaDoJogador, MotivoDaFalha, ProvedorVinculavel } from "./conta.js";
-import { ehAppNativo, fonteNativa, gerarNonce } from "./credencialNativa.js";
+import { aoMudarFonteNativa, ehAppNativo, fonteNativa, gerarNonce } from "./credencialNativa.js";
 import type { ExclusaoDeConta, ResultadoDaExclusao } from "./exclusaoDeConta.js";
 import { contaConfigurada, provedoresDaConta } from "./identidade.js";
 import { lerSessaoPerdida } from "./clienteSupabase.js";
@@ -68,6 +68,12 @@ const avisoDe = (motivo: MotivoDaFalha): string =>
 export function useConta(): ContaDaHome | null {
   const conta = useRef<ContaDoJogador | null>(null);
   if (conta.current === null) conta.current = contaConfigurada();
+  // O plugin nativo pode se registrar DEPOIS da primeira tela: aí a conta aparece nessa hora.
+  const [, setVersaoDaFonte] = useState(0);
+  useEffect(() => aoMudarFonteNativa(() => {
+    if (conta.current === null) conta.current = contaConfigurada();
+    setVersaoDaFonte((v) => v + 1);
+  }), []);
   const disponivel = conta.current !== null;
 
   const [estado, setEstado] = useState<EstadoVisivelDaConta>("processando");
@@ -90,7 +96,8 @@ export function useConta(): ContaDaHome | null {
       setEstado(atual === "indisponivel" ? "erro" : atual === "processando" ? "processando" : atual);
     })();
     return () => { vivo = false; };
-  }, []);
+    // `disponivel` só muda de falso para verdadeiro (plugin que chegou depois): aí a leitura roda uma vez.
+  }, [disponivel]);
 
   const onVincular = useCallback((escolhido?: ProvedorVinculavel) => {
     const c = conta.current;
@@ -144,6 +151,12 @@ export interface ServicosDaConta {
 export function usePainelDaConta(): { oferecer: boolean; servicos: ServicosDaConta } {
   const servicos = useRef<{ recuperacao: RecuperacaoDeConta | null; exclusao: ExclusaoDeConta | null } | null>(null);
   if (servicos.current === null) servicos.current = { recuperacao: recuperacaoConfigurada(), exclusao: exclusaoConfigurada() };
+  // "Já tenho uma conta" depende do plugin nativo, que pode chegar depois da primeira tela.
+  const [, setVersaoDaFonte] = useState(0);
+  useEffect(() => aoMudarFonteNativa(() => {
+    if (servicos.current && !servicos.current.recuperacao) servicos.current.recuperacao = recuperacaoConfigurada();
+    setVersaoDaFonte((v) => v + 1);
+  }), []);
   const { recuperacao, exclusao } = servicos.current;
   const oferecer = !!exclusao && (ehAppNativo() || haContaNesteAparelho());
   return {

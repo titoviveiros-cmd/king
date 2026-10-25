@@ -140,14 +140,14 @@ export async function migrarSessaoDoWebView(
   cofre: CofreDoSistema,
   chaveDaSessao: string,
   local: LocalSimples | null,
-): Promise<void> {
+): Promise<"migrada" | "nada" | "falhou"> {
   let antiga: string | null = null;
-  try { antiga = local?.getItem(chaveDaSessao) ?? null; } catch { return; }
-  if (!antiga) return;
+  try { antiga = local?.getItem(chaveDaSessao) ?? null; } catch { return "nada"; }
+  if (!antiga) return "nada";
   let noCofre: string | null = null;
   try { noCofre = await cofre.getItem(chaveDaSessao); } catch { noCofre = null; }
   if (!noCofre) {
-    try { await cofre.setItem(chaveDaSessao, antiga); } catch { return; }
+    try { await cofre.setItem(chaveDaSessao, antiga); } catch { return "falhou"; }
   }
   // O cofre manda: com sessão nos dois lugares, a do cofre é a que vale e a cópia em texto puro sai.
   try {
@@ -155,6 +155,7 @@ export async function migrarSessaoDoWebView(
     local?.removeItem(`${chaveDaSessao}-user`);
     local?.removeItem(`${chaveDaSessao}-code-verifier`);
   } catch { /* sem como apagar: o cofre já tem a sessão */ }
+  return "migrada";
 }
 
 /** Acende ou apaga o marcador conforme o cofre tem, de fato, uma sessão. Chamado no arranque. */

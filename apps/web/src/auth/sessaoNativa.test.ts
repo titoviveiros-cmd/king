@@ -203,6 +203,17 @@ describe("o arranque nativo decide onde a sessão vive — e o cliente do Supaba
     expect(local.mapa.get(CHAVE), "sem cofre, a cópia antiga não é apagada").toBe(SESSAO);
   });
 
+  it("cofre que abre mas RECUSA a sessão antiga: esta execução continua o MESMO convidado (memória), e a cópia fica", async () => {
+    const cofre = cofreFalso({ falharSet: true });
+    const local = localFalso({ [CHAVE]: SESSAO });
+    vi.stubGlobal("localStorage", local);
+    await prepararSessaoNativa(deps(cofre, local));
+    const cliente = await clienteCompartilhado({ url, anonKey: "chave-publica" });
+    const { data } = await cliente!.auth.getSession();
+    expect(data.session?.access_token, "nasceria outro convidado com o cofre vazio").toBe("jwt-do-convidado");
+    expect(local.mapa.get(CHAVE), "a cópia antiga não pode sumir sem ter ido para o cofre").toBe(SESSAO);
+  });
+
   it("cofre que não aceita o acesso ThisDeviceOnly NÃO é usado (nunca com o padrão que migra por backup)", async () => {
     const cofre = cofreFalso({ falharPreparo: true });
     const local = localFalso();
