@@ -1884,12 +1884,16 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .pc-prov.apple{background:#000;color:#fff;border:1px solid rgba(255,255,255,.35);}
 .pc-prov.google{background:#fff;color:#1f1f1f;border:1px solid #dadce0;}
 .pc-prov:disabled{opacity:.55;cursor:default;}
+/* Os links do painel têm cara de link, mas ÁREA DE TOQUE de botão: 44px (Apple) — "Excluir conta" é o
+   caminho que as lojas exigem fácil de usar (QA visual da Fase 9 mediu 25px antes). O texto não muda. */
 .pc-link{background:none;border:0;color:var(--gold);text-decoration:underline;text-underline-offset:3px;cursor:pointer;
-  font-family:var(--disp);font-weight:700;font-size:clamp(.74rem,1.9vh,.9rem);padding:6px;margin-top:6px;}
+  font-family:var(--disp);font-weight:700;font-size:clamp(.74rem,1.9vh,.9rem);padding:0 12px;margin-top:0;
+  min-height:44px;min-width:44px;display:inline-flex;align-items:center;justify-content:center;}
 .pc-link:disabled{opacity:.5;cursor:default;}
-.pc-rodape{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:clamp(10px,2vh,18px);}
+.pc-rodape{display:flex;flex-direction:column;align-items:center;gap:0;margin-top:clamp(10px,2vh,18px);}
 .pc-perigo{background:none;border:0;color:#ff8fa3;cursor:pointer;font-family:var(--disp);font-weight:700;
-  font-size:clamp(.68rem,1.7vh,.82rem);padding:6px;text-decoration:underline;text-underline-offset:3px;}
+  font-size:clamp(.68rem,1.7vh,.82rem);padding:0 12px;text-decoration:underline;text-underline-offset:3px;
+  min-height:44px;min-width:44px;display:inline-flex;align-items:center;justify-content:center;}
 .pc-lista{text-align:left;color:var(--ink);font-size:clamp(.72rem,1.8vh,.88rem);line-height:1.4;margin:8px 0;padding-left:1.2em;}
 .pc-campo{display:flex;flex-direction:column;gap:4px;text-align:left;margin-top:8px;}
 .pc-campo span{font-family:var(--disp);font-weight:800;font-size:clamp(.66rem,1.6vh,.8rem);color:var(--muted);}
