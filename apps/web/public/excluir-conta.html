@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#140a24" />
+  <meta name="color-scheme" content="dark" />
+  <title>Excluir conta — KING</title>
+  <meta name="description" content="Como excluir a sua conta do KING e os dados ligados a ela — no app ou por pedido." />
+  <link rel="canonical" href="https://playkingcards.com.br/excluir-conta" />
+  <!--
+    A PÁGINA DE EXCLUSÃO QUE A GOOGLE PLAY EXIGE ("Account deletion": caminho no app + recurso na
+    web). Estática de propósito, como a de privacidade: sem script e sem recurso de terceiro. Os
+    rótulos do app citados aqui ("Conta", "Excluir conta", EXCLUIR, "Excluir minha conta") são os
+    mesmos da tela — e um teste (src/ui/paginaDeExclusao.test.ts) quebra se um dos dois mudar sozinho.
+  -->
+  <style>
+    :root{--night:#140a24;--surface:#241546;--violet:#9b6cff;--gold:#f4c542;--turq:#2dd4bf;
+      --ink:#f4eeff;--muted:#c3b6de;--faint:#9284b8;--line:rgba(180,150,255,.18);}
+    *{box-sizing:border-box;}
+    html,body{margin:0;background:var(--night);color:var(--ink);}
+    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.55;
+      font-size:clamp(15px,1.05rem,17px);overflow-x:hidden;
+      padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right))
+              max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));}
+    main{max-width:720px;margin:0 auto;}
+    a{color:var(--turq);}
+    .voltar{display:inline-block;margin:4px 0 12px;font-weight:700;text-decoration:none;
+      padding:10px 0;min-height:44px;}
+    .voltar::before{content:"← ";}
+    .marca{font-weight:800;letter-spacing:.08em;color:var(--gold);font-size:1.6rem;margin:0;}
+    h1{font-size:clamp(1.4rem,4vw,1.9rem);line-height:1.2;margin:.1em 0 .2em;}
+    .data{color:var(--faint);margin:0 0 1.4em;font-size:.9em;}
+    h2{font-size:1.15rem;margin:1.8em 0 .5em;color:var(--gold);}
+    p,li{color:var(--muted);}
+    strong{color:var(--ink);}
+    ol,ul{padding-left:1.3em;margin:.4em 0 1em;}
+    li{margin:.3em 0;}
+    .caixa{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:14px;
+      padding:.9em 1.1em;margin:1em 0;}
+    .caixa > :first-child{margin-top:0;}
+    .caixa > :last-child{margin-bottom:0;}
+    footer{margin-top:2.4em;padding-top:1em;border-top:1px solid var(--line);color:var(--faint);font-size:.9em;}
+  </style>
+</head>
+<body>
+<main>
+  <a class="voltar" href="/">Voltar ao jogo</a>
+  <p class="marca">KING</p>
+  <h1>Excluir a sua conta do KING</h1>
+  <p class="data">KING · desenvolvido por Tito Viveiros · atualizado em 25 de outubro de 2026.</p>
+
+  <div class="caixa">
+    <p><strong>O jeito mais rápido é pelo próprio app</strong> — a exclusão acontece na hora, e a
+    conta de convidado também pode ser excluída.</p>
+  </div>
+
+  <h2>No app (Android, iPhone ou navegador)</h2>
+  <ol>
+    <li>Abra o KING.</li>
+    <li>Na tela inicial, toque em <strong>Conta</strong> (o ícone 👤 no topo, ao lado do som).</li>
+    <li>Toque em <strong>Excluir conta</strong> e leia o que será apagado.</li>
+    <li>Digite <strong>EXCLUIR</strong> e toque em <strong>Excluir minha conta</strong>.</li>
+  </ol>
+  <p>Se a conta foi salva com a Apple, o iPhone pede que você confirme com a Apple — assim o acesso
+  do KING ao seu ID Apple também é revogado.</p>
+
+  <h2>Sem o app</h2>
+  <p>Envie um pedido para <a href="mailto:titoviveiros@gmail.com?subject=Excluir%20conta%20KING">titoviveiros@gmail.com</a>
+  com o assunto <strong>Excluir conta KING</strong>.</p>
+  <ul>
+    <li>Se você salvou o progresso com <strong>Google</strong> ou <strong>Apple</strong>, escreva a
+      partir do e-mail dessa conta (ou informe o e-mail de retransmissão da Apple, se usou "Ocultar
+      meu e-mail"): é por ele que a sua conta é encontrada.</li>
+    <li>Se você jogou só como convidado, sem Google nem Apple, a conta não guarda e-mail nenhum: a
+      exclusão precisa ser feita pelo app, no aparelho em que você jogou.</li>
+  </ul>
+  <p>Você recebe uma resposta quando a exclusão for concluída.</p>
+
+  <h2>O que é excluído</h2>
+  <ul>
+    <li>A sua conta do KING (inclusive a de convidado) e o vínculo com Google ou Apple.</li>
+    <li>Apelido, avatar, XP, nível, sequência de dias e o histórico de XP das partidas.</li>
+    <li>A sessão guardada no aparelho.</li>
+  </ul>
+
+  <h2>O que fica</h2>
+  <ul>
+    <li>O registro das partidas online (quando aconteceram e quantas pessoas e bots jogaram), sem
+      nada que identifique você.</li>
+    <li>A medição de uso anônima, que nunca teve ligação com a sua conta — veja a
+      <a href="/privacidade">política de privacidade</a>.</li>
+  </ul>
+
+  <footer>
+    <a class="voltar" href="/">Voltar ao jogo</a>
+    <p>KING · playkingcards.com.br</p>
+  </footer>
+</main>
+</body>
+</html>
