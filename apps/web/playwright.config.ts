@@ -43,6 +43,26 @@ const VIEWPORTS: Array<{ w: number; h: number }> = [
   { w: 852, h: 300 },   // stress: a menor altura útil que o KING promete atender
 ];
 
+/**
+ * A SPEC QUE IMPÕE A PRÓPRIA GEOMETRIA RODA NUM PROJETO SÓ.
+ *
+ * `androidReal.spec.ts` mede três aparelhos (800×360, 800×330, 852×393), e cada teste dele fixa a
+ * tela antes da primeira navegação: `page.setViewportSize(vp)` ou `mesaEmPartida(browser, vp)`,
+ * que abre contextos com o viewport explícito. O viewport do projeto nunca chega a ser desenhado.
+ * Nos treze projetos, era a MESMA prova treze vezes: 108 execuções repetidas por CI, ~250 min de
+ * worker, 61% da suíte inteira.
+ *
+ * A invariância está medida, não suposta. Nas CIs 40224619955, 40199537383 e 40148569663, as 39
+ * execuções de cada aparelho (13 projetos × 3 CIs) imprimiram medições idênticas byte a byte — o
+ * placar entre-mãos mão a mão e o card de trunfo nome a nome.
+ *
+ * Fica o `800x360`: é o aparelho real desta QA, e os guardas do próprio arquivo já pediam esse
+ * projeto para os dois testes mais caros. A tag `@aparelho-real` deixa a CI pôr essas provas longas
+ * em runners próprios, sem tirar nada da matriz (ver .github/workflows/ci.yml).
+ */
+const APARELHO_REAL = "800x360";
+const SO_NO_APARELHO_REAL = /androidReal\.spec\.ts$/;
+
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
@@ -83,6 +103,7 @@ export default defineConfig({
 
   projects: VIEWPORTS.map(({ w, h }) => ({
     name: `${w}x${h}`,
+    ...(`${w}x${h}` === APARELHO_REAL ? {} : { testIgnore: SO_NO_APARELHO_REAL }),
     use: { browserName: "chromium", viewport: { width: w, height: h }, deviceScaleFactor: 1 },
   })),
 

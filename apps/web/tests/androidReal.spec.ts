@@ -144,8 +144,10 @@ function exigirMesmoDesenhoDoBotaoSocial(): void {
     "o placar final não usa mais o BotaoSocial com status finished e variante fim").toBe(true);
 }
 
+// Roda só no projeto 800x360 (playwright.config.ts): a geometria de cada teste é a do aparelho.
+// A tag separa estas provas longas em runners próprios na CI.
 for (const vp of APARELHOS) {
-  test.describe(`${vp.width}×${vp.height} — ${vp.nome}`, () => {
+  test.describe(`${vp.width}×${vp.height} — ${vp.nome}`, { tag: "@aparelho-real" }, () => {
     /**
      * O PAINEL DE MENSAGENS DO PLACAR FINAL — SEMPRE MEDIDO.
      *
