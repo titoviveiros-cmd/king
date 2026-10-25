@@ -12,6 +12,10 @@ name: CI
 #              · matriz i/6      as specs de layout, funcionais e multiplayer nos 13 viewports
 #              · aparelho j/3    androidReal (@aparelho-real): geometria fixa por teste, provas longas
 #              · progresso + analytics   as duas suítes de build próprio
+#   portão   o check que responde "está tudo verde": rápido verde E todo e2e verde.
+#
+# Mudança SÓ de documentação não roda o Playwright; o rápido roda sempre, e em `main` roda tudo.
+# A regra, fail-closed e com testes, está em scripts/lib/mudancas.mjs.
 #
 # ══ POR QUE ASSIM ══ (medido com scripts/ci-tempos.mjs)
 #
@@ -23,15 +27,35 @@ name: CI
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "perf/**"]
   pull_request:
 
-# Cancela execuções antigas da mesma ref quando chega um push novo.
+# Push novo na mesma ref cancela a execução obsoleta. Em `main`, não: cada commit que entra na
+# main recebe o portão inteiro.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  mudancas:
+    name: o que mudou
+    runs-on: ubuntu-latest
+    outputs:
+      e2e: ${{ steps.decidir.outputs.e2e }}
+    steps:
+      - name: Checkout (com histórico, para comparar)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: O Playwright precisa rodar?
+        id: decidir
+        env:
+          REF: ${{ github.ref }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: node scripts/ci-mudancas.mjs
+
   rapido:
     name: rápido — unit/integration + build + smoke
     runs-on: ubuntu-latest
@@ -63,6 +87,8 @@ jobs:
 
   e2e:
     name: e2e — ${{ matrix.nome }}
+    needs: mudancas
+    if: needs.mudancas.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     strategy:
       # Um shard vermelho não interrompe os outros: o diagnóstico mostra TODAS as falhas, como o
@@ -122,3 +148,24 @@ jobs:
             apps/web/test-results
           retention-days: 7
           if-no-files-found: ignore
+
+  portao:
+    name: portão — tudo verde
+    needs: [mudancas, rapido, e2e]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conferir as camadas
+        env:
+          MUDANCAS: ${{ needs.mudancas.result }}
+          PRECISA_E2E: ${{ needs.mudancas.outputs.e2e }}
+          RAPIDO: ${{ needs.rapido.result }}
+          E2E: ${{ needs.e2e.result }}
+        run: |
+          echo "o que mudou: $MUDANCAS (e2e=$PRECISA_E2E) | rápido: $RAPIDO | e2e: $E2E"
+          [ "$MUDANCAS" = success ] || { echo "::error::a decisão do que rodar falhou"; exit 1; }
+          [ "$RAPIDO" = success ] || { echo "::error::o job rápido não passou ($RAPIDO)"; exit 1; }
+          if [ "$PRECISA_E2E" = false ] && [ "$E2E" = skipped ]; then
+            echo "só documentação: Playwright dispensado"; exit 0
+          fi
+          [ "$E2E" = success ] || { echo "::error::o Playwright não passou ($E2E)"; exit 1; }
