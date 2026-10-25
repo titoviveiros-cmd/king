@@ -265,6 +265,11 @@ describe("D/E/F/G — o retorno do Google", () => {
 });
 
 describe("L — nada de segredo sobra", () => {
+  it("o retorno do Google NÃO volta para a raiz (o App Link do Android a cobre) — e a limpeza leva de volta à Home", () => {
+    expect(new URL(urlDeRetorno(ORIGEM)).pathname).toBe("/vincular");
+    expect(urlLimpa(`${ORIGEM}/vincular?conta=google&code=abc&sb_flow_id=f1`)).toBe("/");
+  });
+
   it("a URL limpa não guarda code, flow id nem marcador", () => {
     const limpa = urlLimpa(`${ORIGEM}/?seed=9&conta=google&code=abc&sb_flow_id=f1#x`);
     expect(limpa).toBe("/?seed=9");

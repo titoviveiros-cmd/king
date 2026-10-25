@@ -106,9 +106,16 @@ export const mascarar = (id?: string | null): string =>
  * vindo de fora é um redirecionamento aberto: bastaria alguém mandar o link certo para o retorno
  * do OAuth cair noutro domínio.
  */
+/**
+ * O caminho do RETORNO, fora da raiz (Fase 9): o App Link do Android cobre a raiz ("/", o convite) e,
+ * com o app instalado, capturaria a volta do Google no Chrome — e o vínculo pela web quebraria. O SPA
+ * serve qualquer caminho, e o retorno é reconhecido pelo marcador, não pelo caminho.
+ */
+export const CAMINHO_DO_RETORNO = "/vincular";
+
 export function urlDeRetorno(origem: string): string {
   const u = new URL(origem);
-  u.pathname = "/";
+  u.pathname = CAMINHO_DO_RETORNO;
   u.search = `?${PARAM_RETORNO}=${PROVEDOR}`;
   u.hash = "";
   return u.toString();
@@ -132,6 +139,8 @@ export function urlLimpa(url: string): string {
     u.searchParams.delete(p);
   }
   u.hash = "";
+  // A volta do Google termina na Home: o caminho do retorno não fica na barra.
+  if (u.pathname === CAMINHO_DO_RETORNO) u.pathname = "/";
   return `${u.pathname}${u.search}${u.hash}`;
 }
 
