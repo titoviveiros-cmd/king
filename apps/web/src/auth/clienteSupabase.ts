@@ -14,6 +14,7 @@
 // A LEITURA DO PROGRESSO (`progresso.ts`) usa esta MESMA instância. O objeto do SDK não sai da
 // pasta `auth/`: quem está fora dela recebe operações de domínio, nunca o cliente.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ArmazenamentoDaSessao } from "./sessaoNativa.js";
 
 /** O que o KING usa de uma sessão. O resto do objeto do SDK não interessa a ninguém aqui. */
 export interface SessaoSupabase {
@@ -75,6 +76,19 @@ let compartilhado: Promise<SupabaseClient | null> | null = null;
 let configuracaoEmUso: string | null = null;
 
 /**
+ * ONDE A SESSÃO VIVE. Na web, `null`: o SDK usa o `localStorage`, como sempre. No app, o arranque
+ * nativo registra aqui o cofre do sistema (ver `sessaoNativa.ts`) — e registra uma PROMESSA, porque
+ * preparar o cofre é assíncrono: o cliente só nasce depois de ela resolver, para que nenhuma sessão
+ * seja lida do lugar errado nem gravada em texto puro no meio do caminho.
+ */
+let armazenamentoDaSessao: Promise<ArmazenamentoDaSessao | null> = Promise.resolve(null);
+
+/** O app nativo diz onde guardar a sessão. Chamado UMA vez, antes de qualquer cliente existir. */
+export function registrarArmazenamentoDaSessao(pronto: Promise<ArmazenamentoDaSessao | null>): void {
+  armazenamentoDaSessao = pronto;
+}
+
+/**
  * A instância compartilhada.
  *
  * `flowType: "pkce"` é o que faz `linkIdentity` sair com `code_challenge` e voltar com um código
@@ -89,13 +103,14 @@ let configuracaoEmUso: string | null = null;
 export function clienteCompartilhado(cfg: ConfiguracaoDeIdentidade): Promise<SupabaseClient | null> {
   if (compartilhado && configuracaoEmUso !== cfg.url) return Promise.resolve(null);
   configuracaoEmUso = cfg.url;
-  compartilhado ??= import("@supabase/supabase-js")
-    .then(({ createClient }) => createClient(cfg.url, cfg.anonKey, {
+  compartilhado ??= Promise.all([import("@supabase/supabase-js"), armazenamentoDaSessao.catch(() => null)])
+    .then(([{ createClient }, storage]) => createClient(cfg.url, cfg.anonKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
         flowType: "pkce",
+        ...(storage ? { storage } : {}),
       },
     }))
     .catch(() => null);
@@ -111,4 +126,5 @@ export function portaDeAutenticacao(cfg: ConfiguracaoDeIdentidade): Promise<Port
 export function esquecerPortaDeAutenticacao(): void {
   compartilhado = null;
   configuracaoEmUso = null;
+  armazenamentoDaSessao = Promise.resolve(null);
 }

@@ -93,12 +93,20 @@ ajustar(
 // Android 12+ não obedece a `allowBackup`) CLONA a identidade: os dois renovam o mesmo token, o
 // Supabase detecta o reuso e derruba os dois (red team da Fase 8). O progresso acompanha o jogador
 // pela conta vinculada (Google/Apple), não pela cópia do aparelho.
-const EXCLUSAO_DO_WEBVIEW = '<exclude domain="root" path="app_webview/" />';
+// FASE 9: a sessão saiu do WebView para o COFRE (`@aparajita/capacitor-secure-storage`), que no Android
+// é um SharedPreferences cifrado com chave do Keystore. A chave nunca sai do aparelho — um arquivo
+// restaurado noutro aparelho não decifraria —, mas o arquivo cifrado também fica fora: nada de
+// identidade viaja por backup. A exclusão do WebView continua, para o que um build antigo deixou lá.
+const EXCLUSOES_DA_SESSAO = [
+  '<exclude domain="root" path="app_webview/" />',
+  '<exclude domain="sharedpref" path="WSSecureStorageSharedPreferences.xml" />',
+];
+const EXCLUSAO_DO_WEBVIEW = EXCLUSOES_DA_SESSAO.join("\n        ");
 escrever(
   "android/app/src/main/res/xml/data_extraction_rules.xml",
   "Android: sessão fora do backup e da transferência (Android 12+)",
   `<?xml version="1.0" encoding="utf-8"?>
-<!-- KING: o localStorage do WebView (sessão do convidado) não vai para backup nem transferência. -->
+<!-- KING: a sessão do convidado (cofre e localStorage antigo do WebView) não vai para backup nem transferência. -->
 <data-extraction-rules>
     <cloud-backup>
         ${EXCLUSAO_DO_WEBVIEW}
@@ -113,9 +121,9 @@ escrever(
   "android/app/src/main/res/xml/backup_rules.xml",
   "Android: sessão fora do backup (Android 11 e anteriores)",
   `<?xml version="1.0" encoding="utf-8"?>
-<!-- KING: o localStorage do WebView (sessão do convidado) não vai para o backup. -->
+<!-- KING: a sessão do convidado (cofre e localStorage antigo do WebView) não vai para o backup. -->
 <full-backup-content>
-    ${EXCLUSAO_DO_WEBVIEW}
+    ${EXCLUSOES_DA_SESSAO.join("\n    ")}
 </full-backup-content>
 `,
 );

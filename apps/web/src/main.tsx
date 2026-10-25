@@ -7,6 +7,7 @@ import "./ui/theme.css";
 import { App } from "./App.js";
 import { iniciarAnalytics } from "./analytics/iniciar.js";
 import { capturarConvite } from "./net/convite.js";
+import { iniciarAppNativo } from "./nativo/arranque.js";
 
 /**
  * A altura visível vem do CSS: `--vh` é `1dvh` onde existe e `1vh` como reserva (ver theme.css).
@@ -26,6 +27,11 @@ const convite = capturarConvite();
 // baixa nada aqui — o SDK, quando configurado, chega depois, num arquivo à parte.
 iniciarAnalytics();
 
+// NO APP, a sessão vai para o cofre do sistema antes da primeira tela (ver nativo/arranque.ts).
+// Na web isto resolve na hora; no app, espera no máximo um instante e nunca lança.
+//
 // Sem StrictMode: o loop de bots usa um setInterval; o double-invoke do StrictMode em dev
 // poderia duplicar passos. Em produção não faria diferença, mas mantemos previsível.
-ReactDOM.createRoot(document.getElementById("root")!).render(<App convite={convite} />);
+void iniciarAppNativo().finally(() => {
+  ReactDOM.createRoot(document.getElementById("root")!).render(<App convite={convite} />);
+});

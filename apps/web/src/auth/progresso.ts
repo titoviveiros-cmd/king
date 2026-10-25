@@ -8,6 +8,7 @@
 // cliente: dois clientes seriam duas sessões concorrendo pelo mesmo `localStorage`.
 import { clienteCompartilhado } from "./clienteSupabase.js";
 import { identidadeConfigurada } from "./identidade.js";
+import { marcadorDeSessao } from "./sessaoNativa.js";
 
 export interface ProgressoDoJogador {
   xpTotal: number;
@@ -135,7 +136,10 @@ export function chaveDaSessao(url: string): string | null {
 function sessaoGuardada(url: string): boolean {
   const chave = chaveDaSessao(url);
   if (!chave) return false;
-  try { return !!globalThis.localStorage?.getItem(chave); } catch { return false; }
+  let local: Storage | null = null;
+  try { local = globalThis.localStorage ?? null; } catch { return false; }
+  // Na web, a própria sessão do SDK; no app, o marcador do cofre (a sessão não fica no WebView).
+  try { return !!local?.getItem(chave) || marcadorDeSessao(local); } catch { return false; }
 }
 
 let leitorUnico: { url: string; leitor: LeitorDeProgresso } | null = null;

@@ -91,12 +91,17 @@ if (pedido === "android" && !TEM_ANDROID) {
   const regras = (arquivo) => existsSync(caminho(`apps/web/android/app/src/main/res/xml/${arquivo}`))
     ? ler(`apps/web/android/app/src/main/res/xml/${arquivo}`) : "";
   const extracao = regras("data_extraction_rules.xml");
-  const exclui = (xml, secao) => new RegExp(`<${secao}>[\\s\\S]*domain="root" path="app_webview/"[\\s\\S]*</${secao}>`).test(xml);
+  // Fase 9: a sessão mora agora no COFRE (SharedPreferences cifrado com chave do Keystore); o
+  // WebView continua excluído pelo que um build antigo deixou lá.
+  const excluiUm = (xml, secao, alvo) => new RegExp(`<${secao}>[\\s\\S]*${alvo}[\\s\\S]*</${secao}>`).test(xml);
+  const exclui = (xml, secao) =>
+    excluiUm(xml, secao, 'domain="root" path="app_webview/"') &&
+    excluiUm(xml, secao, 'domain="sharedpref" path="WSSecureStorageSharedPreferences\\.xml"');
   if (!/android:dataExtractionRules="@xml\/data_extraction_rules"/.test(manifest) || !/android:fullBackupContent="@xml\/backup_rules"/.test(manifest)) {
     falhar("manifesto sem as regras de backup (dataExtractionRules/fullBackupContent) — rode mobile:preparar");
   } else if (!exclui(extracao, "cloud-backup") || !exclui(extracao, "device-transfer") || !exclui(regras("backup_rules.xml"), "full-backup-content")) {
-    falhar("regras de backup não excluem app_webview/ (a sessão do convidado) — rode mobile:preparar");
-  } else ok("sessão do convidado fora do backup e da transferência entre aparelhos");
+    falhar("regras de backup não excluem a sessão do convidado (cofre e app_webview/) — rode mobile:preparar");
+  } else ok("sessão do convidado (cofre e WebView) fora do backup e da transferência entre aparelhos");
 
   // API ALVO: desde 31/08/2026 a Play só aceita app novo (e atualização) mirando a API 36
   // (Android 16). O Capacitor 7 parava na 35 — foi isso que levou ao Capacitor 8.
