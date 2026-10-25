@@ -253,11 +253,13 @@ describe("a revogação da Apple", () => {
     expect(exclusoes(m.chamadas)).toHaveLength(1);
   });
 
-  it("código de OUTRO Apple ID: não revoga a conta de ninguém, e a exclusão segue", async () => {
+  it("código de OUTRO Apple ID: a conta vinculada NÃO conta como revogada; o acesso recém-criado do outro é desfeito; a exclusão segue", async () => {
     const m = montar({ ...comApple, appleToken: { status: 200, corpo: { refresh_token: "rt-x", id_token: idTokenApple("apple-de-outra-pessoa") } } });
     const r = await m.executar(pedir({ token: await token(), corpo: { confirmacao: CONFIRMACAO, apple: { codigo: "c" } } }));
     expect(await r.json()).toEqual({ estado: "excluida", apple: "outra-conta" });
-    expect(m.chamadas.some((x) => x.url.endsWith("/auth/revoke"))).toBe(false);
+    const revogacoes = m.chamadas.filter((x) => x.url.endsWith("/auth/revoke"));
+    expect(revogacoes.map((x) => new URLSearchParams(x.corpo).get("token")), "só o token do OUTRO Apple ID, recém-criado").toEqual(["rt-x"]);
+    expect(exclusoes(m.chamadas)).toHaveLength(1);
   });
 
   it("Apple fora do ar, ou segredos ausentes: a exclusão NÃO fica refém da Apple", async () => {

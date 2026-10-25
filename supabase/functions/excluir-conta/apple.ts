@@ -92,17 +92,25 @@ export async function revogarApple(
     });
     if (!troca.ok) return "falhou";
     const tokens = (await troca.json()) as { refresh_token?: unknown; access_token?: unknown; id_token?: unknown };
-    if (subDoIdToken(tokens.id_token) !== subEsperado) return "outra-conta";
     const [token, dica] = typeof tokens.refresh_token === "string"
       ? [tokens.refresh_token, "refresh_token"]
       : typeof tokens.access_token === "string" ? [tokens.access_token, "access_token"] : [null, null];
+    const revogar = async () => token && dica
+      ? (await rede(`${APPLE}/auth/revoke`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ client_id: cfg.clientId, client_secret: segredo, token, token_type_hint: dica }),
+        })).ok
+      : false;
+    // Código de OUTRO Apple ID: a conta vinculada NÃO é revogada (não foi esse o login que voltou). O
+    // acesso que a troca acabou de criar para esse outro Apple ID, sim — ele só existe por causa desta
+    // exclusão e não deve ficar listado nos Ajustes de quem nunca teve conta.
+    if (subDoIdToken(tokens.id_token) !== subEsperado) {
+      await revogar().catch(() => false);
+      return "outra-conta";
+    }
     if (!token || !dica) return "falhou";
-    const revogacao = await rede(`${APPLE}/auth/revoke`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: cfg.clientId, client_secret: segredo, token, token_type_hint: dica }),
-    });
-    return revogacao.ok ? "revogada" : "falhou";
+    return (await revogar()) ? "revogada" : "falhou";
   } catch {
     return "falhou";
   }
