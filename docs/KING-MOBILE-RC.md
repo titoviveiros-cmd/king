@@ -535,3 +535,30 @@ revogado)."
 
 A sugestão do red team de tratar 23503 como erro permanente no servidor NÃO foi adotada: com a lápide,
 23503 só sobra na corrida "exclusão no meio do crédito", e é a retentativa que a resolve.
+
+### 22.10 Rollout controlado — sequência final (revisada em 25/10/2026, após a CI verde de 1662f92)
+
+Backend PRIMEIRO, web por último: tudo do backend é compatível com o web que está em Production
+(7c3d72f) — se a integração for desfeita, o backend fica como está, sem prejuízo.
+
+| Passo | O quê | Quem | Conferência (só leitura) |
+|---|---|---|---|
+| 0 | CI verde no SHA FINAL da branch (o backend é idêntico ao de 1662f92) | — | `gh run list --branch feat/mobile-identity-compliance` |
+| A | SQL Editor: `20261025120000_cadastro_so_convidado.sql` | Tito | `select has_function_privilege('supabase_auth_admin','public.king_antes_de_criar_usuario(jsonb)','execute') as auth, has_function_privilege('anon','public.king_antes_de_criar_usuario(jsonb)','execute') as anon;` → `true, false` |
+| B | Authentication → Hooks → "Before User Created" → Postgres → `public.king_antes_de_criar_usuario` → ligar | Tito | painel mostra o gancho ligado |
+| C | NA HORA: aba anônima em playkingcards.com.br → Jogar com amigos → Criar uma sala (nasce convidado) | Tito | `select count(*) from auth.users where is_anonymous and created_at > now() - interval '5 minutes';` > 0. Se falhar: DESLIGAR o gancho (instantâneo). |
+| D | SQL Editor: `20261025130000_credito_com_conta_excluida.sql` — ANTES de E | Tito | `select position('contas_excluidas' in pg_get_functiondef('king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)'::regprocedure)) > 0 as credito_novo, has_function_privilege('king_server','king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)','execute') as servidor, exists (select 1 from pg_trigger where tgname = 'players_lapide_da_exclusao') as gatilho;` → `true, true, true`; e a próxima partida online real credita XP normalmente |
+| E | `supabase functions deploy excluir-conta --no-verify-jwt` (segredos da Apple podem esperar o iOS) | Tito, ou eu com autorização | lista de funções do painel |
+| F1 | `node scripts/smoke-excluir-conta.mjs --url https://<ref>.supabase.co --chave <publishable>` — não cria nada | eu, com autorização | `APROVADO — 5 verificações` |
+| F2 | o mesmo com `--autorizado-criar-convidado`: UM convidado descartável nasce, é recusado sem EXCLUIR, é excluído e a repetição dá `ja-excluida` | autorização EXPLÍCITA (cria e apaga um usuário de Production) | `APROVADO — 9 verificações` + a consulta da lápide impressa pelo script → `1, 0, 0` |
+| G | fast-forward da main para o SHA final → Vercel Production → smoke não destrutivo | autorização | Home, `/excluir-conta` 200, `/privacidade` nova; rollback = Instant Rollback para o deploy 7306744060 (7c3d72f) |
+
+Por que F2 é obrigatório antes de G: é a única prova, no projeto REAL, de que a exclusão feita pelo
+papel do Auth atravessa a cascata e o gatilho da lápide (no teste X5 isso foi SIMULADO em Postgres).
+
+A–C são independentes de D–G: servem ao "Já tenho uma conta" do APP, não à web. Ficam primeiro porque
+o risco é imediato e reversível num clique; se C falhar, o gancho fica desligado e D–G seguem.
+
+NÃO são pré-requisito de G (só de ligar o vínculo / publicar o app): Manual linking, Client IDs do
+Google e da Apple, Redirect URL `https://playkingcards.com.br/vincular`, segredos da Apple, arquivos
+de domínio (`gerar-well-known`).
