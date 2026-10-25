@@ -19,7 +19,17 @@ import type { ArmazenamentoDaSessao } from "./sessaoNativa.js";
 /** O que o KING usa de uma sessão. O resto do objeto do SDK não interessa a ninguém aqui. */
 export interface SessaoSupabase {
   access_token: string;
-  user?: { id?: string } | null;
+  /** Só a recuperação de conta usa: é ele que passa da sessão isolada para a principal. */
+  refresh_token?: string;
+  user?: UsuarioSupabase | null;
+}
+
+/** O usuário, no que o KING lê dele. `created_at` e as identidades provam de onde a conta veio. */
+export interface UsuarioSupabase {
+  id?: string;
+  created_at?: string;
+  is_anonymous?: boolean;
+  identities?: (IdentidadeVinculada & { created_at?: string })[] | null;
 }
 
 /** Uma identidade vinculada ao usuário — é ela que prova o vínculo, não `user_metadata`. */
@@ -68,6 +78,37 @@ export interface PortaDeAutenticacao {
     data: { session: SessaoSupabase | null; user?: { id?: string } | null } | null;
     error: ErroDoProvedor | null;
   }>;
+  /**
+   * TROCA a sessão guardada por outra já obtida. Só `recuperacaoDeConta.ts` chama — depois de o
+   * jogador confirmar, com a sessão que o cliente ISOLADO conseguiu. Se falhar, a atual fica.
+   */
+  setSession(sessao: { access_token: string; refresh_token: string }): Promise<{
+    data: { session: SessaoSupabase | null } | null;
+    error: ErroDoProvedor | null;
+  }>;
+  /** Sai DESTE aparelho (`local`): a sessão deste aparelho é revogada; as de outros aparelhos, não. */
+  signOut(opcoes: { scope: "local" }): Promise<{ error: ErroDoProvedor | null }>;
+}
+
+/**
+ * A PORTA DO CLIENTE ISOLADO — "Já tenho uma conta".
+ *
+ * Um cliente à parte, SEM persistência e sem renovação automática, que existe só para descobrir se
+ * aquele Google/Apple já é de um jogador. É AQUI, e só aqui, que `signInWithIdToken` existe: na porta
+ * principal ele não existe de propósito (lá, "entrar" criaria outro usuário por cima do convidado).
+ * Nada do que acontece neste cliente toca a sessão guardada no aparelho.
+ */
+export interface PortaIsolada {
+  signInWithIdToken(credenciais: {
+    provider: "google" | "apple";
+    token: string;
+    nonce?: string;
+    access_token?: string;
+  }): Promise<{
+    data: { session: SessaoSupabase | null; user: UsuarioSupabase | null } | null;
+    error: (ErroDoProvedor & { status?: number; name?: string }) | null;
+  }>;
+  signOut(opcoes: { scope: "local" }): Promise<{ error: ErroDoProvedor | null }>;
 }
 
 export interface ConfiguracaoDeIdentidade { url: string; anonKey: string }
@@ -120,6 +161,34 @@ export function clienteCompartilhado(cfg: ConfiguracaoDeIdentidade): Promise<Sup
 /** A parte de AUTENTICAÇÃO do cliente único. */
 export function portaDeAutenticacao(cfg: ConfiguracaoDeIdentidade): Promise<PortaDeAutenticacao | null> {
   return clienteCompartilhado(cfg).then((c) => (c ? (c.auth as unknown as PortaDeAutenticacao) : null));
+}
+
+/**
+ * Um cliente ISOLADO novo, a cada tentativa de "Já tenho uma conta": memória própria, nada gravado,
+ * nada renovado sozinho (uma renovação paralela giraria o refresh token que ainda vai ser entregue
+ * ao cliente principal). Quando a tentativa acaba, ele é simplesmente esquecido.
+ */
+export async function portaIsolada(cfg: ConfiguracaoDeIdentidade): Promise<PortaIsolada | null> {
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const memoria = new Map<string, string>();
+    const cliente = createClient(cfg.url, cfg.anonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storageKey: "king-recuperacao-isolada",
+        storage: {
+          getItem: (k: string) => memoria.get(k) ?? null,
+          setItem: (k: string, v: string) => { memoria.set(k, v); },
+          removeItem: (k: string) => { memoria.delete(k); },
+        },
+      },
+    });
+    return cliente.auth as unknown as PortaIsolada;
+  } catch {
+    return null;
+  }
 }
 
 /** Só para teste: esquece a instância. Nunca chamado pelo aplicativo. */
