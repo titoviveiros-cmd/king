@@ -129,6 +129,16 @@ describe("quem pode excluir", () => {
     }
   });
 
+  it("defesa em profundidade: um verificador que devolvesse um sub estranho não chega à API", async () => {
+    const { rede, chamadas } = redeFalsa({});
+    const executar = criarExclusao(
+      { supabaseUrl: URL_SUPABASE, chaveDeServico: SERVICO, origens: [], apple: null },
+      { verificarToken: async () => ({ sub: "../../admin/users" }), rede, agora: () => Date.now() },
+    );
+    expect((await executar(pedir({ token: "qualquer" }))).status).toBe(401);
+    expect(chamadas).toEqual([]);
+  });
+
   it("o corpo NÃO escolhe quem é excluído: só o `sub` do token", async () => {
     const m = montar();
     const r = await m.executar(pedir({ token: await token(), corpo: { confirmacao: CONFIRMACAO, userId: OUTRO, sub: OUTRO } }));
