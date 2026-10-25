@@ -178,6 +178,17 @@ ajustar(
   '$1\n    <uses-permission android:name="android.permission.USE_CREDENTIALS" tools:node="remove" />',
   (s) => s.includes('android.permission.USE_CREDENTIALS" tools:node="remove"'),
 );
+// O Credential Manager (`androidx.credentials` 1.5, do plugin de login) traz `androidx.biometric`,
+// que declara USE_BIOMETRIC e USE_FINGERPRINT — para passkeys com biometria, que o KING não usa (o
+// Google entrega o ID token sem biometria do app). Saem do manifesto final.
+ajustar(
+  "android/app/src/main/AndroidManifest.xml",
+  "Android: sem USE_BIOMETRIC/USE_FINGERPRINT (herdadas do Credential Manager)",
+  /(\n\s*<uses-permission android:name="android\.permission\.USE_CREDENTIALS" tools:node="remove" \/>)/,
+  '$1\n    <uses-permission android:name="android.permission.USE_BIOMETRIC" tools:node="remove" />' +
+    '\n    <uses-permission android:name="android.permission.USE_FINGERPRINT" tools:node="remove" />',
+  (s) => s.includes('android.permission.USE_BIOMETRIC" tools:node="remove"'),
+);
 
 ajustar(
   "android/app/build.gradle",

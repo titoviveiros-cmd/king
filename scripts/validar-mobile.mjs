@@ -75,9 +75,23 @@ if (pedido === "android" && !TEM_ANDROID) {
   else ok("permissões: só INTERNET");
   // O plugin de login declara USE_CREDENTIALS (AccountManager antigo, sem efeito desde a API 23):
   // ela precisa sair do manifesto final.
-  if (!removidas.includes("android.permission.USE_CREDENTIALS") || !/xmlns:tools=/.test(manifest)) {
-    falhar("USE_CREDENTIALS (herdada do plugin de login) não é removida do manifesto final — rode mobile:preparar");
-  } else ok("USE_CREDENTIALS do plugin de login removida do manifesto final");
+  const herdadas = ["android.permission.USE_CREDENTIALS", "android.permission.USE_BIOMETRIC", "android.permission.USE_FINGERPRINT"];
+  const naoRemovidas = herdadas.filter((p) => !removidas.includes(p));
+  if (naoRemovidas.length > 0 || !/xmlns:tools=/.test(manifest)) {
+    falhar(`permissões herdadas dos plugins sem remoção no manifesto: ${naoRemovidas.join(", ") || "xmlns:tools"} — rode mobile:preparar`);
+  } else ok("permissões herdadas (USE_CREDENTIALS, USE_BIOMETRIC, USE_FINGERPRINT) removidas do manifesto final");
+
+  // O MANIFESTO FINAL, DEPOIS DO BUILD: o que as bibliotecas dos plugins declaram só aparece aqui
+  // (foi assim que USE_BIOMETRIC apareceu na Fase 9, trazida pelo Credential Manager). Aceita-se a
+  // INTERNET e a permissão interna, de assinatura, do androidx.core — que não chega ao usuário.
+  const fundido = "apps/web/android/app/build/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml";
+  if (existsSync(caminho(fundido))) {
+    const doFinal = [...ler(fundido).matchAll(/<uses-permission(?:-sdk-23)?\b[^>]*android:name="([^"]+)"/g)].map((m) => m[1]);
+    const aceitas = ["android.permission.INTERNET", `${appIdEsperado}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`];
+    const sobrando = [...new Set(doFinal.filter((p) => !aceitas.includes(p)))];
+    if (sobrando.length > 0) falhar(`manifesto FINAL (build debug) com permissões a mais: ${sobrando.join(", ")} — rode mobile:preparar e recompile`);
+    else ok("manifesto final do build: só INTERNET (+ a permissão interna do androidx.core)");
+  }
 
   // TRÁFEGO EM TEXTO CLARO: o servidor é wss:// com certificado válido. Nenhuma exceção é
   // necessária, e uma exceção aberta "para testar" costuma ficar para sempre.
