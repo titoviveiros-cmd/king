@@ -49,6 +49,9 @@ const BOOTSTRAP = ler("supabase/tests/bootstrap-supabase-local.sql");
 const IDENTIDADE = ler("supabase/migrations/20260830120000_identidade.sql");
 const PROGRESSO = ler("supabase/migrations/20260925120000_progresso.sql");
 const SEQUENCIA = ler("supabase/migrations/20261001120000_sequencia.sql");
+// FASE 9: o crédito redefinido para tolerar conta excluída. Repete o corpo da função — por isso toda
+// mutação de 'trocas' vale também para ele (ver 'mutarSePresente'), e 'trocasCredito' muta só ele.
+const CREDITO = ler("supabase/migrations/20261025130000_credito_com_conta_excluida.sql");
 const ROLLBACK_SEQUENCIA = ler("supabase/rollback/20261001120000_sequencia_rollback.sql");
 const ROLLOUT_ANTES = ler("supabase/rollout/partes/1-antes.sql");
 const ROLLOUT_CONFERENCIAS = ler("supabase/rollout/partes/3-conferencias.sql");
@@ -59,6 +62,27 @@ const TRAVA = "  perform 1 from public.progresso as g where g.player_id = any (v
 
 /** Cada mutação remove UMA proteção. `alvos` são os testes que precisam reprovar sem ela. */
 const MUTACOES = {
+  // ── EXCLUSÃO DE CONTA (Fase 9). 'trocasCredito' muta só a migração do crédito. ──
+  "credito-derruba-com-excluido": {
+    // o defeito original: a chave do excluído derruba o crédito da mesa inteira
+    trocasCredito: [["      v_excluidos := v_excluidos || v_id;\n", "      raise;\n"]],
+    alvos: ["X1", "X2", "X4"],
+  },
+  "credito-aceita-id-inexistente": {
+    // o atalho errado: pular QUALQUER id que reprove a chave — um id que nunca foi jogador passaria
+    trocasCredito: [["      if not exists (select 1 from king_private.contas_excluidas as x where x.player_id = v_id) then\n        raise;\n      end if;\n", ""]],
+    alvos: ["T12"],
+  },
+  "credito-sem-lapide": {
+    // a exclusão não deixa lápide: o excluído vira "nunca foi jogador" e derruba a mesa de novo
+    trocasCredito: [["create trigger players_lapide_da_exclusao\n  after delete on public.players\n  for each row execute function king_private.registrar_conta_excluida();\n", ""]],
+    alvos: ["X1", "X5"],
+  },
+  "credito-lanca-para-excluido": {
+    // a linha de progresso é pulada, mas o lançamento não: a chave reprova no ledger
+    trocasCredito: [["     where not ((e.value ->> 'player_id')::uuid = any (v_excluidos))\n", ""]],
+    alvos: ["X1", "X4"],
+  },
   "sem-trava": {
     trocas: [[TRAVA, ""]],
     alvos: ["T4", "T6", "T9"],
@@ -245,6 +269,14 @@ function mutar(texto, trocas) {
   return t;
 }
 const comJanela = (texto) => mutar(texto, [[MARCADOR, `  perform pg_sleep(${JANELA_MS / 1000});`]]);
+/**
+ * Como 'mutar', mas só com as trocas cujo trecho existe UMA vez no texto. É o que deixa as mutações
+ * do corpo da função de crédito valerem também para a migração da Fase 9, que repete esse corpo — sem
+ * isso, ela recriaria a função original por cima da mutada e a prova passaria a não provar nada.
+ */
+function mutarSePresente(texto, trocas) {
+  return mutar(texto, trocas.filter(([de]) => texto.split(de).length - 1 === 1));
+}
 
 // ─────────────────────────── infraestrutura ───────────────────────────
 
@@ -283,7 +315,7 @@ const MOVER_MARCO = "update king_private.sequencia_inicio set " +
   "then partidas_a_partir_de - aplicado_em else interval '5 minutes' end), partidas_a_partir_de = $1::timestamptz";
 
 /** `textoSequencia` null = o banco como está em Production hoje, SEM a migração da sequência. */
-async function criarModelo(nome, textoProgresso, textoSequencia) {
+async function criarModelo(nome, textoProgresso, textoSequencia, textoCredito = null) {
   const adm = await conectar("postgres");
   await adm.query(`create database ${nome}`);
   await adm.end();
@@ -298,6 +330,7 @@ async function criarModelo(nome, textoProgresso, textoSequencia) {
       await c.query(MOVER_MARCO, [ROLLOUT_DOS_TESTES]);
       await c.query("alter table king_private.sequencia_inicio enable trigger user");
     }
+    if (textoCredito) await c.query(textoCredito);
   } finally {
     await c.end();
   }
@@ -1310,7 +1343,8 @@ const TESTES = [
     const definidoras = (await b.admin.query(
       "select n.nspname || '.' || p.proname as f from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
       "where p.prosecdef and n.nspname not in ('pg_catalog', 'information_schema') order by 1")).rows.map((r) => r.f);
-    afirmar(definidoras.join(",") === "king_private.creditar_partida,public.criar_player", `funções SECURITY DEFINER: ${definidoras.join(", ")}`);
+    // Fase 9: + o gatilho da lápide (só grava o id apagado; quem apaga é o papel do Auth — ver X5/X6).
+    afirmar(definidoras.join(",") === "king_private.creditar_partida,king_private.registrar_conta_excluida,public.criar_player", `funções SECURITY DEFINER: ${definidoras.join(", ")}`);
     // 4. quem executa o crédito: só king_server
     for (const [papel, pode] of [["anon", false], ["authenticated", false], ["service_role", false], ["king_server", true]]) {
       const r = await b.admin.query("select has_function_privilege($1, 'king_private.creditar_partida(uuid, timestamptz, timestamptz, smallint, smallint, jsonb)', 'execute') as ok", [papel]);
@@ -1331,7 +1365,9 @@ const TESTES = [
       if (/grant\s+[^;]*\b(insert|update|delete|truncate|all)\b[^;]*\bon\s+(table\s+)?public\.xp_eventos\b/i.test(t)) grants.push(n);
       for (const _ of t.matchAll(/xp_eventos_motivo/gi)) motivos.push(n);
     }
-    afirmar(insercoes.join() === "20260925120000_progresso.sql", `INSERT no ledger nas migrações: ${insercoes.join(", ")}`);
+    // Revisado na Fase 9 (S19 conferido): 20261025130000 recria a MESMA função de crédito — mesmo
+    // motivo, mesma regra —, só pulando quem excluiu a conta. Outro escritor continua reprovando aqui.
+    afirmar(insercoes.join() === "20260925120000_progresso.sql,20261025130000_credito_com_conta_excluida.sql", `INSERT no ledger nas migrações: ${insercoes.join(", ")}`);
     afirmar(grants.length === 0, `GRANT de escrita no ledger em: ${grants.join(", ")}`);
     afirmar(motivos.join() === "20260925120000_progresso.sql", `o conjunto de motivos do ledger mudou em: ${motivos.join(", ")}`);
   } },
@@ -1510,6 +1546,80 @@ const TESTES = [
       rmSync(dirOutbox, { recursive: true, force: true });
     }
   } },
+  // ── EXCLUSÃO DE CONTA (Fase 9): excluir a conta não pode custar o XP de mais ninguém ──
+  { id: "X1", nome: "conta EXCLUÍDA antes do crédito: os outros recebem como sempre; o excluído não ganha linha", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    await b.admin.query("delete from auth.users where id = $1", [a]); // como a Edge Function: a cascata leva players
+    const s = await b.servidor();
+    const { partida, linhas } = await creditar(s, { ...janelaDaPartida(0), humanos: [{ id: a, posicao: 4, participou: false }, { id: x, posicao: 1 }] });
+    afirmar(linhas.length === 1 && xpDe(linhas, x) === 150, `crédito inesperado: ${JSON.stringify(linhas)}`);
+    afirmar(await total(b.admin, x) === 150, "o XP do outro jogador não foi gravado");
+    const dele = await b.admin.query("select (select count(*) from public.progresso where player_id = $1)::int p, (select count(*) from public.xp_eventos where player_id = $1)::int e", [a]);
+    afirmar(dele.rows[0].p === 0 && dele.rows[0].e === 0, "o excluído ganhou linha");
+    const reg = await b.admin.query("select humanos, bots from king_private.partidas where id = $1", [partida]);
+    afirmar(reg.rows[0]?.humanos === 2 && reg.rows[0]?.bots === 2, "a partida não ficou registrada com a composição real");
+  } },
+  { id: "X2", nome: "o outbox repete o crédito depois da exclusão: devolve o mesmo, sem erro e sem duplicar", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    await b.admin.query("delete from auth.users where id = $1", [a]);
+    const s = await b.servidor();
+    const args = { partida: randomUUID(), ...janelaDaPartida(0), humanos: [{ id: a, posicao: 2 }, { id: x, posicao: 3 }] };
+    await creditar(s, args);
+    const segunda = await creditar(s, args);
+    afirmar(segunda.linhas.length === 1 && segunda.linhas[0].novo === false && xpDe(segunda.linhas, x) === 115, `repetição inesperada: ${JSON.stringify(segunda.linhas)}`);
+    afirmar(await total(b.admin, x) === 115, "a repetição somou de novo");
+  } },
+  { id: "X3", nome: "conta excluída DEPOIS do crédito: a cascata leva o XP dela; o dos outros fica intacto", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    const s = await b.servidor();
+    await creditar(s, { ...janelaDaPartida(0), humanos: [{ id: a, posicao: 1 }, { id: x, posicao: 2 }] });
+    await b.admin.query("delete from auth.users where id = $1", [a]);
+    const dele = await b.admin.query("select (select count(*) from public.progresso where player_id = $1)::int p, (select count(*) from public.xp_eventos where player_id = $1)::int e", [a]);
+    afirmar(dele.rows[0].p === 0 && dele.rows[0].e === 0, "sobrou dado do excluído");
+    afirmar(await total(b.admin, x) === 130, "o XP do outro jogador mudou");
+  } },
+  { id: "X4", nome: "TODOS os humanos excluídos: a partida é registrada e ninguém é creditado — sem erro", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    await b.admin.query("delete from auth.users where id = any ($1::uuid[])", [[a, x]]);
+    const s = await b.servidor();
+    const { partida, linhas } = await creditar(s, { ...janelaDaPartida(0), humanos: dupla(a, x) });
+    afirmar(linhas.length === 0, `lançou para excluídos: ${JSON.stringify(linhas)}`);
+    const reg = await b.admin.query("select count(*)::int n from king_private.partidas where id = $1", [partida]);
+    afirmar(reg.rows[0].n === 1, "a partida não foi registrada");
+  } },
+  { id: "X5", nome: "a exclusão feita pelo papel do AUTH (dono de auth.users, sem acesso ao progresso) grava a lápide e não falha", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    // Como no Supabase: auth.users é do supabase_auth_admin, que apaga a conta; a cascata em
+    // players roda com o dono de players, e o gatilho da lápide precisa funcionar assim.
+    await b.admin.query("do $$ begin if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then create role supabase_auth_admin nologin noinherit; end if; end $$");
+    await b.admin.query("grant usage on schema auth to supabase_auth_admin");
+    await b.admin.query("alter table auth.users owner to supabase_auth_admin");
+    const c = await b.outraAdmin();
+    await c.query("set role supabase_auth_admin");
+    await c.query("delete from auth.users where id = $1", [a]);
+    await c.query("reset role");
+    const lapide = await b.admin.query("select count(*)::int n from king_private.contas_excluidas where player_id = $1", [a]);
+    const perfil = await b.admin.query("select count(*)::int n from public.players where id = $1", [a]);
+    afirmar(lapide.rows[0].n === 1 && perfil.rows[0].n === 0, `lápide ${lapide.rows[0].n}, perfil ${perfil.rows[0].n}`);
+    const s = await b.servidor();
+    const { linhas } = await creditar(s, { ...janelaDaPartida(0), humanos: [{ id: a, posicao: 2, participou: false }, { id: x, posicao: 1 }] });
+    afirmar(linhas.length === 1 && xpDe(linhas, x) === 150, `crédito inesperado: ${JSON.stringify(linhas)}`);
+  } },
+  { id: "X6", nome: "a lápide guarda SÓ o id e a hora, e ninguém a lê pela API nem pelo servidor", async fn(b) {
+    const colunas = (await b.admin.query("select string_agg(column_name, ',' order by ordinal_position) c from information_schema.columns where table_schema = 'king_private' and table_name = 'contas_excluidas'")).rows[0].c;
+    afirmar(colunas === "player_id,excluida_em", `colunas da lápide: ${colunas}`);
+    for (const papel of ["anon", "authenticated", "service_role", "king_server"]) {
+      const r = await b.admin.query("select has_table_privilege($1, 'king_private.contas_excluidas', 'select') as ok", [papel]);
+      afirmar(r.rows[0].ok === false, `${papel} lê a lápide`);
+    }
+    // SECURITY DEFINER (quem apaga é o papel do Auth — X5), mas preso: search_path vazio e EXECUTE para ninguém.
+    const d = await b.admin.query("select prosecdef, proconfig from pg_proc where oid = 'king_private.registrar_conta_excluida()'::regprocedure");
+    afirmar(d.rows[0].prosecdef === true && (d.rows[0].proconfig ?? []).includes('search_path=""'), `gatilho da lápide: ${JSON.stringify(d.rows[0])}`);
+    for (const papel of ["anon", "authenticated", "service_role", "king_server"]) {
+      const r = await b.admin.query("select has_function_privilege($1, 'king_private.registrar_conta_excluida()', 'execute') as ok", [papel]);
+      afirmar(r.rows[0].ok === false, `${papel} executa o gatilho da lápide`);
+    }
+  } },
   { id: "S23", semSequencia: true, nome: "o ARQUIVO do rollout: igual à migração; com defeito (backfill), aborta e não grava NADA; repetido, recusa na parte 1", async fn(b, ctx) {
     // (a) o arquivo que o Tito cola é exatamente o que as partes e a migração montam hoje
     const { montarRollout } = await import(new URL("scripts/montar-rollout-sequencia.mjs", RAIZ).href);
@@ -1581,8 +1691,8 @@ try {
 
   // Modelos: as migrações ORIGINAIS, a mesma com a janela de corrida alargada, e o banco como está
   // em Production hoje (sem a sequência), onde a migração da sequência é aplicada pelo próprio teste.
-  await criarModelo("modelo_plano", PROGRESSO, SEQUENCIA);
-  await criarModelo("modelo_janela", comJanela(PROGRESSO), SEQUENCIA);
+  await criarModelo("modelo_plano", PROGRESSO, SEQUENCIA, CREDITO);
+  await criarModelo("modelo_janela", comJanela(PROGRESSO), SEQUENCIA, comJanela(CREDITO));
   await criarModelo("modelo_sem_sequencia", PROGRESSO, null);
   // O LOGIN do servidor existe SÓ neste banco descartável, com senha aleatória desta execução.
   const adm = await conectar("postgres");
@@ -1595,8 +1705,9 @@ try {
       const mutado = mutar(PROGRESSO, m.trocas ?? []);
       const mutadoSeq = mutar(SEQUENCIA, m.trocasSeq ?? []);
       const sufixo = nome.replace(/-/g, "_");
-      await criarModelo(`modelo_plano_${sufixo}`, mutado, mutadoSeq);
-      await criarModelo(`modelo_janela_${sufixo}`, comJanela(mutado), mutadoSeq);
+      const mutadoCredito = mutar(mutarSePresente(CREDITO, m.trocas ?? []), m.trocasCredito ?? []);
+      await criarModelo(`modelo_plano_${sufixo}`, mutado, mutadoSeq, mutadoCredito);
+      await criarModelo(`modelo_janela_${sufixo}`, comJanela(mutado), mutadoSeq, comJanela(mutadoCredito));
       console.log(`  mutação: ${nome}`);
       const alvos = TESTES.filter((t) => m.alvos.includes(t.id));
       if (alvos.length !== m.alvos.length) throw new Error(`mutação ${nome}: alvo inexistente em ${m.alvos.join(",")}`);
