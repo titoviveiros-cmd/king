@@ -29,7 +29,7 @@
 
 import { criarConta, type ContaDoJogador } from "./conta.js";
 import { portaDeAutenticacao } from "./clienteSupabase.js";
-import { ehAppNativo, fonteNativa, plataformaNativa } from "./credencialNativa.js";
+import { ehAppNativo, fonteNativa, plataformaNativa, type ProvedorNativo } from "./credencialNativa.js";
 
 /**
  * Quem sabe conseguir uma credencial. Uma função, não um objeto de sessão: a única pergunta que o
@@ -172,15 +172,28 @@ export function vinculoDeContaLigado(): boolean {
   return identidadeConfigurada().configurado && (ligado === "1" || ligado === "true");
 }
 
+/**
+ * OS PROVEDORES QUE ESTA TELA OFERECE PARA VINCULAR, na ordem de exibição.
+ *
+ * Na web, o Google (OAuth com PKCE). No app, o que a fonte nativa registrou — e no iPhone a Apple
+ * é OBRIGATÓRIA: oferecer Google lá exige oferecer Sign in with Apple (diretriz 4.8). Sem Apple no
+ * iPhone, nenhum provedor aparece, nem o Google.
+ */
+export function provedoresDaConta(): ProvedorNativo[] {
+  if (!ehAppNativo()) return ["google"];
+  const fonte = fonteNativa();
+  const lista = [...(fonte?.provedores ?? [])];
+  if (plataformaNativa() === "ios" && !lista.includes("apple")) return [];
+  return lista;
+}
+
 /** A conta do jogador, ou `null` quando esta publicação não vincula contas. */
 export function contaConfigurada(): ContaDoJogador | null {
   const r = identidadeConfigurada();
   if (!r.configurado || !vinculoDeContaLigado()) return null;
-  // No app, sem o plugin nativo registrado não há como vincular: a conta nem aparece na tela.
-  if (ehAppNativo() && !fonteNativa()) return null;
-  // iPhone: oferecer Google obriga a oferecer Sign in with Apple (diretriz 4.8 da App Store), e a
-  // Home ainda só tem o botão do Google. Até o da Apple existir, a conta não aparece no iOS.
-  if (plataformaNativa() === "ios") return null;
+  // No app, sem o plugin nativo registrado (ou sem provedor permitido) não há como vincular: a
+  // conta nem aparece na tela.
+  if (ehAppNativo() && (!fonteNativa() || provedoresDaConta().length === 0)) return null;
   return criarConta({
     porta: () => portaDeAutenticacao(r),
     armazenamento: () => { try { return localStorage ?? null; } catch { return null; } },

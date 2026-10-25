@@ -97,9 +97,14 @@ ajustar(
 // é um SharedPreferences cifrado com chave do Keystore. A chave nunca sai do aparelho — um arquivo
 // restaurado noutro aparelho não decifraria —, mas o arquivo cifrado também fica fora: nada de
 // identidade viaja por backup. A exclusão do WebView continua, para o que um build antigo deixou lá.
+//
+// O plugin de login (`@capgo/capacitor-social-login`) também grava a última resposta do Google —
+// com o ID token — num SharedPreferences próprio. O KING apaga essa cópia logo depois de cada uso
+// (ver apps/web/src/nativo/loginSocial.ts); se sobrar alguma, ela também não viaja.
 const EXCLUSOES_DA_SESSAO = [
   '<exclude domain="root" path="app_webview/" />',
   '<exclude domain="sharedpref" path="WSSecureStorageSharedPreferences.xml" />',
+  '<exclude domain="sharedpref" path="GOOGLE_LOGIN_F13oz0I_SHARED_PERF.xml" />',
 ];
 const EXCLUSAO_DO_WEBVIEW = EXCLUSOES_DA_SESSAO.join("\n        ");
 escrever(
@@ -133,6 +138,24 @@ ajustar(
   /(\n\s*android:allowBackup="true")/,
   '$1\n        android:dataExtractionRules="@xml/data_extraction_rules"\n        android:fullBackupContent="@xml/backup_rules"',
   (s) => s.includes("android:dataExtractionRules") && s.includes("android:fullBackupContent"),
+);
+
+// PERMISSÃO HERDADA: o plugin de login declara `USE_CREDENTIALS`, que é do AccountManager antigo
+// (sem efeito desde a API 23; o minSdk do KING é 24) e o Credential Manager não usa. Sai do manifesto
+// final — a lista de permissões continua só INTERNET.
+ajustar(
+  "android/app/src/main/AndroidManifest.xml",
+  "Android: namespace tools no manifesto",
+  /<manifest xmlns:android="http:\/\/schemas\.android\.com\/apk\/res\/android">/,
+  '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n    xmlns:tools="http://schemas.android.com/tools">',
+  (s) => s.includes('xmlns:tools="http://schemas.android.com/tools"'),
+);
+ajustar(
+  "android/app/src/main/AndroidManifest.xml",
+  "Android: sem USE_CREDENTIALS (herdada do plugin de login)",
+  /(\n\s*<uses-permission android:name="android\.permission\.INTERNET" \/>)/,
+  '$1\n    <uses-permission android:name="android.permission.USE_CREDENTIALS" tools:node="remove" />',
+  (s) => s.includes('android.permission.USE_CREDENTIALS" tools:node="remove"'),
 );
 
 ajustar(
@@ -191,6 +214,49 @@ ajustar(
   "\n\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>$1",
   (s) => s.includes("ITSAppUsesNonExemptEncryption"),
 );
+
+// SIGN IN WITH APPLE (Fase 9): o direito de usar vem do ENTITLEMENT do app, e não de código. O
+// arquivo é nosso e o Xcode o encontra por `CODE_SIGN_ENTITLEMENTS` nas duas configurações do alvo.
+// O perfil de provisionamento também precisa da capacidade ligada no Apple Developer (gate manual).
+const ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- KING: gerado por scripts/preparar-mobile.mjs. Não editar à mão. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>
+`;
+escrever("ios/App/App/App.entitlements", "iOS: entitlement do Sign in with Apple", ENTITLEMENTS);
+ajustarTodos(
+  "ios/App/App.xcodeproj/project.pbxproj",
+  "iOS: CODE_SIGN_ENTITLEMENTS nas configurações do app",
+  /(\n(\s*))(?:CODE_SIGN_ENTITLEMENTS = [^;]+;\n\s*)?(PRODUCT_BUNDLE_IDENTIFIER = br\.com\.playkingcards\.king;)/g,
+  "$1CODE_SIGN_ENTITLEMENTS = App/App.entitlements;$1$3",
+);
+
+// GOOGLE NO IPHONE: o Google Sign-In exige o esquema de URL do client ID iOS (invertido) no Info.plist
+// — sem ele o SDK ENCERRA o app ao abrir o login. O valor é o mesmo do build web
+// (`VITE_KING_GOOGLE_IOS_CLIENT_ID`), que não é segredo. Sem ele, o Google simplesmente não é
+// oferecido no iPhone (ver apps/web/src/nativo/loginSocial.ts), e a Apple segue sozinha.
+const CLIENTE_GOOGLE_IOS = (process.env.VITE_KING_GOOGLE_IOS_CLIENT_ID ?? "").trim();
+if (/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(CLIENTE_GOOGLE_IOS)) {
+  const esquema = CLIENTE_GOOGLE_IOS.split(".").reverse().join(".");
+  ajustar(
+    "ios/App/App/Info.plist",
+    "iOS: esquema de URL do Google Sign-In",
+    /(\n\s*<key>CFBundleDevelopmentRegion<\/key>)/,
+    `\n\t<key>CFBundleURLTypes</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>CFBundleURLSchemes</key>\n\t\t\t<array>\n\t\t\t\t<string>${esquema}</string>\n\t\t\t</array>\n\t\t</dict>\n\t</array>$1`,
+    (s) => s.includes(`<string>${esquema}</string>`),
+  );
+} else if (CLIENTE_GOOGLE_IOS) {
+  pulados.push(`iOS: VITE_KING_GOOGLE_IOS_CLIENT_ID com formato inesperado ("…apps.googleusercontent.com") — Google no iPhone NÃO configurado`);
+} else {
+  pulados.push("iOS: sem VITE_KING_GOOGLE_IOS_CLIENT_ID — o iPhone oferece só a Apple (Google entra quando houver o client ID iOS)");
+}
 
 ajustarTodos(
   "ios/App/App.xcodeproj/project.pbxproj",

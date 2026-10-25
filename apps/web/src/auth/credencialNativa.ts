@@ -9,9 +9,9 @@
 //
 // O caminho do app é outro: um plugin nativo abre a tela do sistema (Credential Manager no
 // Android, Sign in with Apple / Google Sign-In no iOS) e devolve um ID TOKEN; o KING entrega esse
-// token ao Supabase com `linkIdentity`, sobre a sessão do convidado. O plugin ainda não está
-// instalado — depende das credenciais do Google Cloud e da Apple (ver docs/KING-MOBILE-RC.md).
-// Até lá, a fonte nativa não existe e o vínculo no app responde "indisponível".
+// token ao Supabase com `linkIdentity`, sobre a sessão do convidado. O plugin é o
+// `@capgo/capacitor-social-login` (ver `nativo/loginSocial.ts`), registrado no arranque do app;
+// sem os client IDs do Google (e, no iPhone, sem a Apple) a fonte não existe e a conta não aparece.
 //
 // ══ O NONCE ══
 //
@@ -26,6 +26,11 @@ export interface CredencialNativa {
   idToken: string;
   /** Alguns ID tokens trazem `at_hash`; aí o Supabase precisa do access token para conferir. */
   accessToken?: string;
+  /**
+   * Só Apple: o código de autorização (uso único, 5 minutos). Não serve para entrar — serve para a
+   * exclusão da conta REVOGAR o acesso do KING ao Apple ID (diretriz 5.1.1(v)). Nunca é guardado.
+   */
+  codigoDeAutorizacao?: string;
 }
 
 export type ResultadoDaCredencial =
@@ -38,6 +43,8 @@ export type ResultadoDaCredencial =
  * e devolve a credencial, ou diz que o jogador desistiu.
  */
 export interface FonteDeCredencialNativa {
+  /** Os provedores que este app oferece, na ordem de exibição (no iPhone, a Apple vem primeiro). */
+  provedores?: readonly ProvedorNativo[];
   obter(provedor: ProvedorNativo, hashDoNonce: string): Promise<ResultadoDaCredencial>;
   /**
    * Esquece a credencial guardada pelo SDK nativo. O Google Sign-In do iOS pode devolver um token

@@ -18,6 +18,14 @@ const RAIZ = new URL("../", import.meta.url);
 const caminho = (p) => fileURLToPath(new URL(p, RAIZ));
 const ler = (p) => readFileSync(caminho(p), "utf8");
 
+/** Um arquivo do plugin de login como o build nativo o lê (o `cap sync` reescreve ali). */
+const arquivoDoPluginDeLogin = (rel) => {
+  for (const base of ["node_modules/@capgo/capacitor-social-login/", "apps/web/node_modules/@capgo/capacitor-social-login/"]) {
+    if (existsSync(caminho(base + rel))) return ler(base + rel);
+  }
+  return "";
+};
+
 const pedido = process.argv[2];
 const falhas = [];
 const oks = [];
@@ -57,11 +65,19 @@ if (pedido === "android" && !TEM_ANDROID) {
   }
 
   // A única permissão que o jogo precisa. Qualquer outra é pergunta na revisão da loja.
-  const permissoes = [...manifest.matchAll(/uses-permission android:name="([^"]+)"/g)].map((m) => m[1]);
+  // (Uma linha com `tools:node="remove"` não é permissão: é a remoção de uma que um plugin declarou.)
+  const declaracoes = [...manifest.matchAll(/<uses-permission android:name="([^"]+)"([^>]*)\/>/g)];
+  const permissoes = declaracoes.filter((m) => !/tools:node="remove"/.test(m[2])).map((m) => m[1]);
+  const removidas = declaracoes.filter((m) => /tools:node="remove"/.test(m[2])).map((m) => m[1]);
   const extras = permissoes.filter((p) => p !== "android.permission.INTERNET");
   if (!permissoes.includes("android.permission.INTERNET")) falhar("falta a permissão INTERNET");
   else if (extras.length > 0) falhar(`permissões a mais, que a loja vai questionar: ${extras.join(", ")}`);
   else ok("permissões: só INTERNET");
+  // O plugin de login declara USE_CREDENTIALS (AccountManager antigo, sem efeito desde a API 23):
+  // ela precisa sair do manifesto final.
+  if (!removidas.includes("android.permission.USE_CREDENTIALS") || !/xmlns:tools=/.test(manifest)) {
+    falhar("USE_CREDENTIALS (herdada do plugin de login) não é removida do manifesto final — rode mobile:preparar");
+  } else ok("USE_CREDENTIALS do plugin de login removida do manifesto final");
 
   // TRÁFEGO EM TEXTO CLARO: o servidor é wss:// com certificado válido. Nenhuma exceção é
   // necessária, e uma exceção aberta "para testar" costuma ficar para sempre.
@@ -94,9 +110,11 @@ if (pedido === "android" && !TEM_ANDROID) {
   // Fase 9: a sessão mora agora no COFRE (SharedPreferences cifrado com chave do Keystore); o
   // WebView continua excluído pelo que um build antigo deixou lá.
   const excluiUm = (xml, secao, alvo) => new RegExp(`<${secao}>[\\s\\S]*${alvo}[\\s\\S]*</${secao}>`).test(xml);
+  // E a cópia da resposta do Google que o plugin de login grava (o KING a apaga após cada uso).
   const exclui = (xml, secao) =>
     excluiUm(xml, secao, 'domain="root" path="app_webview/"') &&
-    excluiUm(xml, secao, 'domain="sharedpref" path="WSSecureStorageSharedPreferences\\.xml"');
+    excluiUm(xml, secao, 'domain="sharedpref" path="WSSecureStorageSharedPreferences\\.xml"') &&
+    excluiUm(xml, secao, 'domain="sharedpref" path="GOOGLE_LOGIN_F13oz0I_SHARED_PERF\\.xml"');
   if (!/android:dataExtractionRules="@xml\/data_extraction_rules"/.test(manifest) || !/android:fullBackupContent="@xml\/backup_rules"/.test(manifest)) {
     falhar("manifesto sem as regras de backup (dataExtractionRules/fullBackupContent) — rode mobile:preparar");
   } else if (!exclui(extracao, "cloud-backup") || !exclui(extracao, "device-transfer") || !exclui(regras("backup_rules.xml"), "full-backup-content")) {
@@ -120,6 +138,13 @@ if (pedido === "android" && !TEM_ANDROID) {
   } else {
     falhar("assets web AUSENTES em android/app/src/main/assets/public — falta `cap sync`");
   }
+
+  // SEM SDK DO FACEBOOK: o plugin de login o inclui por padrão; o gancho do `cap sync` o desliga
+  // conforme `plugins.SocialLogin.providers` (capacitor.config.ts). Confere-se o que o Gradle lê.
+  const propsDoLogin = arquivoDoPluginDeLogin("android/gradle.properties");
+  if (!/^socialLogin\.facebook\.include=false$/m.test(propsDoLogin)) {
+    falhar("SDK do Facebook NÃO desligado no plugin de login (socialLogin.facebook.include) — rode `cap sync`");
+  } else ok("plugin de login sem SDK do Facebook (Android)");
 }
 
 // ───────────────────────── iOS ─────────────────────────
@@ -198,6 +223,34 @@ if (pedido === "ios" && !TEM_IOS) {
   } else {
     falhar("assets web AUSENTES em ios/App/App/public — falta `cap sync`");
   }
+
+  // SIGN IN WITH APPLE: entitlement no arquivo e ligado nas DUAS configurações do alvo do app.
+  const entitlements = existsSync(caminho("apps/web/ios/App/App/App.entitlements")) ? ler("apps/web/ios/App/App/App.entitlements") : "";
+  const configsDoApp = [...pbx.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = br\.com\.playkingcards\.king;/g)].length;
+  const comEntitlements = [...pbx.matchAll(/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/g)].length;
+  if (!/<key>com\.apple\.developer\.applesignin<\/key>\s*<array>\s*<string>Default<\/string>/.test(entitlements)) {
+    falhar("App.entitlements sem com.apple.developer.applesignin — rode mobile:preparar");
+  } else if (configsDoApp === 0 || comEntitlements !== configsDoApp) {
+    falhar(`CODE_SIGN_ENTITLEMENTS em ${comEntitlements} de ${configsDoApp} configurações do app — rode mobile:preparar`);
+  } else ok(`Sign in with Apple: entitlement ligado (${comEntitlements} configurações)`);
+
+  // SEM SDK DO FACEBOOK no Swift Package Manager nem no CocoaPods (o gancho do `cap sync` comenta).
+  const pacote = arquivoDoPluginDeLogin("Package.swift");
+  const podspec = arquivoDoPluginDeLogin("CapgoCapacitorSocialLogin.podspec");
+  const ativa = (texto, re) => texto.split("\n").some((l) => re.test(l) && !/^\s*(\/\/|#)/.test(l));
+  if (!pacote || ativa(pacote, /facebook-ios-sdk/) || ativa(podspec, /FBSDK/)) {
+    falhar("SDK do Facebook ainda ligado no plugin de login (Package.swift/podspec) — rode `cap sync`");
+  } else ok("plugin de login sem SDK do Facebook (iOS)");
+
+  // GOOGLE NO IPHONE: com o client ID iOS no build, o esquema invertido TEM de estar no Info.plist —
+  // sem ele o Google Sign-In encerra o app ao abrir o login.
+  const clienteIos = (process.env.VITE_KING_GOOGLE_IOS_CLIENT_ID ?? "").trim();
+  if (clienteIos) {
+    const esquema = clienteIos.split(".").reverse().join(".");
+    if (!plist.includes(`<string>${esquema}</string>`)) {
+      falhar(`Google no iPhone: esquema ${esquema} ausente do Info.plist — rode mobile:preparar com a mesma variável`);
+    } else ok("Google no iPhone: esquema de URL do client ID registrado");
+  } else ok("Google no iPhone: não configurado neste build (o iPhone oferece só a Apple)");
 }
 
 

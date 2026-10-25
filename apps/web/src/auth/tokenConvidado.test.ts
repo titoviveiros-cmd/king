@@ -11,7 +11,7 @@ vi.mock("./clienteSupabase.js", () => ({
   portaDeAutenticacao: async () => estado.porta,
   clienteCompartilhado: async () => null,
 }));
-const { identidadeSupabase, contaConfigurada } = await import("./identidade.js");
+const { identidadeSupabase, contaConfigurada, provedoresDaConta } = await import("./identidade.js");
 const { registrarFonteNativa } = await import("./credencialNativa.js");
 
 function porta(sessao: { session: unknown; error?: unknown }) {
@@ -53,7 +53,7 @@ describe("a conta na Home dentro do app", () => {
     vi.stubEnv("VITE_SUPABASE_ANON_KEY", "chave-publica");
     vi.stubEnv("VITE_KING_GOOGLE_LINK", "1");
   };
-  const fonte = { obter: async () => ({ tipo: "cancelado" as const }) };
+  const fonte = (provedores: ("google" | "apple")[]) => ({ provedores, obter: async () => ({ tipo: "cancelado" as const }) });
 
   it("na web, com o vínculo ligado, a conta aparece", () => {
     ligar();
@@ -69,14 +69,38 @@ describe("a conta na Home dentro do app", () => {
   it("no Android COM o plugin, aparece", () => {
     ligar();
     vi.stubGlobal("Capacitor", { isNativePlatform: () => true, getPlatform: () => "android" });
-    registrarFonteNativa(fonte);
+    registrarFonteNativa(fonte(["google"]));
     expect(contaConfigurada()).not.toBeNull();
+    expect(provedoresDaConta()).toEqual(["google"]);
   });
 
-  it("no iPhone, NUNCA só com Google: sem o botão da Apple (diretriz 4.8), a conta não aparece", () => {
+  it("no Android com o plugin mas SEM provedor (client ID ausente), não aparece", () => {
+    ligar();
+    vi.stubGlobal("Capacitor", { isNativePlatform: () => true, getPlatform: () => "android" });
+    registrarFonteNativa(fonte([]));
+    expect(contaConfigurada()).toBeNull();
+  });
+
+  it("no iPhone, NUNCA só com Google: sem a Apple (diretriz 4.8), a conta não aparece", () => {
     ligar();
     vi.stubGlobal("Capacitor", { isNativePlatform: () => true, getPlatform: () => "ios" });
-    registrarFonteNativa(fonte);
+    registrarFonteNativa(fonte(["google"]));
     expect(contaConfigurada()).toBeNull();
+    expect(provedoresDaConta()).toEqual([]);
+  });
+
+  it("no iPhone COM a Apple, a conta aparece — com a Apple primeiro, sozinha ou com o Google", () => {
+    ligar();
+    vi.stubGlobal("Capacitor", { isNativePlatform: () => true, getPlatform: () => "ios" });
+    registrarFonteNativa(fonte(["apple"]));
+    expect(contaConfigurada()).not.toBeNull();
+    expect(provedoresDaConta()).toEqual(["apple"]);
+    registrarFonteNativa(fonte(["apple", "google"]));
+    expect(provedoresDaConta()).toEqual(["apple", "google"]);
+  });
+
+  it("na web, o provedor é o Google (OAuth)", () => {
+    ligar();
+    expect(provedoresDaConta()).toEqual(["google"]);
   });
 });

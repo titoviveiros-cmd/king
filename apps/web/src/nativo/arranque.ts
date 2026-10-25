@@ -7,7 +7,7 @@
 // `auth/sessaoNativa.ts`): o cliente espera a promessa registrada aqui, então nenhuma leitura cai
 // no lugar errado, nem com a primeira tela já desenhada.
 import { registrarArmazenamentoDaSessao } from "../auth/clienteSupabase.js";
-import { ehAppNativo } from "../auth/credencialNativa.js";
+import { ehAppNativo, plataformaNativa, registrarFonteNativa } from "../auth/credencialNativa.js";
 import { identidadeConfigurada } from "../auth/identidade.js";
 import { chaveDaSessao } from "../auth/progresso.js";
 import {
@@ -69,12 +69,30 @@ export async function prepararSessaoNativa(d: DependenciasDaSessaoNativa = depen
 }
 
 /**
+ * O LOGIN NATIVO: o plugin é inicializado com os client IDs do build e a fonte se registra. Sem
+ * provedor disponível (ex.: Android sem client ID do Google), nada se registra e a conta não aparece.
+ */
+export async function prepararLoginNativo(): Promise<void> {
+  const plataforma = plataformaNativa();
+  if (!plataforma) return;
+  const [{ SocialLogin }, { criarFonteDeLoginSocial, configuracaoDoAmbiente }] = await Promise.all([
+    import("@capgo/capacitor-social-login"),
+    import("./loginSocial.js"),
+  ]);
+  const fonte = await criarFonteDeLoginSocial(
+    SocialLogin as unknown as import("./loginSocial.js").PluginDeLoginSocial,
+    configuracaoDoAmbiente(plataforma),
+  );
+  registrarFonteNativa(fonte);
+}
+
+/**
  * O arranque inteiro. Nunca lança e nunca segura a primeira tela por mais de `limiteMs`: o que
  * não ficou pronto a tempo continua sendo esperado por quem depende dele (o cliente do Supabase
  * espera o armazenamento), não pela tela.
  */
 export async function iniciarAppNativo(limiteMs = 1500): Promise<void> {
   if (!ehAppNativo()) return;
-  const tarefas = Promise.allSettled([prepararSessaoNativa()]);
+  const tarefas = Promise.allSettled([prepararSessaoNativa(), prepararLoginNativo()]);
   await Promise.race([tarefas, new Promise((r) => setTimeout(r, limiteMs))]);
 }

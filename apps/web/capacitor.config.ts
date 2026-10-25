@@ -52,6 +52,18 @@ const config: CapacitorConfig = {
     // TLS de verdade em todo lugar: nenhuma exceção de cleartext é necessária nem desejada.
     allowMixedContent: false,
   },
+
+  plugins: {
+    // LOGIN NATIVO (Fase 9): só Google e Apple entram no pacote. O plugin traz o SDK do FACEBOOK por
+    // padrão nas duas plataformas — que coleta dados por conta própria e mudaria a declaração de
+    // privacidade nas lojas. Com `false`, o gancho do plugin (`capacitor:sync:before`) tira o SDK do
+    // Package.swift, do podspec e do Gradle; `npm run mobile:validar` confere que ele saiu mesmo.
+    SocialLogin: {
+      providers: { google: true, apple: true, facebook: false, twitter: false },
+      // Só avisos e erros no log nativo.
+      logLevel: 1,
+    },
+  },
 };
 
 export default config;
