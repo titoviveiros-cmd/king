@@ -13,7 +13,7 @@
     "build:server": "npm run build --workspace packages/engine && npm run build --workspace apps/server",
     "typecheck": "tsc -p packages/engine/tsconfig.json --noEmit && tsc -p apps/server/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
     "smoke:server": "node scripts/smoke-server.mjs",
-    "test": "npm run test --workspace packages/engine && npm run test --workspace apps/server && npm run test --workspace apps/web && npm run test:progresso-sql:ci && npm run test:cadastro-sql && npm run test:ops",
+    "test": "npm run test --workspace packages/engine && npm run test --workspace apps/server && npm run test --workspace apps/web && npm run test:progresso-sql:ci && npm run test:cadastro-sql && npm run test:funcoes && npm run test:ops",
     "build": "npm run build --workspace packages/engine && npm run build --workspace apps/server && npm run build --workspace apps/web",
     "test:e2e": "npm run test:e2e --workspace apps/web",
     "ci": "npm test && npm run build && npm run smoke:server && npm run test:e2e",
@@ -24,6 +24,7 @@
     "test:progresso-sql:provas": "node scripts/testar-progresso-sql.mjs --provas",
     "test:progresso-sql:ci": "npm run build:server && node scripts/testar-progresso-sql.mjs --provas",
     "test:cadastro-sql": "node scripts/testar-cadastro-sql.mjs --provas",
+    "test:funcoes": "tsc -p supabase/functions/tsconfig.json && vitest run --config supabase/functions/vitest.config.mts",
     "test:ops": "npm run build:server && node --test \"scripts/ops/*.test.mjs\"",
     "test:mutacao:analytics": "node scripts/mutar-analytics.mjs --e2e",
     "test:mutacao:sequencia": "node scripts/mutar-sequencia.mjs --e2e"

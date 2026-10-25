@@ -1,0 +1,15 @@
+{
+  "//": "Tipagem dos módulos PUROS das Edge Functions (rodam no Deno, testados no Node). A entrada index.ts é Deno e fica de fora.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["excluir-conta/apple.ts", "excluir-conta/nucleo.ts"]
+}
