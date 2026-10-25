@@ -89,6 +89,13 @@ export async function prepararLoginNativo(): Promise<void> {
   registrarFonteNativa(fonte);
 }
 
+/** Os LINKS DO APP (convites): o endereço que abriu o app e os que chegarem com ele aberto. */
+export async function prepararLinksDoApp(): Promise<void> {
+  if (!ehAppNativo()) return;
+  const [{ App }, { ouvirLinksDoApp }] = await Promise.all([import("@capacitor/app"), import("./linkDoApp.js")]);
+  await ouvirLinksDoApp(App as unknown as import("./linkDoApp.js").PortaDoApp);
+}
+
 /**
  * O arranque inteiro. Nunca lança e nunca segura a primeira tela por mais de `limiteMs`: o que
  * não ficou pronto a tempo continua sendo esperado por quem depende dele (o cliente do Supabase
@@ -96,6 +103,6 @@ export async function prepararLoginNativo(): Promise<void> {
  */
 export async function iniciarAppNativo(limiteMs = 1500): Promise<void> {
   if (!ehAppNativo()) return;
-  const tarefas = Promise.allSettled([prepararSessaoNativa(), prepararLoginNativo()]);
+  const tarefas = Promise.allSettled([prepararSessaoNativa(), prepararLoginNativo(), prepararLinksDoApp()]);
   await Promise.race([tarefas, new Promise((r) => setTimeout(r, limiteMs))]);
 }

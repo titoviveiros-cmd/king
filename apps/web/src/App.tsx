@@ -13,6 +13,7 @@ import { anunciarAbertura } from "./analytics/iniciar.js";
 import { armazenamentoLocal } from "./tutorial/persistencia.js";
 import { useConta, usePainelDaConta } from "./auth/useConta.js";
 import { PainelConta } from "./ui/PainelConta.js";
+import { aoConviteDoApp } from "./nativo/linkDoApp.js";
 import { leitorDeProgressoConfigurado } from "./auth/progresso.js";
 import { useMeuProgresso } from "./game/useMeuProgresso.js";
 
@@ -52,6 +53,15 @@ export function App({ convite = null }: { convite?: Convite | null } = {}) {
   // do App anuncie duas vezes.
   useEffect(() => { anunciarAbertura(); }, []);
 
+  // CONVITE COM O APP JÁ ABERTO (App Link / Universal Link): o código vai para o campo da Home —
+  // nunca uma entrada na sala. A Home lê o preparo na montagem; a versão nova a remonta (só a Home:
+  // uma partida contra os bots em andamento não é tocada, e o preparo espera a volta à Home).
+  const [versaoDoPreparo, setVersaoDoPreparo] = useState(0);
+  useEffect(() => aoConviteDoApp((c) => {
+    setPreparo(preparoDoConvite(c));
+    setVersaoDoPreparo((v) => v + 1);
+  }), []);
+
   // Esc fecha o painel de áudio (teclado de PC).
   useEffect(() => {
     if (!audioOpen) return;
@@ -85,7 +95,7 @@ export function App({ convite = null }: { convite?: Convite | null } = {}) {
       ) : entrada === null ? (
         <ModoLocal
           onOpenAudio={abrirAudio} onIrParaOnline={setEntrada} tutorial={tutorial}
-          preparo={preparo} onPreparoLido={preparoLido}
+          preparo={preparo} onPreparoLido={preparoLido} versaoDoPreparo={versaoDoPreparo}
         />
       ) : (
         <Suspense fallback={<Carregando texto="Conectando…" />}>
@@ -111,12 +121,14 @@ function Carregando({ texto }: { texto: string }) {
 // ─────────────────────────────── MODO LOCAL / BOTS ───────────────────────────────
 
 function ModoLocal({
-  onOpenAudio, onIrParaOnline, tutorial, preparo, onPreparoLido,
+  onOpenAudio, onIrParaOnline, tutorial, preparo, onPreparoLido, versaoDoPreparo = 0,
 }: {
   onOpenAudio: () => void;
   onIrParaOnline: (e: Entrada) => void;
   tutorial: TutorialDaHome;
   preparo: PreparoDaHome | null;
+  /** Muda quando um convite chega com o app aberto: remonta a Home para ela ler o preparo novo. */
+  versaoDoPreparo?: number;
   onPreparoLido: () => void;
 }) {
   const g = useKingGame();
@@ -154,6 +166,7 @@ function ModoLocal({
     return (
       <>
         <Home
+          key={versaoDoPreparo}
           onStart={g.start}
           onOpenAudio={onOpenAudio}
           online={online}

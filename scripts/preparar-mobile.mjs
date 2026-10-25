@@ -38,6 +38,8 @@ const BUILD = String(Math.max(1, Math.trunc(Number(process.env.KING_BUILD_NUMBER
 
 const feitos = [];
 const pulados = [];
+/** Escolhas de configuração que valem registrar, mas não são projeto nativo faltando. */
+const avisos = [];
 
 /** Aplica uma substituição só se ainda não estiver aplicada. Idempotente por construção. */
 function ajustar(arquivo, rotulo, de, para, jaAplicado) {
@@ -140,6 +142,25 @@ ajustar(
   (s) => s.includes("android:dataExtractionRules") && s.includes("android:fullBackupContent"),
 );
 
+// APP LINKS (Fase 9): o convite `https://playkingcards.com.br/?sala=1234` abre o app. Só o domínio
+// oficial, só HTTPS, só a raiz ("/"): o caminho exato impede que qualquer outra página do site seja
+// sequestrada pelo app. `autoVerify` faz o Android conferir o assetlinks.json publicado no domínio —
+// sem ele publicado (gate manual), o link continua abrindo o navegador, como hoje.
+ajustar(
+  "android/app/src/main/AndroidManifest.xml",
+  "Android: App Link do convite (https://playkingcards.com.br/)",
+  /(<category android:name="android\.intent\.category\.LAUNCHER" \/>\s*<\/intent-filter>)/,
+  `$1
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="playkingcards.com.br" android:path="/" />
+            </intent-filter>`,
+  (s) => s.includes('android:host="playkingcards.com.br"'),
+);
+
 // PERMISSÃO HERDADA: o plugin de login declara `USE_CREDENTIALS`, que é do AccountManager antigo
 // (sem efeito desde a API 23; o minSdk do KING é 24) e o Credential Manager não usa. Sai do manifesto
 // final — a lista de permissões continua só INTERNET.
@@ -215,9 +236,11 @@ ajustar(
   (s) => s.includes("ITSAppUsesNonExemptEncryption"),
 );
 
-// SIGN IN WITH APPLE (Fase 9): o direito de usar vem do ENTITLEMENT do app, e não de código. O
-// arquivo é nosso e o Xcode o encontra por `CODE_SIGN_ENTITLEMENTS` nas duas configurações do alvo.
-// O perfil de provisionamento também precisa da capacidade ligada no Apple Developer (gate manual).
+// SIGN IN WITH APPLE e UNIVERSAL LINKS (Fase 9): o direito de usar vem dos ENTITLEMENTS do app, e
+// não de código. O arquivo é nosso e o Xcode o encontra por `CODE_SIGN_ENTITLEMENTS` nas duas
+// configurações do alvo. O perfil de provisionamento precisa das DUAS capacidades ligadas no Apple
+// Developer ("Sign in with Apple" e "Associated Domains") — gate manual; sem elas a assinatura falha.
+// O domínio associado é só o oficial (o AASA publicado lá restringe à raiz com ?sala=).
 const ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- KING: gerado por scripts/preparar-mobile.mjs. Não editar à mão. -->
@@ -226,6 +249,10 @@ const ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
 	<key>com.apple.developer.applesignin</key>
 	<array>
 		<string>Default</string>
+	</array>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:playkingcards.com.br</string>
 	</array>
 </dict>
 </plist>
@@ -253,9 +280,9 @@ if (/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(CLIENTE_GOOGLE_IOS))
     (s) => s.includes(`<string>${esquema}</string>`),
   );
 } else if (CLIENTE_GOOGLE_IOS) {
-  pulados.push(`iOS: VITE_KING_GOOGLE_IOS_CLIENT_ID com formato inesperado ("…apps.googleusercontent.com") — Google no iPhone NÃO configurado`);
+  avisos.push(`iOS: VITE_KING_GOOGLE_IOS_CLIENT_ID com formato inesperado ("…apps.googleusercontent.com") — Google no iPhone NÃO configurado`);
 } else {
-  pulados.push("iOS: sem VITE_KING_GOOGLE_IOS_CLIENT_ID — o iPhone oferece só a Apple (Google entra quando houver o client ID iOS)");
+  avisos.push("iOS: sem VITE_KING_GOOGLE_IOS_CLIENT_ID — o iPhone oferece só a Apple (Google entra quando houver o client ID iOS)");
 }
 
 ajustarTodos(
@@ -276,6 +303,7 @@ console.log("\nPREPARAÇÃO DOS PROJETOS NATIVOS");
 console.log(`versão ${VERSAO} · build ${BUILD}\n`);
 for (const f of feitos) console.log("  ok  " + f);
 for (const p of pulados) console.log("  --  " + p);
+for (const a of avisos) console.log("  !!  " + a);
 
 if (pulados.length > 0) {
   console.log("\nNada foi quebrado: o que faltou é projeto nativo ainda não gerado.");

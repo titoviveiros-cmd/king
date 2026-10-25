@@ -139,6 +139,16 @@ if (pedido === "android" && !TEM_ANDROID) {
     falhar("assets web AUSENTES em android/app/src/main/assets/public — falta `cap sync`");
   }
 
+  // APP LINK DO CONVITE: só o domínio oficial, só HTTPS, só a raiz, com verificação automática.
+  const filtros = [...manifest.matchAll(/<intent-filter([^>]*)>([\s\S]*?)<\/intent-filter>/g)];
+  const deLink = filtros.filter((f) => /android\.intent\.action\.VIEW/.test(f[2]));
+  const dados = deLink.flatMap((f) => [...f[2].matchAll(/<data ([^>]*)\/>/g)].map((d) => d[1]));
+  const oficial = deLink.length === 1 && /android:autoVerify="true"/.test(deLink[0][1]) && dados.length === 1 &&
+    /android:scheme="https"/.test(dados[0]) && /android:host="playkingcards\.com\.br"/.test(dados[0]) &&
+    /android:path="\/"/.test(dados[0]) && !/pathPrefix|pathPattern/.test(dados[0]);
+  if (!oficial) falhar("App Link do convite ausente ou largo demais (esperado: https://playkingcards.com.br/ exato, autoVerify) — rode mobile:preparar");
+  else ok("App Link do convite: https://playkingcards.com.br/ (raiz exata, autoVerify)");
+
   // SEM SDK DO FACEBOOK: o plugin de login o inclui por padrão; o gancho do `cap sync` o desliga
   // conforme `plugins.SocialLogin.providers` (capacitor.config.ts). Confere-se o que o Gradle lê.
   const propsDoLogin = arquivoDoPluginDeLogin("android/gradle.properties");
@@ -233,6 +243,11 @@ if (pedido === "ios" && !TEM_IOS) {
   } else if (configsDoApp === 0 || comEntitlements !== configsDoApp) {
     falhar(`CODE_SIGN_ENTITLEMENTS em ${comEntitlements} de ${configsDoApp} configurações do app — rode mobile:preparar`);
   } else ok(`Sign in with Apple: entitlement ligado (${comEntitlements} configurações)`);
+  const dominios = /<key>com\.apple\.developer\.associated-domains<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(entitlements)?.[1] ?? "";
+  const listados = [...dominios.matchAll(/<string>([^<]+)<\/string>/g)].map((m) => m[1]);
+  if (listados.length !== 1 || listados[0] !== "applinks:playkingcards.com.br") {
+    falhar(`Universal Links: domínios associados ${JSON.stringify(listados)} — esperado só applinks:playkingcards.com.br`);
+  } else ok("Universal Links: só applinks:playkingcards.com.br");
 
   // SEM SDK DO FACEBOOK no Swift Package Manager nem no CocoaPods (o gancho do `cap sync` comenta).
   const pacote = arquivoDoPluginDeLogin("Package.swift");

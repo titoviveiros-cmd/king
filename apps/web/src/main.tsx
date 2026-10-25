@@ -8,6 +8,7 @@ import { App } from "./App.js";
 import { iniciarAnalytics } from "./analytics/iniciar.js";
 import { capturarConvite } from "./net/convite.js";
 import { iniciarAppNativo } from "./nativo/arranque.js";
+import { conviteDoArranqueDoApp } from "./nativo/linkDoApp.js";
 
 /**
  * A altura visível vem do CSS: `--vh` é `1dvh` onde existe e `1vh` como reserva (ver theme.css).
@@ -32,6 +33,7 @@ iniciarAnalytics();
 //
 // Sem StrictMode: o loop de bots usa um setInterval; o double-invoke do StrictMode em dev
 // poderia duplicar passos. Em produção não faria diferença, mas mantemos previsível.
+// No app, o convite que ABRIU o app (App Link / Universal Link) chega pelo arranque, não pela URL.
 void iniciarAppNativo().finally(() => {
-  ReactDOM.createRoot(document.getElementById("root")!).render(<App convite={convite} />);
+  ReactDOM.createRoot(document.getElementById("root")!).render(<App convite={convite ?? conviteDoArranqueDoApp()} />);
 });
