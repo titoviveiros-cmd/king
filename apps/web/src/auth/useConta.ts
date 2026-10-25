@@ -15,6 +15,7 @@ import type { ContaDoJogador, MotivoDaFalha, ProvedorVinculavel } from "./conta.
 import { ehAppNativo, fonteNativa, gerarNonce } from "./credencialNativa.js";
 import type { ExclusaoDeConta, ResultadoDaExclusao } from "./exclusaoDeConta.js";
 import { contaConfigurada, provedoresDaConta } from "./identidade.js";
+import { lerSessaoPerdida } from "./clienteSupabase.js";
 import type { RecuperacaoDeConta, ResultadoDaRecuperacao } from "./recuperacaoDeConta.js";
 import { exclusaoConfigurada, haContaNesteAparelho, recuperacaoConfigurada } from "./servicosDaConta.js";
 
@@ -52,6 +53,12 @@ const AVISOS: Record<MotivoDaFalha, string> = {
   "sessao-indisponivel": "Não foi possível falar com a sua conta agora. Tente de novo em instantes.",
 };
 
+/** O aviso de quando o servidor encerrou a sessão deste aparelho (token reutilizado, revogado…). */
+const avisoDeSessaoPerdida = (): string =>
+  ehAppNativo()
+    ? "A sessão deste aparelho foi encerrada. Se você salvou o progresso com Google ou Apple, use \"Já tenho uma conta\" para voltar a ela."
+    : "A sessão deste navegador foi encerrada. O progresso salvo com o Google continua na sua conta.";
+
 /** No app existe "Já tenho uma conta" — e é por ela que se entra na conta que já tem esse login. */
 const avisoDe = (motivo: MotivoDaFalha): string =>
   motivo === "identidade-de-outra-conta" && ehAppNativo()
@@ -64,7 +71,8 @@ export function useConta(): ContaDaHome | null {
   const disponivel = conta.current !== null;
 
   const [estado, setEstado] = useState<EstadoVisivelDaConta>("processando");
-  const [aviso, setAviso] = useState<string | null>(null);
+  // A sessão que o SERVIDOR encerrou (renovação recusada) não troca a conta calada: avisa-se uma vez.
+  const [aviso, setAviso] = useState<string | null>(() => (disponivel && lerSessaoPerdida() ? avisoDeSessaoPerdida() : null));
   const jaProcessou = useRef(false);
   const emCurso = useRef(false);
 

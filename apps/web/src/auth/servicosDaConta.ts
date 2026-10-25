@@ -3,7 +3,7 @@
 // Fica num arquivo à parte para não amarrar `identidade.ts` a progresso, rede e cofre: aqui se
 // juntam a porta compartilhada, o cliente isolado, a fonte nativa, o leitor de progresso e a função
 // de exclusão. Quem está fora de `auth/` recebe só as operações, nunca o cliente do SDK.
-import { portaDeAutenticacao, portaIsolada } from "./clienteSupabase.js";
+import { portaDeAutenticacao, portaIsolada, sairDeProposito } from "./clienteSupabase.js";
 import { ehAppNativo, fonteNativa, gerarNonce } from "./credencialNativa.js";
 import { CHAVE_DA_TRANSACAO } from "./conta.js";
 import { CONFIRMACAO_DA_EXCLUSAO, criarExclusaoDeConta, type ExclusaoDeConta } from "./exclusaoDeConta.js";
@@ -58,7 +58,11 @@ export function exclusaoConfigurada(): ExclusaoDeConta | null {
     async limparAparelho() {
       // A sessão local é revogada e apagada (para conta já excluída, o servidor responde 401/403/404,
       // e o SDK apaga a sessão mesmo assim). Depois, o cofre inteiro do KING e as sobras.
-      try { await (await portaDeAutenticacao(r))?.signOut({ scope: "local" }); } catch { /* segue */ }
+      // De propósito: esta saída não é "sessão perdida" (não deixa o aviso para a próxima abertura).
+      try {
+        const porta = await portaDeAutenticacao(r);
+        if (porta) await sairDeProposito(() => porta.signOut({ scope: "local" }));
+      } catch { /* segue */ }
       await limparCofreRegistrado();
       const l = local();
       const chave = chaveDaSessao(r.url);

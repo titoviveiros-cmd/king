@@ -124,6 +124,50 @@ let configuracaoEmUso: string | null = null;
  */
 let armazenamentoDaSessao: Promise<ArmazenamentoDaSessao | null> = Promise.resolve(null);
 
+/**
+ * 429 NA RENOVAÇÃO NÃO É "SESSÃO MORTA" (red team da Fase 9). O SDK trata 5xx como passageiro —
+ * guarda a sessão e tenta de novo —, mas 429 não: com o token de acesso vencido, ele APAGA a sessão,
+ * e o próximo `token()` criaria outro convidado por cima. Muitos jogadores atrás do mesmo IP (o CGNAT
+ * das operadoras) bastam para estourar o limite por IP do Supabase. Só na renovação, 429 vira 503.
+ */
+export async function fetchDaSessao(entrada: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const resposta = await fetch(entrada, init);
+  const url = typeof entrada === "string" ? entrada : entrada instanceof URL ? entrada.href : entrada.url;
+  if (resposta.status !== 429 || !url.includes("/auth/v1/token?grant_type=refresh_token")) return resposta;
+  return new Response(resposta.body, { status: 503, statusText: "Service Unavailable", headers: resposta.headers });
+}
+
+/** Onde fica o aviso (sem segredo) de que a sessão do aparelho foi encerrada pelo servidor. */
+export const MARCA_DE_SESSAO_PERDIDA = "king:sessao-perdida";
+let saidaDeProposito = false;
+
+/**
+ * Sair DE PROPÓSITO (excluir a conta): a saída que vier dentro de `acao` não é "sessão perdida".
+ * Qualquer outra (token reutilizado, revogado, conta apagada noutro aparelho) deixa o aviso — o
+ * jogador não troca de conta calado.
+ */
+export async function sairDeProposito<T>(acao: () => Promise<T>): Promise<T> {
+  saidaDeProposito = true;
+  try { return await acao(); } finally { saidaDeProposito = false; }
+}
+
+/** Lê e APAGA o aviso de sessão perdida (mostra-se uma vez). */
+export function lerSessaoPerdida(): boolean {
+  try {
+    const local = globalThis.localStorage;
+    const havia = local?.getItem(MARCA_DE_SESSAO_PERDIDA) === "1";
+    if (havia) local?.removeItem(MARCA_DE_SESSAO_PERDIDA);
+    return havia;
+  } catch {
+    return false;
+  }
+}
+
+function anotarSaida(): void {
+  if (saidaDeProposito) return;
+  try { globalThis.localStorage?.setItem(MARCA_DE_SESSAO_PERDIDA, "1"); } catch { /* sem localStorage */ }
+}
+
 /** O app nativo diz onde guardar a sessão. Chamado UMA vez, antes de qualquer cliente existir. */
 export function registrarArmazenamentoDaSessao(pronto: Promise<ArmazenamentoDaSessao | null>): void {
   armazenamentoDaSessao = pronto;
@@ -145,15 +189,24 @@ export function clienteCompartilhado(cfg: ConfiguracaoDeIdentidade): Promise<Sup
   if (compartilhado && configuracaoEmUso !== cfg.url) return Promise.resolve(null);
   configuracaoEmUso = cfg.url;
   compartilhado ??= Promise.all([import("@supabase/supabase-js"), armazenamentoDaSessao.catch(() => null)])
-    .then(([{ createClient }, storage]) => createClient(cfg.url, cfg.anonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false,
-        flowType: "pkce",
-        ...(storage ? { storage } : {}),
-      },
-    }))
+    .then(([{ createClient }, storage]) => {
+      const cliente = createClient(cfg.url, cfg.anonKey, {
+        global: { fetch: fetchDaSessao },
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false,
+          flowType: "pkce",
+          ...(storage ? { storage } : {}),
+        },
+      });
+      // A sessão que o SDK apaga sozinho (renovação recusada) deixa o aviso; a nossa saída, não. Um
+      // aviso que falha não pode custar o cliente: sem ele, o jogo perderia a identidade inteira.
+      try {
+        cliente.auth.onAuthStateChange((evento) => { if (evento === "SIGNED_OUT") anotarSaida(); });
+      } catch { /* sem o aviso, com o cliente */ }
+      return cliente;
+    })
     .catch(() => null);
   return compartilhado;
 }
