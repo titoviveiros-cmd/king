@@ -48,8 +48,15 @@ const AVISOS: Record<MotivoDaFalha, string> = {
   "nao-vinculado": "O progresso não ficou salvo. Tente de novo.",
   "provedor-recusou": "O login não foi concluído. Tente de novo.",
   cancelado: "Cancelado. O jogo continua do mesmo jeito.",
-  "identidade-de-outra-conta": "Essa conta já está ligada a outro jogador do KING. Para jogar com ela, use \"Já tenho uma conta\". Nada foi alterado aqui.",
+  "identidade-de-outra-conta": "Essa conta já está ligada a outro jogador do KING. Nada foi alterado aqui.",
+  "sessao-indisponivel": "Não foi possível falar com a sua conta agora. Tente de novo em instantes.",
 };
+
+/** No app existe "Já tenho uma conta" — e é por ela que se entra na conta que já tem esse login. */
+const avisoDe = (motivo: MotivoDaFalha): string =>
+  motivo === "identidade-de-outra-conta" && ehAppNativo()
+    ? "Essa conta já está ligada a outro jogador do KING. Para jogar com ela, use \"Já tenho uma conta\". Nada foi alterado aqui."
+    : AVISOS[motivo];
 
 export function useConta(): ContaDaHome | null {
   const conta = useRef<ContaDoJogador | null>(null);
@@ -69,7 +76,7 @@ export function useConta(): ContaDaHome | null {
     void (async () => {
       const retorno = await c.concluirRetornoOAuth();
       if (!vivo) return;
-      if (retorno.tipo === "erro") setAviso(AVISOS[retorno.motivo]);
+      if (retorno.tipo === "erro") setAviso(avisoDe(retorno.motivo));
       const atual = await c.obterEstadoDaConta();
       if (!vivo) return;
       setEstado(atual === "indisponivel" ? "erro" : atual === "processando" ? "processando" : atual);
@@ -92,14 +99,14 @@ export function useConta(): ContaDaHome | null {
           if (!provedor) { setAviso(AVISOS.indisponivel); setEstado("guest"); return; }
           const n = await c.vincularNoApp(provedor, fonteNativa(), () => gerarNonce());
           if (n.ok) { setEstado(provedor); return; }
-          setAviso(AVISOS[n.motivo]);
+          setAviso(avisoDe(n.motivo));
           setEstado("guest");
           return;
         }
         const r = await c.vincularGoogle();
         if (r.ok && r.jaVinculado) { setEstado("google"); return; }
         if (r.ok) return; // o navegador está saindo para o Google; a tela não muda mais
-        setAviso(AVISOS[r.motivo]);
+        setAviso(avisoDe(r.motivo));
         setEstado("guest");
       } finally {
         emCurso.current = false;

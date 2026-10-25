@@ -148,13 +148,45 @@ describe("os desfechos que não são vínculo — o convidado segue o mesmo", ()
     expect(r).toEqual({ ok: false, motivo: "provedor-recusou" });
   });
 
-  it("SEM convidado: sem-sessao — a tela do Google nem abre, e ninguém é criado", async () => {
+  // FASE 9 (red team): no APARELHO NOVO, "Continuar com a Apple/Google" tem de funcionar — é o
+  // primeiro toque do revisor da App Store. O convidado nasce DEPOIS da credencial (cancelar não cria
+  // ninguém) e é a ELE que o login se liga. A regra antiga ("sem convidado, nem abre") mudou aqui.
+  for (const provedor of ["google", "apple"] as ProvedorVinculavel[]) {
+    it(`${provedor}, aparelho NOVO (sem sessão nenhuma): o convidado nasce depois da credencial e recebe o vínculo`, async () => {
+      let sessaoAtual: { access_token: string; user: { id: string } } | null = null;
+      const porta = portaFalsa();
+      porta.getSession = async () => { porta.chamadas.push("getSession"); return { data: { session: sessaoAtual } }; };
+      porta.signInAnonymously = async () => {
+        porta.chamadas.push("signInAnonymously");
+        sessaoAtual = { access_token: "jwt-novo", user: { id: GUEST } };
+        return { data: { session: sessaoAtual } };
+      };
+      const { conta } = montar(porta);
+      const { fonte, pedidos } = fonteFalsa(credencial());
+      const r = await conta.vincularNoApp(provedor, fonte, nonceFixo);
+      expect(r).toEqual({ ok: true, jaVinculado: false, userId: GUEST });
+      expect(pedidos).toHaveLength(1);
+      const ordem = porta.chamadas.filter((c) => c === "signInAnonymously" || c.startsWith("linkIdentity"));
+      expect(ordem).toEqual(["signInAnonymously", `linkIdentity:${provedor}`]);
+    });
+  }
+
+  it("aparelho NOVO e o jogador CANCELA na tela do provedor: ninguém é criado", async () => {
     const porta = portaFalsa({ semSessao: true });
+    const { conta } = montar(porta);
+    const r = await conta.vincularNoApp("apple", fonteFalsa({ tipo: "cancelado" }).fonte, nonceFixo);
+    expect(r).toEqual({ ok: false, motivo: "cancelado" });
+    expect(porta.chamadas).not.toContain("signInAnonymously");
+  });
+
+  it("sessão GUARDADA mas ilegível agora (renovação falhando): nem abre o provedor, e NUNCA cria convidado por cima", async () => {
+    const porta = portaFalsa();
+    porta.getSession = async () => { porta.chamadas.push("getSession"); return { data: { session: null }, error: { message: "Failed to fetch" } }; };
     const { conta } = montar(porta);
     const { fonte, pedidos } = fonteFalsa(credencial());
     const r = await conta.vincularNoApp("google", fonte, nonceFixo);
-    expect(r).toEqual({ ok: false, motivo: "sem-sessao" });
-    expect(pedidos, "abriu o Google sem convidado").toEqual([]);
+    expect(r).toEqual({ ok: false, motivo: "sessao-indisponivel" });
+    expect(pedidos, "abriu o provedor com a sessão ilegível").toEqual([]);
     expect(porta.chamadas).not.toContain("signInAnonymously");
   });
 

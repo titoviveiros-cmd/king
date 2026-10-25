@@ -44,7 +44,9 @@ export type MotivoDaFalha =
   /** O jogador fechou a tela do Google/Apple. Nada mudou. */
   | "cancelado"
   /** Esse Google/Apple já pertence a OUTRO jogador do KING. Não se funde, não se troca: o convidado segue. */
-  | "identidade-de-outra-conta";
+  | "identidade-de-outra-conta"
+  /** Há sessão guardada, mas ela não se lê agora (renovação falhando): "agora não", nunca "convidado novo". */
+  | "sessao-indisponivel";
 
 /** O ID token que o app nativo obteve, mais o nonce BRUTO cujo hash está dentro dele. */
 export interface CredencialDeVinculo {
@@ -332,9 +334,14 @@ export function criarConta(d: DependenciasDaConta) {
   }
 
   /**
-   * O VÍNCULO NO APP: confere a sessão ANTES de abrir a tela do Google/Apple (sem convidado não há
-   * a quem vincular, e ninguém deve entrar no Google à toa), gera o nonce, pede a credencial ao
-   * plugin nativo e entrega à camada comum.
+   * O VÍNCULO NO APP: confere a sessão ANTES de abrir a tela do Google/Apple, gera o nonce, pede a
+   * credencial ao plugin nativo e entrega à camada comum.
+   *
+   * APARELHO NOVO (Fase 9, red team): sem sessão NENHUMA guardada, o convidado nasce aqui — depois de
+   * a credencial chegar, para um cancelamento não criar ninguém — e é a ELE que o login se liga. É a
+   * mesma regra de `token()` ("entrar para jogar pode criar convidado"): sem isso, quem instala e toca
+   * em "Continuar com a Apple" (o revisor da App Store, por exemplo) só veria um erro. Já uma sessão
+   * GUARDADA que não se lê agora (renovação falhando) nunca vira convidado novo: é "agora não".
    */
   async function vincularNoApp(
     provedor: ProvedorVinculavel,
@@ -346,11 +353,16 @@ export function criarConta(d: DependenciasDaConta) {
     try { porta = await d.porta(); } catch { return { ok: false, motivo: "indisponivel" }; }
     if (!porta) return { ok: false, motivo: "indisponivel" };
     try {
-      const sessao = (await porta.getSession()).data.session;
+      const atual = await porta.getSession();
+      if (atual.error) return { ok: false, motivo: "sessao-indisponivel" };
+      const sessao = atual.data.session;
       const userId = sessao?.user?.id;
-      if (!sessao || !userId) return { ok: false, motivo: "sem-sessao" };
-      const { data: ids } = await porta.getUserIdentities();
-      if (temProvedor(ids?.identities, provedor, userId)) return { ok: true, jaVinculado: true, userId };
+      if (sessao && !userId) return { ok: false, motivo: "sem-sessao" };
+      const aparelhoNovo = !sessao;
+      if (userId) {
+        const { data: ids } = await porta.getUserIdentities();
+        if (temProvedor(ids?.identities, provedor, userId)) return { ok: true, jaVinculado: true, userId };
+      }
       // Até duas tentativas: o SDK nativo pode devolver um token EM CACHE, de outro pedido, cujo
       // nonce não é o deste. Ele nem vai ao Supabase: esquece-se a credencial e pede-se de novo, uma vez.
       for (let tentativa = 0; tentativa < 2; tentativa++) {
@@ -362,6 +374,10 @@ export function criarConta(d: DependenciasDaConta) {
         if (noToken !== undefined && noToken !== nonce.hash) {
           await fonte.esquecer?.(provedor);
           continue;
+        }
+        if (aparelhoNovo) {
+          const novo = await porta.signInAnonymously();
+          if (!novo.data.session?.user?.id) return { ok: false, motivo: "indisponivel" };
         }
         return await vincularComCredencial(provedor, {
           idToken: r.credencial.idToken,
