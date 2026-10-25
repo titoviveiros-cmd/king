@@ -2,6 +2,24 @@ name: CI
 
 # Proteção contra regressões: motor, adaptador/UI, build e layout (Playwright).
 # Roda em toda PR e nos pushes das branches relevantes. NÃO publica, NÃO faz deploy.
+#
+# ══ CAMADAS, TODAS EM PARALELO ══ — o tempo da CI é o do job mais longo, não a soma.
+#
+#   rápido   unit/integration (motor, servidor, web, SQL, funções, ops) + build + smoke do
+#            servidor compilado. É o primeiro sinal, em poucos minutos.
+#   e2e      o Playwright inteiro, em runners isolados. Cada job é uma máquina nova, com o próprio
+#            Colyseus, o próprio preview e as próprias portas: nada é compartilhado entre eles.
+#              · matriz i/6      as specs de layout, funcionais e multiplayer nos 13 viewports
+#              · aparelho j/3    androidReal (@aparelho-real): geometria fixa por teste, provas longas
+#              · progresso + analytics   as duas suítes de build próprio
+#
+# ══ POR QUE ASSIM ══ (medido com scripts/ci-tempos.mjs)
+#
+# Antes era um job só, de 3h31m: a suíte principal (1885 testes, 2 workers) era 98% do tempo, e
+# 61% dela era androidReal repetindo a mesma prova nos 13 projetos (ver playwright.config.ts). Os
+# shards são do próprio Playwright (`--shard`), que divide por contagem; como os 13 projetos têm a
+# mesma composição, contagem igual dá duração igual. O piso é o placar final multiplayer de
+# androidReal: ~13 min de partida no ritmo do servidor, que nenhum shard encurta.
 
 on:
   push:
@@ -14,8 +32,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: testes + build + layout
+  rapido:
+    name: rápido — unit/integration + build + smoke
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,18 +61,62 @@ jobs:
       - name: Servidor compilado sobe e responde (smoke test)
         run: npm run smoke:server
 
+  e2e:
+    name: e2e — ${{ matrix.nome }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Um shard vermelho não interrompe os outros: o diagnóstico mostra TODAS as falhas, como o
+      # job único mostrava.
+      fail-fast: false
+      matrix:
+        include:
+          - { nome: "matriz 1/6", playwright: "--grep-invert @aparelho-real --shard=1/6" }
+          - { nome: "matriz 2/6", playwright: "--grep-invert @aparelho-real --shard=2/6" }
+          - { nome: "matriz 3/6", playwright: "--grep-invert @aparelho-real --shard=3/6" }
+          - { nome: "matriz 4/6", playwright: "--grep-invert @aparelho-real --shard=4/6" }
+          - { nome: "matriz 5/6", playwright: "--grep-invert @aparelho-real --shard=5/6" }
+          - { nome: "matriz 6/6", playwright: "--grep-invert @aparelho-real --shard=6/6" }
+          - { nome: "aparelho real 1/3", playwright: "--grep @aparelho-real --shard=1/3" }
+          - { nome: "aparelho real 2/3", playwright: "--grep @aparelho-real --shard=2/3" }
+          - { nome: "aparelho real 3/3", playwright: "--grep @aparelho-real --shard=3/3" }
+          - { nome: "progresso + analytics", extras: true }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node (versão do projeto)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalação limpa
+        run: npm ci
+
+      # O Colyseus que os testes multiplayer usam é o compilado deste commit, nunca um anterior.
+      - name: Build do servidor (engine + server)
+        run: npm run build:server
+
       - name: Navegador do Playwright (Chromium)
         run: npx playwright install --with-deps chromium
 
-      - name: Testes de layout (Playwright, todos os viewports)
-        run: npm run test:e2e
+      # O bundle é construído aqui, do código deste commit: nenhum shard testa um build herdado.
+      - name: Playwright — ${{ matrix.nome }}
+        if: ${{ !matrix.extras }}
+        working-directory: apps/web
+        run: npm run build:e2e && npx playwright test ${{ matrix.playwright }}
+
+      - name: Playwright — progresso + analytics
+        if: ${{ matrix.extras }}
+        working-directory: apps/web
+        run: npm run test:e2e:progresso && npm run test:e2e:analytics
 
       # Só quando algo falha: sobe relatório + screenshots como artefato de diagnóstico.
       - name: Artefatos de diagnóstico (só em falha)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ strategy.job-index }}
           path: |
             apps/web/playwright-report
             apps/web/test-results
