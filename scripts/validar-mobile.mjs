@@ -263,6 +263,16 @@ if (pedido === "ios" && !TEM_IOS) {
     falhar(`Universal Links: domínios associados ${JSON.stringify(listados)} — esperado só applinks:playkingcards.com.br`);
   } else ok("Universal Links: só applinks:playkingcards.com.br");
 
+  // MANIFESTO DE PRIVACIDADE: o plugin de login usa UserDefaults (API com motivo obrigatório) e não
+  // traz manifesto próprio — sem a declaração no app, o App Store Connect barra o envio (ITMS-91053).
+  const manifestoPriv = existsSync(caminho("apps/web/ios/App/App/PrivacyInfo.xcprivacy")) ? ler("apps/web/ios/App/App/PrivacyInfo.xcprivacy") : "";
+  const declaraUserDefaults = /<string>NSPrivacyAccessedAPICategoryUserDefaults<\/string>\s*<key>NSPrivacyAccessedAPITypeReasons<\/key>\s*<array>\s*<string>CA92\.1<\/string>/.test(manifestoPriv);
+  const semRastreio = /<key>NSPrivacyTracking<\/key>\s*<false\/>/.test(manifestoPriv);
+  const comoRecurso = /\/\* PrivacyInfo\.xcprivacy in Resources \*\/,/.test(pbx) && /path = PrivacyInfo\.xcprivacy;/.test(pbx);
+  if (!declaraUserDefaults || !semRastreio || !comoRecurso) {
+    falhar("manifesto de privacidade ausente, incompleto ou fora dos recursos do app (ITMS-91053) — rode mobile:preparar");
+  } else ok("manifesto de privacidade: UserDefaults (CA92.1), sem rastreamento, como recurso do app");
+
   // SEM SDK DO FACEBOOK no Swift Package Manager nem no CocoaPods (o gancho do `cap sync` comenta).
   const pacote = arquivoDoPluginDeLogin("Package.swift");
   const podspec = arquivoDoPluginDeLogin("CapgoCapacitorSocialLogin.podspec");

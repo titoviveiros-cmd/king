@@ -296,6 +296,90 @@ if (/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(CLIENTE_GOOGLE_IOS))
   avisos.push("iOS: sem VITE_KING_GOOGLE_IOS_CLIENT_ID — o iPhone oferece só a Apple (Google entra quando houver o client ID iOS)");
 }
 
+// MANIFESTO DE PRIVACIDADE (Fase 9, red team): o plugin de login usa `UserDefaults` — uma "API com
+// motivo obrigatório" — e não traz manifesto próprio; sem a declaração no app, o envio ao App Store
+// Connect é barrado (ITMS-91053). O motivo é CA92.1 (o app lê o que ele mesmo gravou). Os tipos de
+// dados coletados espelham a política de privacidade (public/privacidade.html) e PRECISAM bater com
+// a ficha "Privacidade do app" no App Store Connect — conferência do titular antes do envio.
+const dadoColetado = (tipo, ligado, finalidade) => `		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>${tipo}</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<${ligado}/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>${finalidade}</string>
+			</array>
+		</dict>`;
+const MANIFESTO_DE_PRIVACIDADE = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- KING: gerado por scripts/preparar-mobile.mjs. Não editar à mão. -->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array>
+${[
+  dadoColetado("NSPrivacyCollectedDataTypeUserID", "true", "NSPrivacyCollectedDataTypePurposeAppFunctionality"),
+  dadoColetado("NSPrivacyCollectedDataTypeEmailAddress", "true", "NSPrivacyCollectedDataTypePurposeAppFunctionality"),
+  dadoColetado("NSPrivacyCollectedDataTypeName", "true", "NSPrivacyCollectedDataTypePurposeAppFunctionality"),
+  dadoColetado("NSPrivacyCollectedDataTypeGameplayContent", "true", "NSPrivacyCollectedDataTypePurposeAppFunctionality"),
+  dadoColetado("NSPrivacyCollectedDataTypeProductInteraction", "false", "NSPrivacyCollectedDataTypePurposeAnalytics"),
+].join("\n")}
+	</array>
+</dict>
+</plist>
+`;
+escrever("ios/App/App/PrivacyInfo.xcprivacy", "iOS: manifesto de privacidade (UserDefaults CA92.1, sem rastreamento)", MANIFESTO_DE_PRIVACIDADE);
+// O arquivo só vale se for RECURSO do alvo: referência, grupo e fase "Copy Bundle Resources".
+// Ids fixos (24 hex) para a edição ser idempotente.
+const REF_PRIVACIDADE = "4B494E4750524956414359A2";
+const BUILD_PRIVACIDADE = "4B494E4750524956414359A1";
+ajustar(
+  "ios/App/App.xcodeproj/project.pbxproj",
+  "iOS: manifesto de privacidade como arquivo do projeto",
+  /(\n\t\t2FAD9762203C412B000D30F8 \/\* config\.xml \*\/ = \{isa = PBXFileReference;[^\n]*)/,
+  `$1\n\t\t${REF_PRIVACIDADE} /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };`,
+  (s) => s.includes(`${REF_PRIVACIDADE} /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference;`),
+);
+ajustar(
+  "ios/App/App.xcodeproj/project.pbxproj",
+  "iOS: manifesto de privacidade no grupo do app",
+  /(\n\t\t\t\t2FAD9762203C412B000D30F8 \/\* config\.xml \*\/,)/,
+  `$1\n\t\t\t\t${REF_PRIVACIDADE} /* PrivacyInfo.xcprivacy */,`,
+  (s) => s.includes(`\t\t\t\t${REF_PRIVACIDADE} /* PrivacyInfo.xcprivacy */,`),
+);
+ajustar(
+  "ios/App/App.xcodeproj/project.pbxproj",
+  "iOS: manifesto de privacidade como recurso (build file)",
+  /(\n\t\t2FAD9763203C412B000D30F8 \/\* config\.xml in Resources \*\/ = \{isa = PBXBuildFile;[^\n]*)/,
+  `$1\n\t\t${BUILD_PRIVACIDADE} /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = ${REF_PRIVACIDADE} /* PrivacyInfo.xcprivacy */; };`,
+  (s) => s.includes(`${BUILD_PRIVACIDADE} /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile;`),
+);
+ajustar(
+  "ios/App/App.xcodeproj/project.pbxproj",
+  "iOS: manifesto de privacidade na fase Copy Bundle Resources",
+  /(\n\t\t\t\t2FAD9763203C412B000D30F8 \/\* config\.xml in Resources \*\/,)/,
+  `$1\n\t\t\t\t${BUILD_PRIVACIDADE} /* PrivacyInfo.xcprivacy in Resources */,`,
+  (s) => s.includes(`\t\t\t\t${BUILD_PRIVACIDADE} /* PrivacyInfo.xcprivacy in Resources */,`),
+);
+
 ajustarTodos(
   "ios/App/App.xcodeproj/project.pbxproj",
   `iOS: MARKETING_VERSION ${VERSAO}`,
