@@ -30,12 +30,22 @@
 // prova a view com o relógio do próprio banco. As mutações `seq-*` e `ledger-*` mexem no texto da
 // migração da sequência (`trocasSeq`) ou no do progresso (`trocas`).
 //
+// ══ RETENÇÃO DAS LÁPIDES (Fase 9, E-2) ══
+//
+// Os modelos aplicam também `20261026120000_retencao_das_lapides.sql`. R1–R12 provam o expurgo: o
+// prazo (720 h, relógio do banco, à prova de fuso), a proteção do que o SERVIDOR ainda tem em aberto
+// (outbox, sala viva — com o serviço compilado de verdade), a dúvida que adia, a falha que não tira
+// nada, os privilégios (com a migração aplicada por um papel NÃO superusuário, como o `postgres` do
+// Supabase) e os rollbacks. As mutações `expurgo-*`, `lapide-*` e `rollback-*` mexem no texto da
+// E-2 (`trocasRetencao`) ou dos rollbacks — e as de privilégio tiram junto as conferências da própria
+// migração, para os TESTES provarem sozinhos.
+//
 // USO:
 //   node scripts/testar-progresso-sql.mjs            # suíte GREEN
 //   node scripts/testar-progresso-sql.mjs --provas   # mutações (RED) + suíte GREEN
 import EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -53,6 +63,15 @@ const SEQUENCIA = ler("supabase/migrations/20261001120000_sequencia.sql");
 // mutação de 'trocas' vale também para ele (ver 'mutarSePresente'), e 'trocasCredito' muta só ele.
 const CREDITO = ler("supabase/migrations/20261025130000_credito_com_conta_excluida.sql");
 const ROLLBACK_SEQUENCIA = ler("supabase/rollback/20261001120000_sequencia_rollback.sql");
+// FASE 9, E-2: a retenção das lápides. 'trocasRetencao' muta só ela; 'trocasRollback*', os rollbacks.
+const RETENCAO = ler("supabase/migrations/20261026120000_retencao_das_lapides.sql");
+const ROLLBACK_RETENCAO = ler("supabase/rollback/20261026120000_retencao_das_lapides_rollback.sql");
+const ROLLBACK_CREDITO = ler("supabase/rollback/20261025130000_credito_com_conta_excluida_rollback.sql");
+const ROLLBACK_CREDITO_POS_E = ler("supabase/rollback/20261025130000_credito_com_conta_excluida_rollback_pos_E.sql");
+/** As conferências do fim da E-2. Mutação de privilégio as tira junto: quem tem de reprovar é o TESTE. */
+const CONFERENCIAS_RETENCAO = RETENCAO.slice(RETENCAO.indexOf("do $conferencias$"), RETENCAO.indexOf("$conferencias$;") + "$conferencias$;".length);
+const GRANT_DO_EXPURGO = "grant execute on function king_private.expurgar_lapides(uuid, uuid[]) to king_server;";
+const FILTRO_DO_EXPURGO = "   where x.excluida_em < v_corte\n     and x.player_id <> all (p_protegidas);";
 const ROLLOUT_ANTES = ler("supabase/rollout/partes/1-antes.sql");
 const ROLLOUT_CONFERENCIAS = ler("supabase/rollout/partes/3-conferencias.sql");
 
@@ -62,6 +81,68 @@ const TRAVA = "  perform 1 from public.progresso as g where g.player_id = any (v
 
 /** Cada mutação remove UMA proteção. `alvos` são os testes que precisam reprovar sem ela. */
 const MUTACOES = {
+  // ── RETENÇÃO DAS LÁPIDES (Fase 9, E-2) ──
+  "expurgo-sem-prazo": {
+    // o pg_cron cego ao contrário: tira toda lápide não protegida, de qualquer idade
+    trocasRetencao: [[FILTRO_DO_EXPURGO, "   where x.player_id <> all (p_protegidas);"]],
+    alvos: ["R1"],
+  },
+  "expurgo-prazo-com-fuso": {
+    // "30 days" depende do fuso da sessão: com horário de verão recente, vale 719 h
+    trocasRetencao: [["now() - interval '720 hours'", "now() - interval '30 days'"]],
+    alvos: ["R1"],
+  },
+  "expurgo-ignora-pendencias": {
+    // o pg_cron cego: só o relógio decide
+    trocasRetencao: [[FILTRO_DO_EXPURGO, "   where x.excluida_em < v_corte;"]],
+    alvos: ["R3", "R3b", "R8"],
+  },
+  "expurgo-aceita-outro-outbox": {
+    // um diretório recriado vazio (caminho trocado, volume que não montou) passaria por "nada pendente"
+    trocasRetencao: [["  elsif v_registrado <> p_outbox then\n    raise exception 'o outbox não é o registrado: nada foi expurgado' using errcode = 'KL001';\n", ""]],
+    alvos: ["R4"],
+  },
+  "expurgo-nulo-silencioso": {
+    trocasRetencao: [["  if p_outbox is null or p_protegidas is null or array_position(p_protegidas, null) is not null then\n    raise exception 'expurgo sem o marcador do outbox ou sem a lista completa de protegidas' using errcode = '22023';\n  end if;\n", ""]],
+    alvos: ["R5"],
+  },
+  "expurgo-espera-sem-prazo": {
+    trocasRetencao: [["set lock_timeout = '5s'\n", ""], [CONFERENCIAS_RETENCAO, ""]],
+    alvos: ["R5", "R7"],
+  },
+  "expurgo-aberto": {
+    trocasRetencao: [[GRANT_DO_EXPURGO, GRANT_DO_EXPURGO.replace("to king_server;", "to king_server, authenticated;")], [CONFERENCIAS_RETENCAO, ""]],
+    alvos: ["R6", "R7"],
+  },
+  "expurgo-sem-definer": {
+    trocasRetencao: [["returns table (removidas integer, retidas integer)\nlanguage plpgsql\nsecurity definer\n", "returns table (removidas integer, retidas integer)\nlanguage plpgsql\n"], [CONFERENCIAS_RETENCAO, ""]],
+    alvos: ["R2", "R7"],
+  },
+  "expurgo-grant-de-tabela": {
+    // o atalho errado: dar ao servidor DELETE na lápide
+    trocasRetencao: [[GRANT_DO_EXPURGO, GRANT_DO_EXPURGO + "\ngrant select, delete on table king_private.contas_excluidas to king_server;"], [CONFERENCIAS_RETENCAO, ""]],
+    alvos: ["R6", "R7"],
+  },
+  "expurgo-search-path-aberto": {
+    trocasRetencao: [["security definer\nset search_path = ''\nset lock_timeout = '5s'\n", "security definer\nset lock_timeout = '5s'\n"], [CONFERENCIAS_RETENCAO, ""]],
+    alvos: ["R7"],
+  },
+  "lapide-com-data-velha": {
+    trocasRetencao: [["  on conflict (player_id) do update set excluida_em = greatest(x.excluida_em, excluded.excluida_em);\n", "  on conflict (player_id) do nothing;\n"]],
+    alvos: ["R12"],
+  },
+  "rollback-pre-e-ignora-e2": {
+    trocasRollbackCredito: [["  if to_regclass('king_private.expurgo_das_lapides') is not null then\n", "  if false then\n"]],
+    alvos: ["R11"],
+  },
+  "rollback-pos-e-sem-trava": {
+    trocasRollbackPosE: [["lock table king_private.contas_excluidas in share mode;\n", ""]],
+    alvos: ["R11"],
+  },
+  "rollback-e2-apaga-a-prova": {
+    trocasRollbackRetencao: [["  if (select a.ja_removidas from rollback_e2_antes as a) = 0 then\n    drop table king_private.expurgo_das_lapides;\n  end if;\n", "  drop table king_private.expurgo_das_lapides;\n"]],
+    alvos: ["R11"],
+  },
   // ── EXCLUSÃO DE CONTA (Fase 9). 'trocasCredito' muta só a migração do crédito. ──
   "credito-derruba-com-excluido": {
     // o defeito original: a chave do excluído derruba o crédito da mesa inteira
@@ -290,6 +371,8 @@ async function portaLivre() {
 
 const SENHA_ADMIN = randomBytes(18).toString("base64url");
 const SENHA_SERVIDOR = randomBytes(18).toString("base64url"); // só existe dentro do banco descartável
+// O papel que imita o `postgres` do Supabase: NÃO superusuário, membro (com herança) de king_progress_owner.
+const SENHA_SUPABASE = randomBytes(18).toString("base64url");
 let PORTA = 0;
 
 const conectar = async (database, user = "postgres", password = SENHA_ADMIN) => {
@@ -315,7 +398,7 @@ const MOVER_MARCO = "update king_private.sequencia_inicio set " +
   "then partidas_a_partir_de - aplicado_em else interval '5 minutes' end), partidas_a_partir_de = $1::timestamptz";
 
 /** `textoSequencia` null = o banco como está em Production hoje, SEM a migração da sequência. */
-async function criarModelo(nome, textoProgresso, textoSequencia, textoCredito = null) {
+async function criarModelo(nome, textoProgresso, textoSequencia, textoCredito = null, textoRetencao = null) {
   const adm = await conectar("postgres");
   await adm.query(`create database ${nome}`);
   await adm.end();
@@ -331,6 +414,7 @@ async function criarModelo(nome, textoProgresso, textoSequencia, textoCredito = 
       await c.query("alter table king_private.sequencia_inicio enable trigger user");
     }
     if (textoCredito) await c.query(textoCredito);
+    if (textoRetencao) await c.query(textoRetencao);
   } finally {
     await c.end();
   }
@@ -347,6 +431,16 @@ async function bancoDeTeste(modelo) {
   return {
     nome, admin,
     async servidor() { const c = await conectar(nome, "king_server", SENHA_SERVIDOR); abertos.push(c); return c; },
+    /** Como o `postgres` do Supabase (SQL Editor): não superusuário, membro do dono. */
+    async supabase() { const c = await conectar(nome, "supa_postgres", SENHA_SUPABASE); abertos.push(c); return c; },
+    /** Conexão do servidor que aguenta ser DERRUBADA (pg_terminate_backend) sem derrubar a suíte. */
+    async servidorDerrubavel() {
+      const c = new pg.Client({ host: "127.0.0.1", port: PORTA, database: nome, user: "king_server", password: SENHA_SERVIDOR });
+      c.on("error", () => {});
+      await c.connect();
+      abertos.push(c);
+      return c;
+    },
     async como(sub) {
       const c = await conectar(nome);
       abertos.push(c);
@@ -474,6 +568,47 @@ async function naoZerados(admin) {
 async function resumoDoLedger(admin) {
   return (await admin.query("select count(*)::int n, coalesce(sum(xp_delta), 0)::int soma, coalesce(max(id), 0)::int ultimo from public.xp_eventos")).rows[0];
 }
+
+// ── retenção das lápides (E-2) ──
+
+/** Exclui a CONTA (cascata + gatilho, como a Edge Function) e ENVELHECE a lápide — só no banco descartável. */
+async function excluirHa(admin, id, horas) {
+  await admin.query("delete from auth.users where id = $1", [id]);
+  await admin.query("update king_private.contas_excluidas set excluida_em = now() - make_interval(secs => $2) where player_id = $1", [id, Math.round(horas * 3600)]);
+}
+async function expurgar(c, marcador, protegidas = []) {
+  return (await c.query("select removidas, retidas from king_private.expurgar_lapides($1::uuid, $2::uuid[])", [marcador, protegidas])).rows[0];
+}
+const lapides = async (admin) => (await admin.query("select player_id from king_private.contas_excluidas order by player_id")).rows.map((r) => r.player_id);
+async function estadoDoExpurgo(admin) {
+  const r = await admin.query("select outbox, rodadas::int as rodadas, lapides_removidas::int as removidas, ultima_rodada from king_private.expurgo_das_lapides");
+  return r.rows[0] ?? null;
+}
+/** Um fuso POSIX cujo horário de verão começou há 10 dias: nele, "30 days" valeria 719 h. */
+function fusoComVeraoRecente(agora = Date.now()) {
+  const dia = (ms) => Math.floor((ms - Date.UTC(new Date(ms).getUTCFullYear(), 0, 1)) / 86_400_000);
+  return `KST5KDT,${dia(agora - 10 * 86_400_000)}/0,${dia(agora + 10 * 86_400_000)}/0`;
+}
+/** O serviço COMPILADO de verdade (o mesmo artefato que vai para a VPS). */
+async function modulosDoServidor() {
+  const [{ OutboxDeProgresso }, { repositorioPg }, { ServicoDeProgresso }] = await Promise.all([
+    import(new URL("apps/server/dist/progresso/outbox.js", RAIZ).href),
+    import(new URL("apps/server/dist/progresso/repositorio.js", RAIZ).href),
+    import(new URL("apps/server/dist/progresso/servico.js", RAIZ).href),
+  ]);
+  return { OutboxDeProgresso, repositorioPg, ServicoDeProgresso };
+}
+const poolDoServidor = (b) => new pg.Pool({ host: "127.0.0.1", port: PORTA, database: b.nome, user: "king_server", password: SENHA_SERVIDOR, max: 2 });
+const SEM_ESPERA = { esperas: [0], esperar: async () => {}, log: () => {} };
+/** Todos os privilégios de king_private e public, objeto a objeto. */
+const RETRATO_DE_PRIVILEGIOS =
+  "select c.oid::regclass::text as obj, coalesce(c.relacl::text, '(padrão)') as acl from pg_class c join pg_namespace n on n.oid = c.relnamespace " +
+  "where n.nspname in ('king_private', 'public') and c.relkind in ('r', 'v', 'm', 'S', 'p', 'f') " +
+  "union all select p.oid::regprocedure::text, coalesce(p.proacl::text, '(padrão)') from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
+  "where n.nspname in ('king_private', 'public') " +
+  "union all select 'schema ' || n.nspname, coalesce(n.nspacl::text, '(padrão)') from pg_namespace n where n.nspname in ('king_private', 'public') order by 1";
+/** Uma pausa logo antes do preflight do rollback pós-E: a janela em que um expurgo entraria. */
+const comPausaNoPosE = (texto) => mutar(texto, [["do $preflight$", "select pg_sleep(1.5);\ndo $preflight$"]]);
 
 function afirmar(cond, msg) { if (!cond) throw new Error(msg); }
 async function reprova(promessa, padrao, msg) {
@@ -1344,7 +1479,8 @@ const TESTES = [
       "select n.nspname || '.' || p.proname as f from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
       "where p.prosecdef and n.nspname not in ('pg_catalog', 'information_schema') order by 1")).rows.map((r) => r.f);
     // Fase 9: + o gatilho da lápide (só grava o id apagado; quem apaga é o papel do Auth — ver X5/X6).
-    afirmar(definidoras.join(",") === "king_private.creditar_partida,king_private.registrar_conta_excluida,public.criar_player", `funções SECURITY DEFINER: ${definidoras.join(", ")}`);
+    // E-2: + a porta do expurgo (tira só lápide com mais de 720 h que o servidor não cite — ver R1–R12).
+    afirmar(definidoras.join(",") === "king_private.creditar_partida,king_private.expurgar_lapides,king_private.registrar_conta_excluida,public.criar_player", `funções SECURITY DEFINER: ${definidoras.join(", ")}`);
     // 4. quem executa o crédito: só king_server
     for (const [papel, pode] of [["anon", false], ["authenticated", false], ["service_role", false], ["king_server", true]]) {
       const r = await b.admin.query("select has_function_privilege($1, 'king_private.creditar_partida(uuid, timestamptz, timestamptz, smallint, smallint, jsonb)', 'execute') as ok", [papel]);
@@ -1620,6 +1756,351 @@ const TESTES = [
       afirmar(r.rows[0].ok === false, `${papel} executa o gatilho da lápide`);
     }
   } },
+  // ── RETENÇÃO DAS LÁPIDES (Fase 9, E-2): 30 dias, e nunca enquanto um crédito ainda puder lê-las ──
+  { id: "R1", nome: "lápide com MENOS de 30 dias (720 h) nunca sai — nem com lista vazia, nem num fuso com horário de verão recém-começado", async fn(b) {
+    const ids = await b.jogadores(4);
+    const idades = [0, 29 * 24, 720 - 5 / 60, 720 - 0.5]; // horas
+    for (const [i, id] of ids.entries()) await excluirHa(b.admin, id, idades[i]);
+    const s = await b.servidor();
+    // o fuso da SESSÃO não pode mexer no prazo: com horário de verão começado há 10 dias, "30 days" seria 719 h
+    await s.query(`set timezone = '${fusoComVeraoRecente()}'`);
+    const r = await expurgar(s, randomUUID(), []);
+    afirmar(r.removidas === 0 && r.retidas === 0, `saiu lápide no prazo: ${JSON.stringify(r)}`);
+    afirmar((await lapides(b.admin)).length === 4, "uma lápide com menos de 720 h sumiu");
+  } },
+  { id: "R2", nome: "lápide com MAIS de 30 dias e sem pendência sai — só ela; a jovem fica; o estado conta a rodada", async fn(b) {
+    const [a, x, y] = await b.jogadores(3);
+    await excluirHa(b.admin, a, 720 + 5 / 60);
+    await excluirHa(b.admin, x, 45 * 24);
+    await excluirHa(b.admin, y, 24);
+    const s = await b.servidor();
+    const marcador = randomUUID();
+    const r = await expurgar(s, marcador, []);
+    afirmar(r.removidas === 2 && r.retidas === 0, `rodada: ${JSON.stringify(r)}`);
+    afirmar(JSON.stringify(await lapides(b.admin)) === JSON.stringify([y]), "não sobrou só a lápide jovem");
+    const e = await estadoDoExpurgo(b.admin);
+    afirmar(e.outbox === marcador && e.rodadas === 1 && e.removidas === 2 && e.ultima_rodada !== null, `estado: ${JSON.stringify(e)}`);
+  } },
+  { id: "R3", nome: "lápide VENCIDA citada por pendência VÁLIDA do outbox fica; o crédito atrasado fecha para os outros; só depois ela sai", async fn(b) {
+    const { OutboxDeProgresso, repositorioPg, ServicoDeProgresso } = await modulosDoServidor();
+    const [a, x, solta] = await b.jogadores(3);
+    const dirOutbox = mkdtempSync(join(tmpdir(), "king-outbox-r3-"));
+    const repo = repositorioPg({ pool: poolDoServidor(b) });
+    const opcoes = { ...SEM_ESPERA, salasVivas: () => [] };
+    try {
+      // a partida terminou há 40 dias e o crédito ficou PENDENTE; A excluiu a conta 1 h depois
+      const fim = Date.now() - 40 * 86_400_000;
+      new OutboxDeProgresso(dirOutbox).gravar({ partidaId: randomUUID(), iniciadaEm: new Date(fim - 10 * 60_000).toISOString(),
+        terminadaEm: new Date(fim).toISOString(), bots: 2,
+        humanos: [{ playerId: a, posicao: 2, participou: true }, { playerId: x, posicao: 1, participou: true }] });
+      await excluirHa(b.admin, a, 40 * 24 - 1);
+      await excluirHa(b.admin, solta, 45 * 24);
+      // o banco recusa o crédito (pooler instável), mas o expurgo roda: A fica, a solta sai
+      const instavel = { ...repo, async creditar() { throw Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }); } };
+      const s1 = new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), instavel, opcoes);
+      await s1.iniciar();
+      const r1 = await s1.expurgarLapides();
+      afirmar(r1.desfecho === "expurgado" && r1.removidas === 1 && r1.retidas === 1, `1ª rodada: ${JSON.stringify(r1)}`);
+      afirmar(JSON.stringify(await lapides(b.admin)) === JSON.stringify([a]), "a lápide pendente não ficou, ou a solta não saiu");
+      // o banco volta: o crédito atrasado fecha (X recebe; A é pulado pela lápide) e só então a de A sai
+      const s2 = new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), repo, opcoes);
+      await s2.iniciar();
+      afirmar(await total(b.admin, x) === 150, `XP de X depois do crédito atrasado: ${await total(b.admin, x)}`);
+      const r2 = await s2.expurgarLapides();
+      afirmar(r2.removidas === 1 && r2.retidas === 0 && (await lapides(b.admin)).length === 0, `2ª rodada: ${JSON.stringify(r2)}`);
+      const e = await estadoDoExpurgo(b.admin);
+      afirmar(e.outbox === readFileSync(join(dirOutbox, ".king-outbox"), "utf8").trim() && e.rodadas === 2 && e.removidas === 2,
+        `o banco não registrou o marcador do diretório: ${JSON.stringify(e)}`);
+    } finally {
+      await repo.encerrar().catch(() => {});
+      rmSync(dirOutbox, { recursive: true, force: true });
+    }
+  } },
+  { id: "R3b", nome: "lápide VENCIDA de quem está numa SALA VIVA fica (o lobby devolve o assento sem token); saiu da sala, ela sai", async fn(b) {
+    const { OutboxDeProgresso, repositorioPg, ServicoDeProgresso } = await modulosDoServidor();
+    const [a] = await b.jogadores(1);
+    await excluirHa(b.admin, a, 60 * 24);
+    const dirOutbox = mkdtempSync(join(tmpdir(), "king-outbox-r3b-"));
+    const repo = repositorioPg({ pool: poolDoServidor(b) });
+    const naSala = new Set([a.toUpperCase()]);
+    try {
+      const s = new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), repo, { ...SEM_ESPERA, salasVivas: () => naSala });
+      await s.iniciar();
+      const r1 = await s.expurgarLapides();
+      afirmar(r1.removidas === 0 && r1.retidas === 1 && (await lapides(b.admin)).length === 1, `com A na sala: ${JSON.stringify(r1)}`);
+      naSala.clear();
+      const r2 = await s.expurgarLapides();
+      afirmar(r2.removidas === 1 && (await lapides(b.admin)).length === 0, `sem A na sala: ${JSON.stringify(r2)}`);
+    } finally {
+      await repo.encerrar().catch(() => {});
+      rmSync(dirOutbox, { recursive: true, force: true });
+    }
+  } },
+  { id: "R4", nome: "outbox duvidoso — arquivo ilegível, diretório ausente, caminho que é arquivo, OUTRO marcador: nenhuma lápide sai", async fn(b) {
+    const { OutboxDeProgresso, repositorioPg, ServicoDeProgresso } = await modulosDoServidor();
+    const [a] = await b.jogadores(1);
+    await excluirHa(b.admin, a, 60 * 24);
+    const base = mkdtempSync(join(tmpdir(), "king-outbox-r4-"));
+    const repo = repositorioPg({ pool: poolDoServidor(b) });
+    const naSala = new Set();
+    const servicoEm = async (dirOutbox) => {
+      const s = new ServicoDeProgresso(new OutboxDeProgresso(dirOutbox), repo, { ...SEM_ESPERA, salasVivas: () => naSala });
+      await s.iniciar().catch(() => {}); // caminho que é arquivo: o reprocesso do boot já lança (comportamento de antes)
+      return s;
+    };
+    try {
+      const corrompido = join(base, "corrompido");
+      mkdirSync(corrompido);
+      writeFileSync(join(corrompido, `${randomUUID()}.json`), "{quebrado");
+      writeFileSync(join(base, "arquivo"), "x");
+      for (const [rotulo, dirOutbox] of [["arquivo ilegível", corrompido], ["diretório ausente", join(base, "ausente")], ["caminho que é arquivo", join(base, "arquivo")]]) {
+        const r = await (await servicoEm(dirOutbox)).expurgarLapides();
+        afirmar(r.desfecho === "adiado", `${rotulo}: ${JSON.stringify(r)}`);
+        afirmar(JSON.stringify(await lapides(b.admin)) === JSON.stringify([a]), `${rotulo}: a lápide saiu`);
+      }
+      afirmar(!existsSync(join(base, "ausente")), "o expurgo criou o diretório que não existia");
+      // o diretório certo registra o seu marcador (A protegida por estar numa sala)...
+      const certo = join(base, "certo");
+      mkdirSync(certo);
+      naSala.add(a);
+      const r0 = await (await servicoEm(certo)).expurgarLapides();
+      afirmar(r0.desfecho === "expurgado" && r0.retidas === 1, `diretório certo: ${JSON.stringify(r0)}`);
+      naSala.clear();
+      // ...e um diretório NOVO e vazio (caminho trocado, volume que não montou) tem outro marcador: recusado
+      const novo = join(base, "novo");
+      mkdirSync(novo);
+      const r = await (await servicoEm(novo)).expurgarLapides();
+      afirmar(r.desfecho === "falhou" && String(r.motivo).startsWith("KL001"), `diretório novo: ${JSON.stringify(r)}`);
+      afirmar(JSON.stringify(await lapides(b.admin)) === JSON.stringify([a]), "o diretório novo expurgou");
+      // controle: de volta ao certo, sem pendência nem sala, a vencida sai — o teste não é vazio
+      const r2 = await (await servicoEm(certo)).expurgarLapides();
+      afirmar(r2.removidas === 1 && (await lapides(b.admin)).length === 0, `controle: ${JSON.stringify(r2)}`);
+    } finally {
+      await repo.encerrar().catch(() => {});
+      rmSync(base, { recursive: true, force: true });
+    }
+  } },
+  { id: "R5", nome: "falha no meio do expurgo — chamada incompleta, trava, conexão derrubada: nenhuma lápide sai e nenhuma rodada conta", async fn(b) {
+    const ids = await b.jogadores(3);
+    for (const id of ids) await excluirHa(b.admin, id, 60 * 24);
+    const s = await b.servidor();
+    const marcador = randomUUID();
+    // (a) sem marcador, sem lista, lista com nulo: recusa — NULL nunca quer dizer "nada pendente"
+    for (const [m, lista] of [[null, []], [marcador, null], [marcador, [ids[0], null]]]) {
+      await reprova(s.query("select * from king_private.expurgar_lapides($1::uuid, $2::uuid[])", [m, lista]), /marcador do outbox|lista completa/,
+        `aceitou ${JSON.stringify([m, lista])}`);
+    }
+    afirmar((await lapides(b.admin)).length === 3, "uma chamada recusada tirou lápide");
+    // (b) uma lápide presa por outra transação: o expurgo desiste em 5 s e não leva NENHUMA — nem as soltas
+    const trava = await b.outraAdmin();
+    await trava.query("begin");
+    await trava.query("select 1 from king_private.contas_excluidas where player_id = $1 for update", [ids[1]]);
+    const chamada = expurgar(s, marcador, []).then(() => null, (e) => e);
+    const desfecho = await Promise.race([chamada, new Promise((ok) => setTimeout(() => ok("pendurada"), 15_000))]);
+    if (desfecho === "pendurada") {
+      await trava.query("commit");
+      await chamada;
+      throw new Error("o expurgo esperou a trava sem prazo");
+    }
+    afirmar(desfecho?.code === "55P03", `o expurgo travado não desistiu pela trava: ${desfecho?.code ?? "PASSOU"}`);
+    afirmar((await lapides(b.admin)).length === 3, "o expurgo travado tirou lápide");
+    // (c) a conexão do servidor derrubada no meio (o expurgo parado na mesma trava): idem
+    const d = await b.servidorDerrubavel();
+    const derrubada = { pid: d.processID, estado: { terminou: false } };
+    derrubada.p = expurgar(d, marcador, []).then(() => null, (e) => e).finally(() => { derrubada.estado.terminou = true; });
+    // Parada na trava → derrubada. (Numa máquina muito lenta o prazo de 5 s da própria trava pode vencer
+    // antes; também é falha no meio, e as conferências abaixo valem igual.)
+    if (await paradaOuTerminou(b, derrubada, [trava.processID]) === "parada") {
+      await b.admin.query("select pg_terminate_backend($1)", [d.processID]);
+    }
+    afirmar((await derrubada.p) !== null, "a chamada derrubada terminou sem erro");
+    await trava.query("commit");
+    afirmar((await lapides(b.admin)).length === 3, "a chamada derrubada tirou lápide");
+    const e = await estadoDoExpurgo(b.admin);
+    afirmar(e.rodadas === 0 && e.outbox === null, `uma rodada que falhou ficou registrada: ${JSON.stringify(e)}`);
+  } },
+  { id: "R6", semRetencao: true, nome: "a E-2, aplicada por papel NÃO superusuário, só acrescenta o EXECUTE de king_server; com GRANT a mais, ela aborta inteira", async fn(b, ctx) {
+    const retrato = async () => (await b.admin.query(RETRATO_DE_PRIVILEGIOS)).rows.map((r) => `${r.obj} ${r.acl}`);
+    const antes = await retrato();
+    const sp = await b.supabase();
+    // (a) a E-2 com um GRANT a mais e as conferências INTACTAS: aborta, e nada fica. O 2º caso (o
+    //     servidor virando membro do dono) só um superusuário consegue conceder — e a transação o desfaz.
+    const comGrantAMais = mutar(RETENCAO, [[GRANT_DO_EXPURGO, GRANT_DO_EXPURGO.replace("to king_server;", "to king_server, anon;")]]);
+    const comServidorDono = mutar(RETENCAO, [[GRANT_DO_EXPURGO, GRANT_DO_EXPURGO + "\ngrant king_progress_owner to king_server;"]]);
+    const adm = await b.outraAdmin();
+    for (const [rotulo, quem, texto] of [["privilégio a mais", sp, comGrantAMais], ["servidor membro do dono", adm, comServidorDono]]) {
+      await reprova(quem.query(texto), /E-2 ABORTADA/, `a E-2 com ${rotulo} passou pelas próprias conferências`);
+      await quem.query("rollback").catch(() => {});
+      afirmar(JSON.stringify(await retrato()) === JSON.stringify(antes), `a E-2 abortada (${rotulo}) deixou objeto ou privilégio`);
+    }
+    afirmar((await b.admin.query("select pg_has_role('king_server', 'king_progress_owner', 'MEMBER') as m")).rows[0].m === false,
+      "a E-2 abortada deixou king_server membro do dono");
+    // (b) a E-2 deste teste, pelo papel do Supabase: só dois objetos novos, e nenhum privilégio público
+    await sp.query(ctx.retencao);
+    const depois = await retrato();
+    const novos = depois.filter((l) => !antes.includes(l));
+    const sumidos = antes.filter((l) => !depois.includes(l));
+    afirmar(sumidos.length === 0, `privilégio mudou: ${sumidos.join(" | ")}`);
+    afirmar(novos.length === 2, `objetos/privilégios novos: ${novos.join(" | ")}`);
+    const porta = novos.find((l) => l.startsWith("king_private.expurgar_lapides("));
+    const estado = novos.find((l) => l.startsWith("king_private.expurgo_das_lapides "));
+    afirmar(porta?.endsWith(" {king_progress_owner=X/king_progress_owner,king_server=X/king_progress_owner}"), `ACL da porta: ${porta}`);
+    afirmar(estado && /^\S+ \{king_progress_owner=[a-zA-Z]+\/king_progress_owner\}$/.test(estado), `ACL do estado do expurgo: ${estado}`);
+    for (const papel of ["public", "anon", "authenticated", "service_role"]) {
+      const r = (await b.admin.query(
+        "select has_function_privilege($1, 'king_private.expurgar_lapides(uuid,uuid[])', 'execute') as f, " +
+        "has_table_privilege($1, 'king_private.contas_excluidas', 'select, insert, update, delete, truncate, references, trigger') as l, " +
+        "has_table_privilege($1, 'king_private.expurgo_das_lapides', 'select, insert, update, delete, truncate, references, trigger') as e, " +
+        "has_schema_privilege($1, 'king_private', 'usage') as u", [papel])).rows[0];
+      afirmar(!r.f && !r.l && !r.e && !r.u, `${papel} ganhou acesso: ${JSON.stringify(r)}`);
+    }
+  } },
+  { id: "R7", nome: "king_server: só EXECUTE na porta — não lê, não escreve, não apaga lápide direto; e nem pela porta tira lápide jovem", async fn(b) {
+    const [a, x] = await b.jogadores(2);
+    await excluirHa(b.admin, a, 1);
+    await excluirHa(b.admin, x, 60 * 24);
+    const s = await b.servidor();
+    for (const sql of ["select * from king_private.contas_excluidas", "delete from king_private.contas_excluidas",
+      "update king_private.contas_excluidas set excluida_em = now() - interval '1 year'", "truncate king_private.contas_excluidas",
+      `insert into king_private.contas_excluidas (player_id) values ('${randomUUID()}')`,
+      "select * from king_private.expurgo_das_lapides", "update king_private.expurgo_das_lapides set outbox = null",
+      "delete from king_private.expurgo_das_lapides", "select king_private.registrar_conta_excluida()"]) {
+      await reprova(s.query(sql), /permission denied/, `king_server conseguiu: ${sql}`);
+    }
+    const r = await expurgar(s, randomUUID(), []);
+    afirmar(r.removidas === 1 && JSON.stringify(await lapides(b.admin)) === JSON.stringify([a]), `a porta tirou mais que a vencida: ${JSON.stringify(r)}`);
+    // a porta é presa: dono dedicado, SECURITY DEFINER, search_path vazio, trava com prazo — e devolve só contagens
+    const f = (await b.admin.query("select pg_get_userbyid(proowner) as dono, prosecdef, proconfig, pg_get_function_result(oid) as ret " +
+      "from pg_proc where oid = 'king_private.expurgar_lapides(uuid,uuid[])'::regprocedure")).rows[0];
+    afirmar(f.dono === "king_progress_owner" && f.prosecdef && JSON.stringify(f.proconfig) === JSON.stringify(['search_path=""', "lock_timeout=5s"])
+      && f.ret === "TABLE(removidas integer, retidas integer)", `porta: ${JSON.stringify(f)}`);
+    for (const [papel, pode] of [["king_server", true], ["anon", false], ["authenticated", false], ["service_role", false], ["public", false]]) {
+      const p = (await b.admin.query("select has_function_privilege($1, 'king_private.expurgar_lapides(uuid,uuid[])', 'execute') as ok", [papel])).rows[0].ok;
+      afirmar(p === pode, `${papel} ${pode ? "não executa" : "executa"} a porta do expurgo`);
+    }
+    for (const tabela of ["king_private.contas_excluidas", "king_private.expurgo_das_lapides", "king_private.partidas", "public.progresso", "public.xp_eventos"]) {
+      const p = (await b.admin.query("select has_table_privilege('king_server', $1, 'insert, update, delete, truncate') as ok", [tabela])).rows[0].ok;
+      afirmar(p === false, `king_server escreve em ${tabela}`);
+    }
+    // NOINHERIT esconde o privilégio de um papel de que ele seja membro — mas SET ROLE não: membro do dono, nunca
+    afirmar((await b.admin.query("select pg_has_role('king_server', 'king_progress_owner', 'MEMBER') as m")).rows[0].m === false,
+      "king_server é membro do dono das lápides");
+  } },
+  { id: "R8", nome: "reexecução é idempotente: a 2ª rodada não tira mais nada, a protegida segue retida, o estado só conta a rodada", async fn(b) {
+    const [a, x, y] = await b.jogadores(3);
+    await excluirHa(b.admin, a, 60 * 24);
+    await excluirHa(b.admin, x, 61 * 24);
+    await excluirHa(b.admin, y, 2);
+    const s = await b.servidor();
+    const marcador = randomUUID();
+    const r1 = await expurgar(s, marcador, [x]);
+    const depois1 = await lapides(b.admin);
+    const r2 = await expurgar(s, marcador, [x]);
+    const depois2 = await lapides(b.admin);
+    afirmar(r1.removidas === 1 && r1.retidas === 1 && r2.removidas === 0 && r2.retidas === 1, `rodadas: ${JSON.stringify([r1, r2])}`);
+    afirmar(JSON.stringify(depois1) === JSON.stringify(depois2) && JSON.stringify(depois2) === JSON.stringify([x, y].sort()), `lápides: ${JSON.stringify(depois2)}`);
+    const e = await estadoDoExpurgo(b.admin);
+    afirmar(e.rodadas === 2 && e.removidas === 1 && e.outbox === marcador, `estado: ${JSON.stringify(e)}`);
+  } },
+  { id: "R9", semRetencao: true, nome: "a E-2 não toca o crédito: a MESMA função, e o crédito normal com lápide vencida por perto credita como sempre", async fn(b, ctx) {
+    const md5 = async () => (await b.admin.query("select md5(prosrc) as m from pg_proc where oid = " +
+      "'king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)'::regprocedure")).rows[0].m;
+    const antes = await md5();
+    await (await b.supabase()).query(ctx.retencao);
+    afirmar(await md5() === antes, "a E-2 mudou a função de crédito");
+    const [a, x, z] = await b.jogadores(3);
+    await excluirHa(b.admin, z, 60 * 24);
+    const s = await b.servidor();
+    await expurgar(s, randomUUID(), []);
+    const { linhas } = await creditar(s, { ...janelaDaPartida(0), humanos: [{ id: a, posicao: 1 }, { id: x, posicao: 2 }] });
+    afirmar(xpDe(linhas, a) === 150 && xpDe(linhas, x) === 130 && await total(b.admin, a) === 150 && await total(b.admin, x) === 130,
+      `crédito normal: ${JSON.stringify(linhas)}`);
+  } },
+  { id: "R10", nome: "cenário do D com o expurgo rodando: conta excluída pelo papel do Auth antes do crédito segue protegendo os demais", async fn(b) {
+    const [a, x, velho] = await b.jogadores(3);
+    await excluirHa(b.admin, velho, 60 * 24);
+    // como no Supabase: quem apaga é o supabase_auth_admin (ver X5)
+    await b.admin.query("do $$ begin if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then create role supabase_auth_admin nologin noinherit; end if; end $$");
+    await b.admin.query("grant usage on schema auth to supabase_auth_admin");
+    await b.admin.query("alter table auth.users owner to supabase_auth_admin");
+    const auth = await b.outraAdmin();
+    await auth.query("set role supabase_auth_admin");
+    await auth.query("delete from auth.users where id = $1", [a]);
+    await auth.query("reset role");
+    const s = await b.servidor();
+    const r = await expurgar(s, randomUUID(), []);
+    afirmar(r.removidas === 1 && JSON.stringify(await lapides(b.admin)) === JSON.stringify([a]), `o expurgo levou a lápide jovem: ${JSON.stringify(r)}`);
+    const args = { partida: randomUUID(), ...janelaDaPartida(0), humanos: [{ id: a, posicao: 2, participou: false }, { id: x, posicao: 1 }] };
+    const { linhas } = await creditar(s, args);
+    afirmar(linhas.length === 1 && xpDe(linhas, x) === 150, `crédito com o excluído: ${JSON.stringify(linhas)}`);
+    const repetido = await creditar(s, args);
+    afirmar(repetido.linhas.length === 1 && repetido.linhas[0].novo === false && await total(b.admin, x) === 150, `repetição: ${JSON.stringify(repetido.linhas)}`);
+  } },
+  { id: "R11", nome: "rollbacks: pré-E recusa com a E-2; o da E-2 tira só a porta e MANTÉM a prova de exclusão; pós-E com expurgo no meio não aborta à toa", async fn(b, ctx) {
+    await b.admin.query("alter table public.players owner to supa_postgres"); // como no Supabase: o postgres é dono de players
+    const sp = await b.supabase();
+    // (a) sem lápide nenhuma e com a E-2: o pré-E recusa e não muda nada
+    await reprova(sp.query(ctx.rollbackCredito), /retenção das lápides \(E-2\)/, "o rollback pré-E rodou com a E-2 aplicada");
+    await sp.query("rollback").catch(() => {});
+    const intacto = await b.admin.query("select to_regclass('king_private.contas_excluidas') is not null as tabela, " +
+      "exists (select 1 from pg_trigger where tgname = 'players_lapide_da_exclusao') as gatilho");
+    afirmar(intacto.rows[0].tabela && intacto.rows[0].gatilho, "o rollback pré-E recusado mexeu em algo");
+    // (b) com remoção feita: o rollback da E-2 tira a porta, devolve o gatilho do D e MANTÉM o estado
+    const [a, x, y] = await b.jogadores(3);
+    await excluirHa(b.admin, a, 60 * 24);
+    const s = await b.servidor();
+    const marcador = randomUUID();
+    afirmar((await expurgar(s, marcador, [])).removidas === 1, "a vencida não saiu");
+    await excluirHa(b.admin, x, 1);
+    const rb = [].concat(await sp.query(ctx.rollbackRetencao)).at(-1).rows[0];
+    afirmar(rb?.resultado === "ROLLBACK E-2 APLICADO" && rb.sem_expurgo && rb.estado_mantido && Number(rb.lapides_preservadas) === 1,
+      `rollback da E-2: ${JSON.stringify(rb)}`);
+    const def = (await b.admin.query("select pg_get_functiondef('king_private.registrar_conta_excluida()'::regprocedure) as d")).rows[0].d;
+    afirmar(def.includes("do nothing") && !def.includes("greatest"), "o gatilho da lápide não voltou ao texto do passo D");
+    await reprova(sp.query(ctx.rollbackCredito), /ROLLBACK RECUSADO/, "o pré-E rodou depois de uma exclusão real");
+    await sp.query("rollback").catch(() => {});
+    // (c) reaplicar a E-2 reaproveita o estado (mesmo marcador) — e o pós-E com um expurgo no meio aplica
+    await sp.query(ctx.retencao);
+    afirmar((await estadoDoExpurgo(b.admin)).outbox === marcador, "a reaplicação perdeu o marcador registrado");
+    await excluirHa(b.admin, y, 60 * 24);
+    const rbConn = await b.supabase();
+    const rollback = rbConn.query(comPausaNoPosE(ctx.rollbackCreditoPosE)).then((r) => ({ linha: [].concat(r).at(-1).rows[0] }), (e) => ({ erro: e.message }));
+    const prazo = Date.now() + 10_000;
+    while ((await b.admin.query("select count(*)::int as n from pg_locks where pid = $1 and relation = 'king_private.contas_excluidas'::regclass and granted",
+      [rbConn.processID])).rows[0].n === 0) {
+      if (Date.now() > prazo) throw new Error("o rollback pós-E não chegou na lápide");
+      await new Promise((ok) => setTimeout(ok, 5));
+    }
+    const expurgo = expurgar(s, marcador, []).then((r) => r, (e) => ({ erro: e.code }));
+    const r = await rollback;
+    const e = await expurgo;
+    afirmar(r.linha?.resultado === "ROLLBACK PÓS-E APLICADO", `rollback pós-E com um expurgo no meio: ${r.erro ?? JSON.stringify(r.linha)}`);
+    // o expurgo esperou a trava e rodou depois — ou, numa máquina lenta, desistiu pela trava (55P03)
+    afirmar(e.removidas === 1 || e.erro === "55P03", `o expurgo que esperou o rollback: ${JSON.stringify(e)}`);
+    if (e.erro) await expurgar(s, marcador, []);
+    afirmar(!(await lapides(b.admin)).includes(y), "a vencida não saiu depois do rollback pós-E");
+  } },
+  { id: "R11b", nome: "rollback da E-2 SEM remoção nenhuma: o estado sai junto, e o rollback pré-E do passo D volta a valer", async fn(b, ctx) {
+    await b.admin.query("alter table public.players owner to supa_postgres");
+    const sp = await b.supabase();
+    const rb = [].concat(await sp.query(ctx.rollbackRetencao)).at(-1).rows[0];
+    afirmar(rb?.resultado === "ROLLBACK E-2 APLICADO" && rb.sem_expurgo && rb.estado_mantido === false, `rollback da E-2: ${JSON.stringify(rb)}`);
+    await sp.query(ctx.rollbackCredito);
+    const fim = await b.admin.query("select to_regclass('king_private.contas_excluidas') is null as sem_lapide, " +
+      "not exists (select 1 from pg_trigger where tgname = 'players_lapide_da_exclusao') as sem_gatilho, " +
+      "position('contas_excluidas' in pg_get_functiondef('king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)'::regprocedure)) = 0 as original");
+    afirmar(fim.rows[0].sem_lapide && fim.rows[0].sem_gatilho && fim.rows[0].original, `depois do pré-E: ${JSON.stringify(fim.rows[0])}`);
+  } },
+  { id: "R12", nome: "a lápide guarda a exclusão MAIS RECENTE: um id excluído de novo não herda a idade da primeira e não sai antes do prazo", async fn(b) {
+    const [a] = await b.jogadores(1);
+    await excluirHa(b.admin, a, 31 * 24); // a 1ª exclusão, já vencida
+    await b.admin.query("insert into auth.users (id) values ($1)", [a]); // o mesmo id volta (o gatilho da identidade recria o perfil)
+    await b.admin.query("delete from auth.users where id = $1", [a]); // e é excluído de novo agora
+    const idade = (await b.admin.query("select extract(epoch from now() - excluida_em)::int as s from king_private.contas_excluidas where player_id = $1", [a])).rows[0].s;
+    afirmar(idade < 120, `a lápide ficou com a idade da 1ª exclusão: ${idade} s`);
+    const r = await expurgar(await b.servidor(), randomUUID(), []);
+    afirmar(r.removidas === 0 && (await lapides(b.admin)).length === 1, `a lápide de uma exclusão de agora saiu: ${JSON.stringify(r)}`);
+  } },
   { id: "S23", semSequencia: true, nome: "o ARQUIVO do rollout: igual à migração; com defeito (backfill), aborta e não grava NADA; repetido, recusa na parte 1", async fn(b, ctx) {
     // (a) o arquivo que o Tito cola é exatamente o que as partes e a migração montam hoje
     const { montarRollout } = await import(new URL("scripts/montar-rollout-sequencia.mjs", RAIZ).href);
@@ -1657,9 +2138,14 @@ const TESTES = [
 async function rodar(testes, modelos, { esperaReprovar = false } = {}) {
   const resultados = [];
   for (const t of testes) {
-    const b = await bancoDeTeste(t.semSequencia ? modelos.semSequencia : t.janela ? modelos.janela : modelos.plano);
+    const b = await bancoDeTeste(t.semRetencao ? modelos.semRetencao : t.semSequencia ? modelos.semSequencia : t.janela ? modelos.janela : modelos.plano);
     let erro = null;
-    try { await t.fn(b, { sequencia: modelos.textoSequencia }); } catch (e) { erro = e; } finally { await b.fechar(); }
+    const ctx = {
+      sequencia: modelos.textoSequencia, retencao: modelos.textoRetencao ?? RETENCAO,
+      rollbackRetencao: modelos.rollbackRetencao ?? ROLLBACK_RETENCAO, rollbackCredito: modelos.rollbackCredito ?? ROLLBACK_CREDITO,
+      rollbackCreditoPosE: modelos.rollbackCreditoPosE ?? ROLLBACK_CREDITO_POS_E,
+    };
+    try { await t.fn(b, ctx); } catch (e) { erro = e; } finally { await b.fechar(); }
     resultados.push({ t, erro });
     const marca = esperaReprovar ? (erro ? "🔴 RED" : "⚠️  PASSOU") : (erro ? "✗" : "✓");
     console.log(`   ${marca} ${t.id} ${t.nome}${erro ? `\n        → ${String(erro.message).split("\n")[0]}` : ""}`);
@@ -1691,12 +2177,16 @@ try {
 
   // Modelos: as migrações ORIGINAIS, a mesma com a janela de corrida alargada, e o banco como está
   // em Production hoje (sem a sequência), onde a migração da sequência é aplicada pelo próprio teste.
-  await criarModelo("modelo_plano", PROGRESSO, SEQUENCIA, CREDITO);
-  await criarModelo("modelo_janela", comJanela(PROGRESSO), SEQUENCIA, comJanela(CREDITO));
+  await criarModelo("modelo_plano", PROGRESSO, SEQUENCIA, CREDITO, RETENCAO);
+  await criarModelo("modelo_janela", comJanela(PROGRESSO), SEQUENCIA, comJanela(CREDITO), RETENCAO);
   await criarModelo("modelo_sem_sequencia", PROGRESSO, null);
+  // O banco de hoje em Production + o passo D: é nele que R6/R9 aplicam a E-2 com o papel do Supabase.
+  await criarModelo("modelo_sem_retencao", PROGRESSO, SEQUENCIA, CREDITO);
   // O LOGIN do servidor existe SÓ neste banco descartável, com senha aleatória desta execução.
   const adm = await conectar("postgres");
   await adm.query(`alter role king_server login password '${SENHA_SERVIDOR}'`);
+  await adm.query(`create role supa_postgres login nosuperuser inherit password '${SENHA_SUPABASE}'`);
+  await adm.query("grant king_progress_owner to supa_postgres");
   await adm.end();
 
   if (PROVAS) {
@@ -1706,13 +2196,17 @@ try {
       const mutadoSeq = mutar(SEQUENCIA, m.trocasSeq ?? []);
       const sufixo = nome.replace(/-/g, "_");
       const mutadoCredito = mutar(mutarSePresente(CREDITO, m.trocas ?? []), m.trocasCredito ?? []);
-      await criarModelo(`modelo_plano_${sufixo}`, mutado, mutadoSeq, mutadoCredito);
-      await criarModelo(`modelo_janela_${sufixo}`, comJanela(mutado), mutadoSeq, comJanela(mutadoCredito));
+      const mutadoRetencao = mutar(RETENCAO, m.trocasRetencao ?? []);
+      await criarModelo(`modelo_plano_${sufixo}`, mutado, mutadoSeq, mutadoCredito, mutadoRetencao);
+      await criarModelo(`modelo_janela_${sufixo}`, comJanela(mutado), mutadoSeq, comJanela(mutadoCredito), mutadoRetencao);
       console.log(`  mutação: ${nome}`);
       const alvos = TESTES.filter((t) => m.alvos.includes(t.id));
       if (alvos.length !== m.alvos.length) throw new Error(`mutação ${nome}: alvo inexistente em ${m.alvos.join(",")}`);
       const r = await rodar(alvos, { plano: `modelo_plano_${sufixo}`, janela: `modelo_janela_${sufixo}`,
-        semSequencia: "modelo_sem_sequencia", textoSequencia: mutadoSeq }, { esperaReprovar: true });
+        semSequencia: "modelo_sem_sequencia", semRetencao: "modelo_sem_retencao", textoSequencia: mutadoSeq, textoRetencao: mutadoRetencao,
+        rollbackRetencao: mutar(ROLLBACK_RETENCAO, m.trocasRollbackRetencao ?? []),
+        rollbackCredito: mutar(ROLLBACK_CREDITO, m.trocasRollbackCredito ?? []),
+        rollbackCreditoPosE: mutar(ROLLBACK_CREDITO_POS_E, m.trocasRollbackPosE ?? []) }, { esperaReprovar: true });
       const passaram = r.filter((x) => !x.erro).map((x) => x.t.id);
       if (passaram.length) { falhou = true; console.log(`   ✗ MUTAÇÃO NÃO DETECTADA por: ${passaram.join(", ")}`); }
     }
@@ -1720,7 +2214,8 @@ try {
   }
 
   console.log("GREEN — migração original\n");
-  const r = await rodar(TESTES, { plano: "modelo_plano", janela: "modelo_janela", semSequencia: "modelo_sem_sequencia", textoSequencia: SEQUENCIA });
+  const r = await rodar(TESTES, { plano: "modelo_plano", janela: "modelo_janela", semSequencia: "modelo_sem_sequencia",
+    semRetencao: "modelo_sem_retencao", textoSequencia: SEQUENCIA, textoRetencao: RETENCAO });
   const falhas = r.filter((x) => x.erro).length;
   if (falhas) falhou = true;
   console.log(`\n${falhou ? "❌ REPROVADO" : "✅ APROVADO"} — ${r.length - falhas}/${r.length} testes verdes${PROVAS ? `, ${Object.keys(MUTACOES).length} mutações` : ""}`);

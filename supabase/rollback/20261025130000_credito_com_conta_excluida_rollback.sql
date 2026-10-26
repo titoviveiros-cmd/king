@@ -6,6 +6,11 @@
 -- arquivo é PROIBIDO: ele apaga as lápides, e sem elas um crédito pendente com conta excluída derruba
 -- o XP da mesa inteira para sempre (o outbox repete o 23503). Ele mesmo recusa rodar se houver lápide.
 -- Depois do E: 20261025130000_credito_com_conta_excluida_rollback_pos_E.sql.
+--
+-- "Não há lápide" deixou de provar "não houve exclusão" quando a retenção (E-2, 20261026120000)
+-- passou a expurgar lápide vencida. Por isso este arquivo também recusa enquanto existir o estado do
+-- expurgo: com a E-2 aplicada, desfaça-a primeiro; se o rollback dela MANTIVER o estado, é porque
+-- alguma lápide já foi removida — houve exclusão real, e este arquivo não vale mais.
 begin;
 
 do $$
@@ -13,6 +18,9 @@ begin
   if to_regclass('king_private.contas_excluidas') is not null
      and exists (select 1 from king_private.contas_excluidas) then
     raise exception 'ROLLBACK RECUSADO: há lápides em king_private.contas_excluidas — use o rollback pós-E (20261025130000_credito_com_conta_excluida_rollback_pos_E.sql). Nada foi alterado.';
+  end if;
+  if to_regclass('king_private.expurgo_das_lapides') is not null then
+    raise exception 'ROLLBACK RECUSADO: a retenção das lápides (E-2) está aplicada ou já expurgou lápide — rode antes supabase/rollback/20261026120000_retencao_das_lapides_rollback.sql; se ele mantiver o estado do expurgo, houve exclusão real: use o rollback pós-E. Nada foi alterado.';
   end if;
 end $$;
 

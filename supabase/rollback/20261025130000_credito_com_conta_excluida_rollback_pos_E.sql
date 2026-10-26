@@ -29,6 +29,9 @@ begin;
 
 set local lock_timeout = '5s';
 lock table public.progresso in share row exclusive mode;
+-- O expurgo das lápides (E-2) espera o fim daqui: sem isto, um expurgo no meio mudaria a contagem da
+-- CONFERÊNCIA 4 e abortaria o rollback à toa.
+lock table king_private.contas_excluidas in share mode;
 
 create temp table rollback_pos_e_antes on commit drop as
 select (select count(*) from public.players)                     as jogadores,
