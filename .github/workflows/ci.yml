@@ -15,7 +15,8 @@ name: CI
 #   portão   o check que responde "está tudo verde": rápido verde E todo e2e verde.
 #
 # Mudança SÓ de documentação não roda o Playwright; o rápido roda sempre, e em `main` roda tudo.
-# A regra, fail-closed e com testes, está em scripts/lib/mudancas.mjs.
+# A regra, fail-closed e com testes, está em scripts/lib/mudancas.mjs. A comparação é sempre com a
+# base da PR ou com o ponto em que a branch saiu da main — nunca com o push anterior.
 #
 # ══ POR QUE ASSIM ══ (medido com scripts/ci-tempos.mjs)
 #
@@ -50,9 +51,11 @@ jobs:
 
       - name: O Playwright precisa rodar?
         id: decidir
+        # Numa PR, a base é o commit base dela. Num push, BASE fica vazio e o script compara com o
+        # merge-base de origin/main: a branch inteira, e não só o último push.
         env:
           REF: ${{ github.ref }}
-          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.sha }}
         run: node scripts/ci-mudancas.mjs
 
