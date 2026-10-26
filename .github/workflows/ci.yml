@@ -18,6 +18,10 @@ name: CI
 # A regra, fail-closed e com testes, está em scripts/lib/mudancas.mjs. A comparação é sempre com a
 # base da PR ou com o ponto em que a branch saiu da main — nunca com o push anterior.
 #
+# Sharding tem uma armadilha: com `--shard`, o Playwright NÃO reprova uma seleção vazia ("No tests
+# found" só vale sem shard). Por isso cada shard exige pelo menos um teste antes de rodar, e
+# scripts/ops/ci-particao.test.mjs (no rápido) exige que a matriz abaixo cubra 1..N sem buraco.
+#
 # ══ POR QUE ASSIM ══ (medido com scripts/ci-tempos.mjs)
 #
 # Antes era um job só, de 3h31m: a suíte principal (1885 testes, 2 workers) era 98% do tempo, e
@@ -130,10 +134,16 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # O bundle é construído aqui, do código deste commit: nenhum shard testa um build herdado.
+      # Antes, a seleção precisa ter teste: com `--shard`, uma seleção vazia sairia VERDE.
       - name: Playwright — ${{ matrix.nome }}
         if: ${{ !matrix.extras }}
         working-directory: apps/web
-        run: npm run build:e2e && npx playwright test ${{ matrix.playwright }}
+        run: |
+          total=$(npx playwright test --list ${{ matrix.playwright }} | sed -nE 's/^Total: ([0-9]+) tests? in .*/\1/p')
+          echo "testes neste shard: ${total:-0}"
+          [ "${total:-0}" -gt 0 ] || { echo "::error::seleção vazia em ${{ matrix.nome }}"; exit 1; }
+          npm run build:e2e
+          npx playwright test ${{ matrix.playwright }}
 
       - name: Playwright — progresso + analytics
         if: ${{ matrix.extras }}

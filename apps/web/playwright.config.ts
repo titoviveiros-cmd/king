@@ -62,6 +62,11 @@ const VIEWPORTS: Array<{ w: number; h: number }> = [
  */
 const APARELHO_REAL = "800x360";
 const SO_NO_APARELHO_REAL = /androidReal\.spec\.ts$/;
+// Sem esse projeto, a spec ficaria ignorada nos treze — e, com `--shard`, uma seleção vazia sai
+// verde. Se o viewport mudar, a suíte não carrega até o aparelho ser apontado de novo.
+if (!VIEWPORTS.some(({ w, h }) => `${w}x${h}` === APARELHO_REAL)) {
+  throw new Error(`APARELHO_REAL=${APARELHO_REAL} não é um dos viewports: androidReal.spec.ts não rodaria em lugar nenhum`);
+}
 
 export default defineConfig({
   testDir: "./tests",
