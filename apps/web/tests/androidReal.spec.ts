@@ -246,10 +246,11 @@ for (const vp of APARELHOS) {
      *
      * `?mao=N` chega a qualquer mão em segundos, e o placar entre-mãos é o mesmo componente nos
      * dois modos. O que o multiplayer acrescenta é o rodapé — o bloco de consenso no lugar do
-     * botão único, mais o botão social —, e isso está medido: 2px de conteúdo a mais no total.
-     * O botão social é injetado com as classes de verdade, e a folga exigida cobre a diferença
-     * com sobra. A prova de ponta a ponta em multiplayer continua existindo no teste do placar
-     * final, que joga a partida inteira.
+     * botão único, mais o botão social. Desde que o botão de pronto passou a mostrar a legenda
+     * inteira (26/10/2026), esse rodapé é alguns pixels mais alto que o do solo, e a MESMA folga
+     * mínima é cobrada dele em prontoEntreMaos.spec.ts, com o rodapé do multiplayer de verdade.
+     * Aqui o botão social é injetado com as classes de verdade. A prova de ponta a ponta em
+     * multiplayer continua existindo no teste do placar final, que joga a partida inteira.
      */
     test("o placar entre-mãos cabe com folga em todas as dez mãos", async ({ page }, ti) => {
       test.setTimeout(600_000);
