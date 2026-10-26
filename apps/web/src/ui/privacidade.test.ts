@@ -98,10 +98,19 @@ describe("o que a página não pode fazer", () => {
     expect(TEXTO).toMatch(/o KING não controla esse prazo técnico de exclusão/);
   });
 
-  it("retenção: todo prazo citado na página é a janela de consulta — nenhum outro", () => {
-    const frases = TEXTO.split(/(?<=[.!?])\s+/).filter((f) => /\b\d+\s*(dias?|mes(es)?|anos?|semanas?)\b/i.test(f));
-    expect(frases.length).toBeGreaterThan(0);
-    for (const f of frases) expect(f, "prazo fora da janela de consulta").toMatch(/janela de consulta|eventos dos últimos 12 meses/);
+  // E-2 (decisão do titular, 26/10/2026 — opção B): a ÚNICA outra frase com prazo é a da retenção da
+  // LÁPIDE da conta excluída, e ela só pode existir com a exceção da pendência na MESMA frase. É uma
+  // promessa de verdade (o expurgo é do banco: 720 h e nunca com crédito pendente — ver
+  // docs/KING-MOBILE-RC.md §22.11); qualquer outro prazo continua proibido.
+  const FRASE_DA_LAPIDE = /^O prazo normal é de 30 dias a partir da exclusão; ele só se estende enquanto essas informações ainda puderem ser necessárias para contabilizar uma partida — em andamento, prestes a começar ou com crédito pendente — ou enquanto isso não puder ser confirmado com segurança, e apenas até essa pendência técnica ser resolvida\.$/;
+
+  it("retenção: todo prazo citado na página é a janela de consulta do PostHog ou o da lápide (com a exceção) — nenhum outro", () => {
+    const frases = TEXTO.split(/(?<=[.!?])\s+/).filter((f) => /\b\d+\s*(dias?|mes(es)?|anos?|semanas?|horas?)\b/i.test(f));
+    expect(frases.length).toBeGreaterThan(1);
+    for (const f of frases) {
+      if (/janela de consulta|eventos dos últimos 12 meses/.test(f)) continue;
+      expect(f.trim(), "prazo fora da janela de consulta e da retenção da lápide").toMatch(FRASE_DA_LAPIDE);
+    }
   });
 
   it("retenção: NENHUMA promessa de teto ou de exclusão em 12 meses", () => {
@@ -138,5 +147,28 @@ describe("como se chega nela", () => {
     const v = JSON.parse(readFileSync(new URL("../../../../vercel.json", import.meta.url), "utf8")) as { rewrites: { source: string; destination: string }[] };
     expect(v.rewrites[0]).toEqual({ source: "/privacidade", destination: "/privacidade.html" });
     expect(v.rewrites.findIndex((r) => r.source === "/(.*)")).toBeGreaterThan(0);
+  });
+});
+
+describe("depois da exclusão: a lápide (E-2)", () => {
+  /** O parágrafo da lápide, em texto, com os espaços normalizados. */
+  const i = HTML.indexOf('id="depois-da-exclusao"');
+  const LAPIDE = HTML.slice(HTML.indexOf(">", i) + 1, HTML.indexOf("</p>", i)).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  it("diz o que fica, para quê, por quanto tempo, com a exceção — e que ninguém de fora vê", () => {
+    expect(i).toBeGreaterThan(0);
+    for (const t of ["identificador interno da conta excluída", "a data e a hora da exclusão", "partidas dos outros jogadores",
+      "crédito de partida pendente", "registro técnico dessa partida", "se participou", "não ficam acessíveis ao público",
+      "O prazo normal é de 30 dias", "só se estende enquanto", "prestes a começar", "não puder ser confirmado com segurança",
+      "pendência técnica ser resolvida", "são eliminadas"]) {
+      expect(LAPIDE, t).toContain(t);
+    }
+  });
+
+  it("chama o identificador de PSEUDÔNIMO e nunca de anônimo — nem a conta de convidado de onde ele vem", () => {
+    expect(LAPIDE).toContain("é um pseudônimo, e não um dado anônimo");
+    expect(LAPIDE.replace("não um dado anônimo", "")).not.toMatch(/anônim/i);
+    expect(TEXTO).toMatch(/cria uma conta de convidado, sem e-mail e sem senha/);
+    expect(TEXTO).not.toMatch(/conta anônima/i);
   });
 });

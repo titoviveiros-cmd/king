@@ -39,6 +39,17 @@ describe("o que a Google Play pede da página", () => {
     expect(TEXTO).toMatch(/sem nada que identifique você/);
   });
 
+  it("diz o que fica POR TEMPO LIMITADO (E-2): pseudônimo, 30 dias com a exceção da pendência, sem acesso público", () => {
+    const item = TEXTO.slice(TEXTO.indexOf("Por um prazo normal de 30 dias"), TEXTO.indexOf("A medição de uso anônima"));
+    for (const t of ["identificador técnico da conta excluída", "a data e a hora da exclusão", "partidas dos outros jogadores",
+      "prestes a começar", "crédito de XP pendente", "registro técnico", "se participou", "Nada disso fica acessível ao público",
+      "só se estende enquanto", "não puder ser confirmado com segurança", "pendência técnica ser resolvida", "são eliminadas"]) {
+      expect(item, t).toContain(t);
+    }
+    expect(item).toContain("é um pseudônimo, e não um dado anônimo");
+    expect(item.replace("não um dado anônimo", "")).not.toMatch(/anônim/i);
+  });
+
   it("não carrega NADA de fora: sem script, sem fonte, sem imagem de terceiro", () => {
     expect(HTML).not.toMatch(/<script/i);
     expect(HTML).not.toMatch(/<link[^>]+rel="(stylesheet|preconnect|preload|icon)"/i);
