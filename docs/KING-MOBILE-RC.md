@@ -424,6 +424,7 @@ API (`/auth/token`, `/auth/revoke`); App Review 4.8 e 5.1.1(v); Google Play "Acc
 | App Links | `nativo/linkDoApp.ts`, `preparar-mobile.mjs`, `scripts/gerar-well-known.mjs` | só `https://playkingcards.com.br/` (raiz exata); o link vira no máximo um código no campo da Home — nunca entrada na sala. |
 | Privacidade | `privacidadeDaIdentidade.test.ts` e testes de log da função | identidade nunca vai para analytics nem console; `$geoip_disable=true` mantido. |
 | Crédito com conta excluída | migração `20261025130000` | quem excluiu a conta (lápide em `king_private.contas_excluidas`, só id + hora) não derruba o XP da mesa; id que nunca foi jogador continua reprovando tudo. |
+| Retenção da lápide (E-2) | migração `20261026120000` + `progresso/servico.ts` | a lápide sai depois de 30 dias (720 h, relógio do banco) e NUNCA enquanto o servidor ainda puder pedir um crédito que a leia (outbox, crédito em voo, sala viva) — §22.11. |
 | Manifesto de privacidade iOS | `preparar-mobile.mjs` → `PrivacyInfo.xcprivacy` | UserDefaults (CA92.1) declarado; sem rastreamento; tipos de dado da política. |
 | Sessão que não some calada | `auth/clienteSupabase.ts` | 429 na renovação vira 503 (a sessão fica); sessão encerrada pelo servidor deixa aviso ao jogador. |
 
@@ -449,7 +450,11 @@ desfazer = desligar no painel ANTES do rollback.
 Some: o usuário (convidado também), as identidades Google/Apple, `players` (apelido, avatar),
 `progresso` (XP, nível, sequência) e `xp_eventos` — pela cascata das FKs. Fica: `king_private.partidas`
 (início, fim, quantos humanos/bots — sem id de jogador) e a medição anônima do PostHog (nunca ligada à
-conta). Apple: troca do código novo + `/auth/revoke`; sem código (fora do iPhone) ou com falha, a
+conta). **Fica por tempo limitado (E-2):** a lápide `king_private.contas_excluidas` — o UUID da conta
+(pseudônimo, NÃO dado anônimo) e a hora da exclusão — e, se houver crédito pendente, o arquivo dele no
+outbox da VPS (o mesmo UUID, a posição e o horário). Prazo normal de 30 dias (720 h, relógio do banco),
+estendido só enquanto o servidor ainda puder pedir um crédito que leia a lápide; depois, expurgo
+automático pelo servidor (§22.11). Sem acesso público. Apple: troca do código novo + `/auth/revoke`; sem código (fora do iPhone) ou com falha, a
 exclusão segue e a tela mostra o caminho manual (Ajustes → ID Apple → Iniciar Sessão com a Apple).
 
 ### 22.5 Configuração (nenhum segredo no repositório)
@@ -548,10 +553,12 @@ Backend PRIMEIRO, web por último: tudo do backend é compatível com o web que 
 | B | Authentication → Hooks → "Before User Created" → Postgres → `public.king_antes_de_criar_usuario` → ligar | Tito | painel mostra o gancho ligado |
 | C | NA HORA: aba anônima em playkingcards.com.br → Jogar com amigos → Criar uma sala (nasce convidado) | Tito | `select count(*) from auth.users where is_anonymous and created_at > now() - interval '5 minutes';` > 0. Se falhar: DESLIGAR o gancho (instantâneo). |
 | D | SQL Editor: `20261025130000_credito_com_conta_excluida.sql` — ANTES de E | Tito | `select position('contas_excluidas' in pg_get_functiondef('king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)'::regprocedure)) > 0 as credito_novo, has_function_privilege('king_server','king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)','execute') as servidor, exists (select 1 from pg_trigger where tgname = 'players_lapide_da_exclusao') as gatilho;` → `true, true, true`; e a próxima partida online real credita XP normalmente |
+| D2 | SQL Editor: `20261026120000_retencao_das_lapides.sql` (retenção das lápides, E-2) — ANTES de E; as conferências do próprio arquivo reprovam tudo se dono/privilégios divergirem | Tito | `select to_regprocedure('king_private.expurgar_lapides(uuid,uuid[])') is not null as expurgo, has_function_privilege('king_server','king_private.expurgar_lapides(uuid,uuid[])','execute') as servidor, (select count(*) from king_private.expurgo_das_lapides) as estado;` → `true, true, 1` |
+| S | deploy do servidor na VPS com o expurgo (`scripts/deploy-vps.sh`, que confere o artefato; hoje a VPS está em 34c5d89 e o script acompanha `feat/multiplayer-v1`) — ANTES de E | Tito (Web Terminal), com autorização | log `[king] progresso: closed` e nenhum `expurgo das lápides falhou`; em ≤ 1 h, `select ultima_rodada from king_private.expurgo_das_lapides;` não nulo |
 | E | `supabase functions deploy excluir-conta --no-verify-jwt` (segredos da Apple podem esperar o iOS) | Tito, ou eu com autorização | lista de funções do painel |
 | F1 | `node scripts/smoke-excluir-conta.mjs --url https://<ref>.supabase.co --chave <publishable>` — não cria nada | eu, com autorização | `APROVADO — 5 verificações` |
 | F2 | o mesmo com `--autorizado-criar-convidado`: UM convidado descartável nasce, é recusado sem EXCLUIR, é excluído e a repetição dá `ja-excluida` | autorização EXPLÍCITA (cria e apaga um usuário de Production) | `APROVADO — 9 verificações` + a consulta da lápide impressa pelo script → `1, 0, 0` |
-| G | fast-forward da main para o SHA final → Vercel Production → smoke não destrutivo | autorização | Home, `/excluir-conta` 200, `/privacidade` nova; rollback = Instant Rollback para o deploy 7306744060 (7c3d72f) |
+| G | fast-forward da main para o SHA final → Vercel Production → smoke não destrutivo. Só com S PROVADO: é aqui que os textos de "30 dias" (privacidade e /excluir-conta) vão ao ar | autorização | Home, `/excluir-conta` 200, `/privacidade` nova; rollback = Instant Rollback para o deploy 7306744060 (7c3d72f) |
 
 Por que F2 é obrigatório antes de G: é a única prova, no projeto REAL, de que a exclusão feita pelo
 papel do Auth atravessa a cascata e o gatilho da lápide (no teste X5 isso foi SIMULADO em Postgres).
@@ -562,3 +569,131 @@ o risco é imediato e reversível num clique; se C falhar, o gancho fica desliga
 NÃO são pré-requisito de G (só de ligar o vínculo / publicar o app): Manual linking, Client IDs do
 Google e da Apple, Redirect URL `https://playkingcards.com.br/vincular`, segredos da Apple, arquivos
 de domínio (`gerar-well-known`).
+
+### 22.11 Retenção das lápides (E-2 — decisão do titular: opção B, 30 dias)
+
+**Regra.** A lápide (`king_private.contas_excluidas`: o UUID da conta excluída — pseudônimo, não dado
+anônimo — e a hora da exclusão, pelo relógio do banco) só existe para que o crédito de uma partida que
+incluía essa conta não derrube o XP dos outros. Prazo normal: **30 dias (720 h)**. Exceção: ela fica
+enquanto o servidor do jogo ainda puder pedir um crédito que a leia. Expurgo cego por relógio (pg_cron)
+é proibido.
+
+**Quem ainda pode ler uma lápide** — é o que o servidor protege:
+
+1. pendência no outbox da VPS — sem prazo: fica até o banco confirmar;
+2. crédito em voo (inclusive o que não conseguiu gravar no outbox);
+3. SALA VIVA — o token só é conferido na entrada e a reserva do lobby devolve o assento sem token: uma
+   partida pode começar muito depois de uma exclusão (achado 1 do red team do desenho). A sala
+   ENCERRADA não conta: o crédito dela nasceu na transição para `finished` e ela não joga de novo.
+
+Quem entra numa sala DEPOIS do retrato entra com token válido (≤ 1 semana, teto do Supabase): a lápide
+dele, se houver, é jovem demais para o prazo.
+
+**Mecanismo** — migration `20261026120000_retencao_das_lapides.sql` + `apps/server/src/progresso/`:
+
+- `king_private.expurgar_lapides(p_outbox uuid, p_protegidas uuid[])`: SECURITY DEFINER (dono
+  `king_progress_owner`, `search_path` vazio, `lock_timeout` 5 s), EXECUTE só para `king_server`, que
+  continua sem privilégio de tabela nenhum. Tira só lápide com `excluida_em < now() - 720 h` fora da
+  lista. NULL é erro (nunca "nada pendente"). Devolve só contagens (`removidas`, `retidas`).
+- `king_private.expurgo_das_lapides` (uma linha): o MARCADOR do outbox registrado e contadores
+  (`rodadas`, `lapides_removidas`, `ultima_rodada`), sem dado pessoal. O marcador é o arquivo
+  `.king-outbox` (id aleatório) no diretório do outbox, criado pelo inventário do expurgo e nunca por
+  `gravar()`. O banco registra o primeiro e recusa outro (`KL001`): diretório trocado, desmontado ou
+  recriado vazio não passa por "nada pendente".
+- `registrar_conta_excluida` (redefinida): a hora da lápide é a da exclusão MAIS RECENTE do id.
+- Servidor, uma vez depois do boot e de hora em hora (só `index.ts` liga; a sonda nunca), só em
+  `closed`:
+  1. UMA tentativa para cada pendência do outbox — crédito entregue deixa de proteger;
+  2. o retrato, num trecho síncrono: outbox ESTRITO (ausente, ilegível, arquivo que não valida ou
+     marcador estragado = adia), créditos em voo e salas vivas (`progresso/salasVivas.ts`, alimentado
+     pelo `KingRoom`);
+  3. a chamada.
+
+  28P01 e ECIRCUITBREAKER seguem o disjuntor; qualquer outra falha vira log, e nenhuma lápide sai. A
+  rodada nunca lança: uma rejeição solta derrubaria o processo do jogo. Pelo mesmo motivo, toda tarefa em
+  segundo plano do serviço termina registrada (`#acompanhar`), inclusive a meia-abertura do disjuntor,
+  que antes podia lançar com o outbox ilegível. O boot liga o expurgo nos dois desfechos de `iniciar()`.
+- Todo script que sobe o servidor (`servidor-isolado.mjs`, `verificar-modo-persistente.mjs`,
+  `verificar-modo-b-real.mjs`) aponta `KING_PROGRESS_ENV_FILE` para um arquivo inexistente: na VPS, um
+  filho com o progresso de produção seria uma 2ª instância expurgando sem ver as salas do PM2.
+- Log: `expurgo das lápides ativo — 1ª rodada concluída` (uma vez por boot); `lápides: N expurgada(s), M
+  vencida(s) retida(s) — ainda em aberto`; `expurgo das lápides adiado: <motivo>` (a cada rodada adiada);
+  `expurgo das lápides falhou: <código>`. Nunca id.
+
+**Operação.**
+
+- Conferência só de leitura (SQL Editor):
+
+  ```sql
+  select (select count(*) from king_private.contas_excluidas) as lapides,
+         (select count(*) from king_private.contas_excluidas where excluida_em < now() - interval '720 hours') as vencidas,
+         (select min(excluida_em) from king_private.contas_excluidas) as mais_antiga,
+         e.rodadas, e.lapides_removidas, e.ultima_rodada
+    from king_private.expurgo_das_lapides as e;
+  ```
+
+  - Normal: `vencidas = 0` (ou maior que 0 só enquanto o log disser "retida(s) por pendência") e
+    `ultima_rodada` com menos de 2 h.
+  - `ultima_rodada` com mais de 48 h = vermelho: ler os logs `expurgo das lápides adiado:` e `falhou:`.
+- Anomalia, só leitura: `select count(*) from king_private.contas_excluidas x join auth.users u on u.id = x.player_id;`
+  precisa dar 0.
+  - Maior que 0 = alguém apagou `public.players` à mão com a conta viva (proibido).
+  - Essa conta é pulada no crédito e, depois do expurgo, derrubaria a mesa. Exclusão é só pela conta.
+- Desligar sem deploy: `revoke execute on function king_private.expurgar_lapides(uuid, uuid[]) from king_server;`
+  (o servidor registra `expurgo das lápides falhou: 42501/transitoria` e mantém tudo). Religar: o `grant`
+  da migration.
+- Depois do D2 e depois de todo reset do marcador, conferir que o banco registrou o diretório CERTO:
+  `select outbox from king_private.expurgo_das_lapides;` igual a `cat /var/lib/king/progresso-outbox/.king-outbox`.
+  Qualquer chamador com o papel `king_server` registraria o seu (e o servidor de verdade cairia em KL001 —
+  falha segura, mas o expurgo para).
+- Arquivo ILEGÍVEL no outbox (log `pendência ilegível mantida no outbox para análise: <nome>.json`) segura
+  todo expurgo até alguém decidir. Ele nunca é reenviado, então:
+  - se der para reconstruir o resultado, gravar a versão válida no lugar (o crédito sai na rodada seguinte);
+  - se não der, MOVER (não apagar) para fora do diretório, por exemplo para `/var/lib/king/progresso-quarentena/`:
+    aquele crédito já estava perdido; o expurgo volta na rodada seguinte.
+- Outbox trocado de propósito (outro disco, outra VPS): copiar o diretório INTEIRO, com o `.king-outbox`.
+  - Se o antigo se perdeu de vez: primeiro conferir que nenhum arquivo dele ficou para trás.
+  - Só então: `update king_private.expurgo_das_lapides set outbox = null;` (o próximo expurgo registra o novo).
+- Nunca:
+  - apagar ou renomear arquivo VÁLIDO do outbox à mão, nem o `.king-outbox` (ilegível: só pela saída acima);
+  - rodar uma 2ª instância do servidor com progresso ligado (PM2 fork, `instances: 1`);
+  - apagar linha de `players` direto.
+- Prazo prático: 30 dias, mais até 1 h de granularidade, mais o tempo em que o servidor esteve fora, sem
+  banco ou com a rodada adiada.
+
+**Rollback.** `supabase/rollback/20261026120000_retencao_das_lapides_rollback.sql`:
+
+- tira a função e devolve o gatilho ao texto do D; as lápides ficam intactas;
+- trava PRIMEIRO o estado (`exclusive`) e depois a lápide (`share`): com a ordem inversa, um expurgo no meio
+  fechava um ciclo com o `drop table` (40P01). "lock timeout" = um expurgo estava no meio: rodar de novo;
+- o estado do expurgo FICA se alguma lápide já saiu: é a prova de exclusão real;
+- o rollback pré-E do passo D recusa enquanto existir o estado — desfazer a E-2 antes;
+- o pós-E passou a travar a lápide em modo `share`: um expurgo no meio abortava a CONFERÊNCIA 4 à toa.
+
+**Rollout.** D2 (SQL Editor, esta migration) → S (deploy da VPS com o expurgo; `deploy-vps.sh` confere
+o artefato) → E → … → G só depois de S provado (`ultima_rodada` não nula). O convidado descartável do
+F2 deixa uma lápide, que sai sozinha em 30 dias.
+
+- Antes de S: o outbox de produção existe e não tem `.json` ilegível (`ls -la /var/lib/king/progresso-outbox`);
+  senão a rodada adia, `ultima_rodada` fica nula e G espera.
+- S vai pelo `deploy-vps.sh`, buscado de `feat/multiplayer-v1`: as conferências novas do artefato só valem
+  com esta versão do script nesse branch.
+- Depois de G, um rollback da VPS para um artefato antigo ou `KING_PROGRESS_MODE=disabled` param o expurgo
+  em silêncio: é a conferência do Tito (`ultima_rodada` > 48 h) que pega.
+- Copiar o outbox para outro lugar: sempre a cópia ATUAL — uma cópia velha, com o mesmo marcador, seria
+  aceita sem as pendências de depois.
+
+**Recomendações em aberto (decisão do titular).** A tela "Excluir conta" do app não cita a retenção
+temporária. Texto sugerido, curto: "Por até 30 dias, só um código técnico da conta excluída fica guardado,
+para não atrapalhar a contagem das partidas dos outros." Mexe no painel (e2e visual em 6 viewports):
+rodada própria, com prévia.
+
+**Riscos residuais (documentados, não resolvidos aqui).**
+
+1. 2ª instância do servidor no MESMO outbox, servindo salas próprias: o expurgo de uma não vê as salas
+   da outra. Fora do suportado (1 instância).
+2. Conta viva com lápide (players apagado à mão): ver a consulta de anomalia.
+3. `retidas` conta ao `king_server` se um id que ele cita tem lápide vencida — o servidor já sabe disso
+   pelo próprio crédito.
+4. Disco sem hard link (`linkSync`): o marcador não nasce e a rodada adia para sempre (com log). Conferir
+   antes de S: `df -T /var/lib/king` (ext4/xfs têm hard link).
