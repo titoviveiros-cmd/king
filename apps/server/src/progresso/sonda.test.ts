@@ -46,6 +46,7 @@ function bancoFalso(falhas: Falha[] = []) {
     return {
       async sondar() { chamadas.push("sondar"); const f = fila.shift(); if (f) throw f(); },
       async creditar() { chamadas.push("creditar"); return []; },
+      async expurgarLapides() { chamadas.push("expurgar"); return { removidas: 0, retidas: 0 }; },
       async encerrar() { chamadas.push("encerrar"); },
     };
   };
@@ -203,5 +204,14 @@ describe("o que a sonda NUNCA faz", () => {
     await sondarProgresso({ arquivo: ENV, disco: discoOk(), criarRepositorio: banco.criar });
     const depois = process.getActiveResourcesInfo().filter((t) => t === "Timeout").length;
     expect(depois).toBe(antes);
+  });
+});
+
+describe("a sonda NUNCA expurga lápide (E-2)", () => {
+  it("credencial aceita: sonda, encerra — e nenhuma chamada de expurgo, apesar do outbox vazio", async () => {
+    const banco = bancoFalso();
+    const r = await sondarProgresso({ arquivo: ENV, disco: discoOk(), criarRepositorio: banco.criar });
+    expect(r.desfecho).toBe("closed");
+    expect(banco.chamadas).toEqual(["sondar", "encerrar"]);
   });
 });

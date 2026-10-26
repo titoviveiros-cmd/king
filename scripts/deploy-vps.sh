@@ -197,6 +197,15 @@ conferir_artefato "apps/server/dist/config/ambiente.js" \
   "KING_IDENTITY_MODE" "modo de identidade declarado (legacy/permanent)" || ART="$ART modo-declarado"
 conferir_artefato "apps/server/dist/index.js" \
   "prepararIdentidade" "boot le o arquivo persistente antes de escutar" || ART="$ART arquivo-persistente"
+# A RETENCAO DAS LAPIDES (Fase 9, E-2): sem o expurgo no artefato, a lapide de quem excluiu a conta
+# nunca sai e a politica de privacidade ("30 dias") deixa de dizer a verdade. Sem as salas vivas, o
+# expurgo tiraria a lapide de quem ainda esta num lobby.
+conferir_artefato "apps/server/dist/progresso/servico.js" \
+  "iniciarExpurgoDeLapides" "expurgo das lapides (E-2) no servico" || ART="$ART expurgo"
+conferir_artefato "apps/server/dist/index.js" \
+  "iniciarExpurgoDeLapides" "boot liga o expurgo das lapides" || ART="$ART expurgo-boot"
+conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
+  "registrarSala" "salas vivas protegem a lapide de quem esta nelas" || ART="$ART salas-vivas"
 [ -z "$ART" ] || abortar "artefato nao carrega a correcao aprovada:$ART"
 
 echo "=== IDENTIDADE: ARQUIVO PERSISTENTE, ANTES DO RESTART ==="

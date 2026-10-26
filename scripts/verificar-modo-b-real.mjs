@@ -152,7 +152,8 @@ async function subirServidor(urlDoProjeto, dir) {
   const porta = 2700 + Math.floor(Math.random() * 200);
   const filho = spawn(process.execPath, [ENTRADA], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...shellLimpa(), KING_ENV_FILE: arquivo, PORT: String(porta) },
+    // Progresso DESLIGADO: na VPS o filho leria o /etc/king/progress.env de produção (banco e expurgo).
+    env: { ...shellLimpa(), KING_ENV_FILE: arquivo, KING_PROGRESS_ENV_FILE: join(dir, "progress.env.inexistente"), PORT: String(porta) },
   });
   let texto = "";
   let morreu = false;

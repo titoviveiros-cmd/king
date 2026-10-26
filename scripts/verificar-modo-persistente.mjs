@@ -47,6 +47,9 @@ function registrar(nome, ok, detalhe = "") {
 function shellLimpa() {
   const e = { ...process.env };
   for (const k of CHAVES) delete e[k];
+  // PROGRESSO DESLIGADO no filho: na VPS ele leria o /etc/king/progress.env de produção — abriria
+  // conexão com o banco e, desde a E-2, expurgaria lápides sem ver as salas do PM2.
+  e.KING_PROGRESS_ENV_FILE = join(dir, "progress.env.inexistente");
   return e;
 }
 

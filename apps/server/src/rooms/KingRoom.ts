@@ -34,6 +34,7 @@ import {
 } from "../match/pausaDaVaza.js";
 import { IdentidadeRecusada, verificadorEmUso, type IdentidadeVerificada } from "../auth/identidade.js";
 import { progressoEmUso } from "../progresso/servico.js";
+import { esquecerSala, registrarSala } from "../progresso/salasVivas.js";
 import type { AssentoAoFim } from "../progresso/resultado.js";
 import type { Posicao } from "../progresso/tipos.js";
 import {
@@ -292,6 +293,9 @@ export class KingRoom extends Room<{
     estado.seats = new ArraySchema<AssentoPublico>();
     for (let s = 0; s < ASSENTOS; s++) estado.seats.push(assentoVazio(s));
     this.setState(estado);
+    // Expurgo das lápides (E-2): enquanto esta sala viver, quem ela conhece pode ainda entrar num
+    // crédito — inclusive quem entrou com token e excluiu a conta depois. Ver progresso/salasVivas.ts.
+    registrarSala(this, () => this.#idsConhecidos());
 
     // READY / UNREADY. É o ÚNICO gatilho de início: quando os quatro assentos estão ocupados e
     // os quatro estão prontos, o servidor inicia. Nenhum jogador — nem o anfitrião — decide a
@@ -1234,7 +1238,22 @@ export class KingRoom extends Room<{
     return `${this.roomId}:${(client as unknown as { reconnectionToken: string }).reconnectionToken}`;
   }
 
+  /**
+   * Todo id que esta sala conhece: assentos (inclusive o reservado de quem caiu), sessões e elenco. A
+   * sala ENCERRADA não protege ninguém: o crédito dela nasceu na transição para `finished` (outbox ou
+   * crédito em voo) e ela não joga de novo.
+   */
+  #idsConhecidos(): string[] {
+    if (this.state.status === "finished") return [];
+    return [
+      ...this.state.seats.map((a) => a.playerId),
+      ...[...this.#sessoes.values()].map((d) => d.playerId),
+      ...this.#elenco.filter((e) => !e.bot).map((e) => e.playerId),
+    ];
+  }
+
   onDispose(): void {
+    esquecerSala(this);
     // a sala morreu: nada de estado autoritativo sobrevivendo ao processo
     this.autoridade = new AutoridadeDaPartida();
     liberarCodigo(this.state?.roomCode ?? "");

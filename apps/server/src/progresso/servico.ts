@@ -30,11 +30,22 @@
 //
 // Em qualquer estado diferente de `closed`, a partida encerrada vai para o OUTBOX e o banco não é
 // tocado. O jogo não espera nada disto: a sala entrega o fim da partida e segue.
+//
+// ══ O EXPURGO DAS LÁPIDES (Fase 9, E-2) ══
+//
+// A lápide de quem excluiu a conta sai depois de 30 dias — mas só se nenhum crédito ainda puder lê-la.
+// Quem sabe disso é ESTE processo: o outbox, os créditos em voo e as salas vivas (onde uma partida pode
+// começar muito depois de uma exclusão). Uma vez por hora, só em `closed`: (1) as pendências antigas
+// ganham UMA tentativa — crédito entregue não segura lápide à toa; (2) num trecho SÍNCRONO, o retrato
+// do que está em aberto; (3) o banco tira só o que tem mais de 720 h e não está no retrato. Dúvida
+// sobre o outbox (ausente, ilegível, arquivo que não valida, marcador trocado) = nada sai. Quem liga
+// isto é o boot de produção (`index.ts`); a sonda, nunca.
 import { classificarFalha, resumoSeguro } from "./falhas.js";
-import type { OutboxDeProgresso } from "./outbox.js";
+import type { InventarioDoOutbox, OutboxDeProgresso } from "./outbox.js";
 import type { RepositorioDeProgresso } from "./repositorio.js";
 import { resultadoParaCredito, type PartidaEncerrada } from "./resultado.js";
-import { mascarar, type ResultadoDaPartida } from "./tipos.js";
+import { jogadoresEmSalasVivas } from "./salasVivas.js";
+import { mascarar, UUID, type ResultadoDaPartida } from "./tipos.js";
 
 export type EstadoDoProgresso = "disabled" | "probing" | "closed" | "open_auth" | "open_circuit";
 
@@ -55,6 +66,17 @@ export function restaurarProgresso(): void { atual = PROGRESSO_DESLIGADO; }
 export const COOLDOWN_DO_DISJUNTOR_MS = 10 * 60_000;
 /** Entre o 28P01 da sonda do boot e a sua única confirmação. */
 export const ESPERA_DA_CONFIRMACAO_MS = 30_000;
+/** Entre duas rodadas do expurgo das lápides. O prazo de 720 h é do banco; isto é só a granularidade. */
+export const INTERVALO_DO_EXPURGO_MS = 60 * 60_000;
+
+export type DesfechoDoExpurgo = "expurgado" | "adiado" | "falhou";
+export interface BalancoDoExpurgo {
+  desfecho: DesfechoDoExpurgo;
+  removidas: number;
+  retidas: number;
+  /** Só contagens, códigos e estados — nunca id. */
+  motivo?: string;
+}
 
 export interface OpcoesDoServico {
   /** Esperas entre tentativas de erro TRANSITÓRIO, em ms. Esgotadas, a pendência fica no outbox. */
@@ -65,6 +87,8 @@ export interface OpcoesDoServico {
   agora?: () => number;
   agendar?: (fn: () => void, ms: number) => void;
   cooldownMs?: number;
+  /** Quem as salas vivas conhecem (E-2). Injetável para teste; o padrão é o registro das salas. */
+  salasVivas?: () => Iterable<string>;
 }
 
 export interface BalancoDoReprocessamento {
@@ -86,8 +110,14 @@ export class ServicoDeProgresso implements RegistradorDeProgresso {
   readonly #agendar: (fn: () => void, ms: number) => void;
   readonly #cooldownMs: number;
   readonly #emVoo = new Set<Promise<unknown>>();
+  readonly #salasVivas: () => Iterable<string>;
+  /** Os jogadores de cada entrega em andamento: até ela terminar, a lápide deles não sai. */
+  readonly #creditosEmVoo = new Map<symbol, string[]>();
   #estado: EstadoDoProgresso = "probing";
   #reabreEm = 0;
+  #expurgoLigado = false;
+  #expurgoDesde: number | null = null;
+  #ultimoExpurgo: number | null = null;
 
   constructor(outbox: OutboxDeProgresso, repositorio: RepositorioDeProgresso, opcoes: OpcoesDoServico = {}) {
     this.#outbox = outbox;
@@ -98,6 +128,7 @@ export class ServicoDeProgresso implements RegistradorDeProgresso {
     this.#agora = opcoes.agora ?? Date.now;
     this.#agendar = opcoes.agendar ?? agendarDeVerdade;
     this.#cooldownMs = opcoes.cooldownMs ?? COOLDOWN_DO_DISJUNTOR_MS;
+    this.#salasVivas = opcoes.salasVivas ?? jogadoresEmSalasVivas;
   }
 
   get estado(): EstadoDoProgresso { return this.#estado; }
@@ -132,16 +163,47 @@ export class ServicoDeProgresso implements RegistradorDeProgresso {
     this.#acompanhar(this.#entregar(r));
   }
 
-  /** Reenvia tudo o que está pendente. Só em `closed`; para no primeiro sinal de disjuntor. */
-  async reprocessar(): Promise<BalancoDoReprocessamento> {
+  /**
+   * Reenvia tudo o que está pendente. Só em `closed`; para no primeiro sinal de disjuntor.
+   * `umaTentativa`: sem as esperas do retry — é o reenvio de hora em hora do expurgo, que não pode
+   * prender a rodada nem martelar o banco por um arquivo que nunca vai passar.
+   */
+  async reprocessar({ umaTentativa = false }: { umaTentativa?: boolean } = {}): Promise<BalancoDoReprocessamento> {
     const { validas, corrompidas } = this.#outbox.pendentes();
     for (const nome of corrompidas) this.#log(`[progresso] pendência ilegível mantida no outbox para análise: ${nome}`);
     let entregues = 0;
     for (const r of validas) {
       if (this.#estado !== "closed") break;
-      if (await this.#entregar(r)) entregues += 1;
+      if (await this.#entregar(r, umaTentativa ? [] : this.#esperas)) entregues += 1;
     }
     return { entregues, pendentes: validas.length - entregues, corrompidas };
+  }
+
+  /** Liga o expurgo das lápides: uma rodada agora e uma a cada hora. Chamar de novo não duplica. */
+  iniciarExpurgoDeLapides(): void {
+    if (this.#expurgoLigado) return;
+    this.#expurgoLigado = true;
+    const rodada = () => {
+      this.#agendar(rodada, INTERVALO_DO_EXPURGO_MS);
+      this.#acompanhar(this.expurgarLapides());
+    };
+    rodada();
+  }
+
+  /** UMA rodada do expurgo. Nunca lança; na dúvida, adia e nada sai. */
+  async expurgarLapides(): Promise<BalancoDoExpurgo> {
+    if (this.#expurgoDesde !== null) {
+      return this.#adiarExpurgo(`a rodada anterior ainda está em andamento há ${Math.round((this.#agora() - this.#expurgoDesde) / 60_000)} min`);
+    }
+    this.#expurgoDesde = this.#agora();
+    try {
+      return await this.#rodadaDoExpurgo();
+    } catch (e) {
+      // Rejeição solta derrubaria o processo do jogo: qualquer imprevisto vira adiamento.
+      return this.#adiarExpurgo(`erro inesperado (${resumoSeguro(e)})`);
+    } finally {
+      this.#expurgoDesde = null;
+    }
   }
 
   /** Espera as entregas em andamento. Para teste e para desligamento ordenado. */
@@ -174,7 +236,12 @@ export class ServicoDeProgresso implements RegistradorDeProgresso {
     if (this.#estado !== "open_circuit" || this.#agora() < this.#reabreEm) return;
     this.#mudar("probing", "cooldown do disjuntor cumprido — sonda única");
     await this.#sondar({ transitoriaFecha: false });
-    if (this.estado === "closed") await this.reprocessar();
+    if (this.estado !== "closed") return;
+    try {
+      await this.reprocessar();
+    } catch (e) {
+      this.#log(`[progresso] pendências do outbox não puderam ser lidas: ${resumoSeguro(e)} — ficam para a próxima rodada`);
+    }
   }
 
   /**
@@ -202,32 +269,112 @@ export class ServicoDeProgresso implements RegistradorDeProgresso {
     }
   }
 
+  /**
+   * Toda tarefa em segundo plano termina REGISTRADA, nunca lançada: sem handler de `unhandledRejection`,
+   * uma rejeição solta derrubaria o processo do jogo inteiro (todas as salas).
+   */
   #acompanhar(p: Promise<unknown>): void {
-    this.#emVoo.add(p);
-    void p.finally(() => this.#emVoo.delete(p));
+    const segura = p.catch((e) => { this.#log(`[progresso] tarefa em segundo plano falhou: ${resumoSeguro(e)}`); });
+    this.#emVoo.add(segura);
+    void segura.finally(() => this.#emVoo.delete(segura));
   }
 
-  async #entregar(r: ResultadoDaPartida): Promise<boolean> {
-    for (let tentativa = 0; tentativa <= this.#esperas.length; tentativa++) {
-      if (this.#estado !== "closed") return false; // outra entrega abriu o disjuntor: nada de furar
-      try {
-        await this.#repositorio.creditar(r);
-      } catch (e) {
-        const classe = classificarFalha(e);
-        if (classe === "autenticacao") { this.#abrirAutenticacao(e); return false; }
-        if (classe === "disjuntor") { this.#abrirCircuito(e); return false; }
-        this.#log(`[progresso] crédito da partida ${mascarar(r.partidaId)} falhou (tentativa ${tentativa + 1}): ${resumoSeguro(e)}`);
-        if (tentativa < this.#esperas.length) await this.#esperar(this.#esperas[tentativa]);
-        continue;
+  async #entregar(r: ResultadoDaPartida, esperas = this.#esperas): Promise<boolean> {
+    // Antes do primeiro `await`: o retrato do expurgo nunca vê esta entrega "fora" de tudo.
+    const emVoo = Symbol(r.partidaId);
+    this.#creditosEmVoo.set(emVoo, r.humanos.map((h) => h.playerId));
+    try {
+      for (let tentativa = 0; tentativa <= esperas.length; tentativa++) {
+        if (this.#estado !== "closed") return false; // outra entrega abriu o disjuntor: nada de furar
+        try {
+          await this.#repositorio.creditar(r);
+        } catch (e) {
+          const classe = classificarFalha(e);
+          if (classe === "autenticacao") { this.#abrirAutenticacao(e); return false; }
+          if (classe === "disjuntor") { this.#abrirCircuito(e); return false; }
+          this.#log(`[progresso] crédito da partida ${mascarar(r.partidaId)} falhou (tentativa ${tentativa + 1}): ${resumoSeguro(e)}`);
+          if (tentativa < esperas.length) await this.#esperar(esperas[tentativa]);
+          continue;
+        }
+        // COMMIT confirmado. Se a remoção falhar, o próximo reenvio repete — e o banco devolve o mesmo.
+        try {
+          this.#outbox.remover(r.partidaId);
+        } catch (e) {
+          this.#log(`[progresso] partida ${mascarar(r.partidaId)} creditada, pendência não removida: ${resumoSeguro(e)}`);
+        }
+        return true;
       }
-      // COMMIT confirmado. Se a remoção falhar, o próximo boot reenvia — e o banco devolve o mesmo.
-      try {
-        this.#outbox.remover(r.partidaId);
-      } catch (e) {
-        this.#log(`[progresso] partida ${mascarar(r.partidaId)} creditada, pendência não removida: ${resumoSeguro(e)}`);
-      }
-      return true;
+      return false;
+    } finally {
+      this.#creditosEmVoo.delete(emVoo);
     }
-    return false;
+  }
+
+  // ─────────────────────────── expurgo das lápides (E-2) ───────────────────────────
+
+  async #rodadaDoExpurgo(): Promise<BalancoDoExpurgo> {
+    if (this.#estado !== "closed") return this.#adiarExpurgo(`progresso em ${this.#estado}`);
+    // 1. Pendência antiga ganha UMA tentativa: crédito entregue sai do outbox e deixa de proteger.
+    try {
+      await this.reprocessar({ umaTentativa: true });
+    } catch (e) {
+      return this.#adiarExpurgo(`o outbox não pôde ser lido (${resumoSeguro(e)})`);
+    }
+    if (this.#estado !== "closed") return this.#adiarExpurgo(`progresso em ${this.#estado}`);
+
+    // 2. O RETRATO, num trecho síncrono, logo antes do banco: outbox (estrito), créditos em voo e
+    //    salas vivas. Qualquer erro aqui é dúvida — e com dúvida nada sai.
+    let inventario: InventarioDoOutbox;
+    let naSala: string[];
+    try {
+      inventario = this.#outbox.inventario();
+    } catch (e) {
+      return this.#adiarExpurgo(`o outbox não pôde ser lido (${resumoSeguro(e)})`);
+    }
+    if (inventario.duvidosos.length) {
+      return this.#adiarExpurgo(`${inventario.duvidosos.length} pendência(s) ilegível(is) no outbox`);
+    }
+    try {
+      naSala = [...this.#salasVivas()];
+    } catch (e) {
+      return this.#adiarExpurgo(`as salas vivas não puderam ser lidas (${resumoSeguro(e)})`);
+    }
+    const ids = new Set<string>();
+    for (const id of [...inventario.jogadores, ...[...this.#creditosEmVoo.values()].flat(), ...naSala]) {
+      const normal = String(id).toLowerCase();
+      if (UUID.test(normal)) ids.add(normal); // bot e id sorteado não têm lápide
+    }
+    const marcador = inventario.marcador;
+    const protegidas = [...ids].sort();
+
+    // 3. O banco decide o prazo; o servidor só disse o que ainda está em aberto.
+    try {
+      const { removidas, retidas } = await this.#repositorio.expurgarLapides(marcador, protegidas);
+      if (this.#ultimoExpurgo === null) this.#log("[progresso] expurgo das lápides ativo — 1ª rodada concluída (depois, a cada hora)");
+      this.#ultimoExpurgo = this.#agora();
+      if (removidas || retidas) {
+        this.#log(`[progresso] lápides: ${removidas} expurgada(s), ${retidas} vencida(s) retida(s) — ainda em aberto (outbox, crédito em voo ou sala viva)`);
+      }
+      return { desfecho: "expurgado", removidas, retidas };
+    } catch (e) {
+      const classe = classificarFalha(e);
+      if (classe === "autenticacao") this.#abrirAutenticacao(e);
+      else if (classe === "disjuntor") this.#abrirCircuito(e);
+      else {
+        const porque = (e as { code?: unknown } | null)?.code === "KL001"
+          ? "o outbox não é o registrado no banco (ver docs/KING-MOBILE-RC.md §22.11)"
+          : resumoSeguro(e);
+        this.#log(`[progresso] expurgo das lápides falhou: ${porque} — nenhuma lápide saiu`);
+      }
+      return { desfecho: "falhou", removidas: 0, retidas: 0, motivo: resumoSeguro(e) };
+    }
+  }
+
+  #adiarExpurgo(motivo: string): BalancoDoExpurgo {
+    const desde = this.#ultimoExpurgo === null
+      ? "nenhum concluído desde o boot"
+      : `último concluído há ${Math.round((this.#agora() - this.#ultimoExpurgo) / 3_600_000)} h`;
+    this.#log(`[progresso] expurgo das lápides adiado: ${motivo} — ${desde}`);
+    return { desfecho: "adiado", removidas: 0, retidas: 0, motivo };
   }
 }

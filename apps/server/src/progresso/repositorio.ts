@@ -1,8 +1,9 @@
-// O REPOSITÓRIO — uma chamada, e só uma.
+// O REPOSITÓRIO — uma chamada por porta, e só duas portas.
 //
 // O servidor não escreve em tabela nenhuma. Ele chama `king_private.creditar_partida` com o
 // RESULTADO, e o banco decide o XP. O papel usado (`king_server`) não tem privilégio de tabela:
-// mesmo que este arquivo tentasse um INSERT, o Postgres recusaria.
+// mesmo que este arquivo tentasse um INSERT, o Postgres recusaria. A segunda porta, desde a E-2, é
+// `king_private.expurgar_lapides` — com o mesmo desenho: o servidor informa, o banco decide.
 import pg from "pg";
 import type { LancamentoConfirmado, ResultadoDaPartida } from "./tipos.js";
 
@@ -10,12 +11,25 @@ export interface RepositorioDeProgresso {
   /** UMA consulta trivial (`select 1`): prova conexão, TLS e credencial, sem tocar em dado nenhum. */
   sondar(): Promise<void>;
   creditar(r: ResultadoDaPartida): Promise<LancamentoConfirmado[]>;
+  /**
+   * O expurgo das lápides (E-2). O servidor manda só o marcador do outbox e quem ainda está em aberto;
+   * o PRAZO (720 h) e a decisão são do banco.
+   */
+  expurgarLapides(marcador: string, protegidas: string[]): Promise<BalancoDasLapides>;
   encerrar(): Promise<void>;
+}
+
+export interface BalancoDasLapides {
+  removidas: number;
+  /** Vencidas que ficaram porque a lista as protegeu. */
+  retidas: number;
 }
 
 export const CHAMADA_DE_CREDITO =
   "select player_id, posicao, xp_delta, novo from king_private.creditar_partida(" +
   "$1::uuid, $2::timestamptz, $3::timestamptz, $4::smallint, $5::smallint, $6::jsonb)";
+
+export const CHAMADA_DE_EXPURGO = "select removidas, retidas from king_private.expurgar_lapides($1::uuid, $2::uuid[])";
 
 /**
  * Os parâmetros da chamada. Puro, para o teste conferir o que sai — e, principalmente, o que NÃO
@@ -58,6 +72,10 @@ export function repositorioPg(origem: { connectionString: string; ca: string } |
       return rows.map((l: { player_id: string; posicao: number; xp_delta: number; novo: boolean }) => ({
         playerId: l.player_id, posicao: l.posicao, xpDelta: l.xp_delta, novo: l.novo,
       }));
+    },
+    async expurgarLapides(marcador, protegidas) {
+      const { rows: [l] } = await pool.query(CHAMADA_DE_EXPURGO, [marcador, protegidas]);
+      return { removidas: Number(l.removidas), retidas: Number(l.retidas) };
     },
     async encerrar() {
       await pool.end();

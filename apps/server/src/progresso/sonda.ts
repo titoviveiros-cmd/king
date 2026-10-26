@@ -8,8 +8,9 @@
 // recusa é a sonda, e o restart do servidor que vem depois já encontra o pooler atualizado.
 //
 // O que a sonda NUNCA faz: creditar, ler ou escrever o outbox da configuração (usa um outbox vazio
-// e descartável), fazer a meia-abertura de 10 min do disjuntor (cancela o que sobrar agendado) e
-// imprimir qualquer VALOR — nem URL, nem senha, nem host, nem CA. Só estado, código e tentativas.
+// e descartável), EXPURGAR lápide (o outbox dela é vazio por construção: o retrato não protegeria
+// ninguém), fazer a meia-abertura de 10 min do disjuntor (cancela o que sobrar agendado) e imprimir
+// qualquer VALOR — nem URL, nem senha, nem host, nem CA. Só estado, código e tentativas.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -99,6 +100,7 @@ export async function sondarProgresso(o: OpcoesDaSonda): Promise<ResultadoDaSond
       }
     },
     async creditar() { throw new Error("a sonda nunca credita"); },
+    async expurgarLapides() { throw new Error("a sonda nunca expurga"); },
     encerrar: () => real.encerrar(),
   };
 

@@ -14,6 +14,7 @@ import { verificadorEmUso } from "./auth/identidade.js";
 import { ConfiguracaoInvalida, prepararIdentidade } from "./config/ambiente.js";
 import { ConfiguracaoDeProgressoInvalida, lerConfiguracaoDeProgresso } from "./progresso/config.js";
 import { OutboxDeProgresso } from "./progresso/outbox.js";
+import { resumoSeguro } from "./progresso/falhas.js";
 import { repositorioPg } from "./progresso/repositorio.js";
 import { ServicoDeProgresso, configurarProgresso } from "./progresso/servico.js";
 
@@ -46,12 +47,15 @@ try {
     console.log("[king] progress mode: database");
     // UMA sonda e, se passar, as pendências de um boot anterior. NÃO segura a subida: o jogo sobe
     // mesmo com o banco recusando a credencial (open_auth) ou com o pooler bloqueado (open_circuit).
+    // Depois dela, e SÓ AQUI (a sonda de ativação nunca), o expurgo das lápides de hora em hora (E-2)
+    // — nos DOIS desfechos: com o outbox ilegível no boot, a rodada adia sozinha e volta a valer quando
+    // o disco voltar, em vez de o expurgo ficar desligado até o próximo restart.
     void servico.iniciar().then(
       ({ estado, balanco }) => console.log(`[king] progresso: ${estado}${balanco
         ? ` · reprocessado: ${balanco.entregues} entregue(s), ${balanco.pendentes} pendente(s), ${balanco.corrompidas.length} ilegível(is)`
         : ""}`),
-      (e) => console.error(`[king] sonda do progresso falhou: ${(e as Error)?.name ?? "erro"}`),
-    );
+      (e) => console.error(`[king] progresso: ${servico.estado} · o outbox não pôde ser reprocessado no boot (${resumoSeguro(e)})`),
+    ).finally(() => servico.iniciarExpurgoDeLapides());
   } else {
     console.log(`[king] progress mode: disabled (${progresso.motivo})`);
   }
