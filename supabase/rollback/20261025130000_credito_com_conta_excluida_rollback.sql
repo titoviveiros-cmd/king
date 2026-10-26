@@ -1,6 +1,20 @@
 -- ROLLBACK de 20261025130000_credito_com_conta_excluida.sql — devolve a função de crédito ORIGINAL
 -- (texto de 20260925120000_progresso.sql) e remove a lápide. Nenhum dado de jogador é tocado.
 -- Atenção: sem a correção, uma conta excluída antes do crédito volta a derrubar o XP da mesa inteira.
+--
+-- SÓ ANTES DO PASSO E, sem nenhuma exclusão real. Depois que a função excluir-conta foi ao ar, este
+-- arquivo é PROIBIDO: ele apaga as lápides, e sem elas um crédito pendente com conta excluída derruba
+-- o XP da mesa inteira para sempre (o outbox repete o 23503). Ele mesmo recusa rodar se houver lápide.
+-- Depois do E: 20261025130000_credito_com_conta_excluida_rollback_pos_E.sql.
+begin;
+
+do $$
+begin
+  if to_regclass('king_private.contas_excluidas') is not null
+     and exists (select 1 from king_private.contas_excluidas) then
+    raise exception 'ROLLBACK RECUSADO: há lápides em king_private.contas_excluidas — use o rollback pós-E (20261025130000_credito_com_conta_excluida_rollback_pos_E.sql). Nada foi alterado.';
+  end if;
+end $$;
 
 drop trigger if exists players_lapide_da_exclusao on public.players;
 
@@ -155,3 +169,5 @@ drop function if exists king_private.registrar_conta_excluida();
 drop table if exists king_private.contas_excluidas;
 
 reset role;
+
+commit;
