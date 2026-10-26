@@ -111,8 +111,8 @@ export function Placar({
             <div className="pl-next">
               <b>A seguir · Mão {s.nextContract.hand}</b>
               <span>
-                {contractTitle(s.nextContract.kind)} · {penaltyTextLong(s.nextContract.kind)}
-                {s.nextTrumpChooser !== null && ` · trunfo com ${game.players()[s.nextTrumpChooser]}`}
+                {contractTitle(s.nextContract.kind)}{"\u00a0· "}{inseparavel(penaltyTextLong(s.nextContract.kind))}
+                {s.nextTrumpChooser !== null && `\u00a0· ${inseparavel(`trunfo com ${game.players()[s.nextTrumpChooser]}`)}`}
               </span>
             </div>
           ) : (
@@ -159,6 +159,12 @@ export function Placar({
     </div>
   );
 }
+
+/**
+ * Mantém uma expressão curta numa linha só ("+25 por vaza", "trunfo com Valete Folgado"): quando o
+ * próximo contrato quebra, quebra entre as partes, depois do "·", e não no meio delas.
+ */
+const inseparavel = (t: string): string => t.replace(/ /g, "\u00a0");
 
 /** "2 damas · 5 vazas" — nas mãos em que unidade ≠ vaza, mostra as duas informações. */
 /**

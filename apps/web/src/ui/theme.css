@@ -994,31 +994,46 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 
 .pl-foot{display:flex;align-items:center;justify-content:space-between;gap:clamp(8px,1.6vw,14px);flex-wrap:wrap;
   border-top:1px solid var(--line);padding-top:clamp(7px,1.5vh,12px);margin-top:2px;}
-.pl-next{text-align:left;min-width:0;flex:1 1 auto;}
+/* `flex-basis: 0`, e não `auto`: o texto do próximo contrato quebra NO LUGAR em vez de empurrar o
+   resto do rodapé para uma segunda fileira. Com `auto`, a fileira quebrava pelo comprimento da frase
+   ("Positiva — Faça Vazas · +25 por vaza · trunfo com …", maior com apelido longo): a 740 de largura
+   cabia por meio pixel, e a 667×375 o consenso já descia sozinho — rodapé de 109 px e o placar entre
+   mãos rolando 9 px. Uma fileira só, com a frase em duas linhas, custa a altura do botão. */
+.pl-next{text-align:left;min-width:0;flex:1 1 0;}
 .pl-next b{display:block;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.76);letter-spacing:.16em;
   text-transform:uppercase;color:var(--turq);}
 .pl-next span{font-family:var(--disp);font-weight:800;color:#fff;font-size:calc(var(--ui)*1.02);}
 .pl-actions{display:flex;gap:10px;align-items:center;margin-left:auto;}
 /* O BOTÃO DE PRONTO — UMA CAIXA SÓ, NOS DOIS ESTADOS.
    Estado em cima, o que fazer embaixo, alvo de dedo de verdade. E, principalmente, dimensões que
-   NÃO dependem do estado: largura fixa, duas linhas sempre, segunda linha reticenciada. Alternar
-   pronto/não pronto não pode mudar a altura do rodapé — foi assim que um toque duplo fazia nascer
-   barra de rolagem no placar entre mãos. */
-/* A CAIXA É DECLARADA AQUI, INTEIRA, e não herdada da variante.
-   `gold` e `ghost` não têm a mesma borda (2px contra 1,5px) nem o mesmo `font-size`, e um padding
-   em `em` sobre tamanhos diferentes dá alturas diferentes. Foi o que sobrou depois de unificar o
-   botão: 49px contra 46px, três pixels que o rodapé sentia. Altura, borda e tipo passam a ser
-   ditos por esta regra, iguais nos dois estados; da variante fica só a cor. */
-.pl-toggle{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;
-  box-sizing:border-box;height:max(46px,calc(var(--ui)*2.9));padding:0 .8em;line-height:1.15;
+   NÃO dependem do estado: alternar pronto/não pronto não pode mudar a altura do rodapé — foi assim
+   que um toque duplo fazia nascer barra de rolagem no placar entre mãos.
+   A caixa fixa não pode, porém, CORTAR o texto. Foi o que a partida real de 26/10/2026 mostrou: a
+   legenda reticenciada ("AGUARDANDO RAIZA · TOQUE…") e as duas linhas espremidas, sem respiro, com
+   o alto das letras cortado pelo `overflow:hidden` de cada uma. Agora a caixa reserva a altura de
+   título + DUAS linhas de legenda — o bastante para a legenda mais longa com qualquer apelido real
+   de 14 caracteres, com ou sem espaço — e cresce com `--ui`, como a própria letra. Nenhuma linha
+   corta: a legenda quebra, centrada. Só um apelido inteiro de letras largas (14 "W" ou "M") pede a
+   terceira linha, e aí a caixa cresce (`min-height`) em vez de cortar. Prova em
+   tests/prontoEntreMaos.spec.ts, nos treze viewports. */
+/* A CAIXA É DECLARADA AQUI, INTEIRA, e não herdada da variante — e por isso o seletor tem DUAS
+   classes. `.btn.gold` e `.btn.ghost` trazem padding, borda (2px contra 1,5px) e `font-size`
+   próprios; com uma classe só, esta regra perdia para elas e padding, borda e tipo daqui eram letra
+   morta (a altura fixa de antes escondia isso). Declarada depois e com a mesma especificidade, ela
+   vence: os dois estados ficam com a mesma caixa, e da variante fica só a cor. */
+.btn.pl-toggle{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  box-sizing:border-box;min-height:calc(var(--ui)*3.52 + 7px);padding:.45em .9em;line-height:1.25;
   border-width:2px;border-style:solid;font-size:calc(var(--ui)*.8);
-  width:clamp(150px,25vw,224px);flex:none;text-align:left;}
-.pl-toggle b{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.92);
-  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  width:max(clamp(150px,25vw,224px),calc(var(--ui)*16));max-width:100%;flex:none;text-align:center;}
+.pl-toggle b{font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.92);white-space:nowrap;}
 .pl-toggle.on b{color:var(--turq);}
-.pl-toggle i{font-style:normal;font-family:var(--body);font-weight:700;
+/* No dourado, a legenda é o marrom do próprio botão, e não o `--faint`: lilás sobre ouro dava
+   contraste de 2,1:1 ("QUANDO QUISER SEGUIR" quase sumia). Assim fica acima de 5:1 até no ponto mais
+   escuro do degradê (`--gold2`). */
+.pl-toggle:not(.on) i{color:rgba(35,18,6,.85);}
+.pl-toggle i{font-style:normal;font-family:var(--body);font-weight:700;line-height:1.2;
   font-size:calc(var(--ui)*.72);color:var(--faint);
-  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  max-width:100%;overflow-wrap:anywhere;text-wrap:balance;}
 .pl-toggle:disabled{opacity:.7;cursor:default;}
 
 /* O bicho dentro do círculo de "quem já confirmou". O círculo é o `.pl-pronto`; isto aqui é só o

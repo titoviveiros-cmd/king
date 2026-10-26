@@ -172,8 +172,8 @@ export function ConsensoDaProximaMao({
     : travado
       ? "começando…"
       : faltam.length === 1
-        ? `aguardando ${faltam[0].nome} · toque para desfazer`
-        : `aguardando ${faltam.length} jogadores · toque para desfazer`;
+        ? `aguardando ${faltam[0].nome}\u00a0· toque\u00a0para\u00a0desfazer`
+        : `aguardando ${faltam.length} jogadores\u00a0· toque\u00a0para\u00a0desfazer`;
 
   return (
     <div className="pl-consenso">
