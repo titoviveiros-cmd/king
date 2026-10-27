@@ -6,7 +6,8 @@
   "framework": null,
   "git": {
     "deploymentEnabled": {
-      "feat/mobile-identity-compliance": false
+      "feat/mobile-identity-compliance": false,
+      "feat/multiplayer-v1": false
     }
   },
   "headers": [
