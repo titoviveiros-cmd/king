@@ -553,7 +553,7 @@ Backend PRIMEIRO, web por último: tudo do backend é compatível com o web que 
 | B | Authentication → Hooks → "Before User Created" → Postgres → `public.king_antes_de_criar_usuario` → ligar | Tito | painel mostra o gancho ligado |
 | C | NA HORA: aba anônima em playkingcards.com.br → Jogar com amigos → Criar uma sala (nasce convidado) | Tito | `select count(*) from auth.users where is_anonymous and created_at > now() - interval '5 minutes';` > 0. Se falhar: DESLIGAR o gancho (instantâneo). |
 | D | SQL Editor: `20261025130000_credito_com_conta_excluida.sql` — ANTES de E | Tito | `select position('contas_excluidas' in pg_get_functiondef('king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)'::regprocedure)) > 0 as credito_novo, has_function_privilege('king_server','king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)','execute') as servidor, exists (select 1 from pg_trigger where tgname = 'players_lapide_da_exclusao') as gatilho;` → `true, true, true`; e a próxima partida online real credita XP normalmente |
-| D2 | SQL Editor: `20261026120000_retencao_das_lapides.sql` (retenção das lápides, E-2) — ANTES de E; as conferências do próprio arquivo reprovam tudo se dono/privilégios divergirem | Tito | `select to_regprocedure('king_private.expurgar_lapides(uuid,uuid[])') is not null as expurgo, has_function_privilege('king_server','king_private.expurgar_lapides(uuid,uuid[])','execute') as servidor, (select count(*) from king_private.expurgo_das_lapides) as estado;` → `true, true, 1` |
+| D2 | SQL Editor, nesta ordem: `supabase/rollout/retencao-checkpoint-1-antes.sql` (só leitura → `pronto_para_aplicar = true`); `supabase/rollout/retencao-aplicar.sql` (a E-2 `20261026120000_retencao_das_lapides.sql` verbatim, numa transação com recusas, retrato e conferências — nenhuma lápide sai; última linha "RETENÇÃO DAS LÁPIDES (E-2) APLICADA E CONFERIDA"); `supabase/rollout/retencao-checkpoint-3-depois.sql` (só leitura → `tudo_certo = true`) — ANTES de S e de E | Tito | `select to_regprocedure('king_private.expurgar_lapides(uuid,uuid[])') is not null as expurgo, has_function_privilege('king_server','king_private.expurgar_lapides(uuid,uuid[])','execute') as servidor, (select count(*) from king_private.expurgo_das_lapides) as estado;` → `true, true, 1` |
 | S | deploy do servidor na VPS com o expurgo (`scripts/deploy-vps.sh`, que confere o artefato; hoje a VPS está em 34c5d89 e o script acompanha `feat/multiplayer-v1`) — ANTES de E | Tito (Web Terminal), com autorização | log `[king] progresso: closed` e nenhum `expurgo das lápides falhou`; em ≤ 1 h, `select ultima_rodada from king_private.expurgo_das_lapides;` não nulo |
 | E | `supabase functions deploy excluir-conta --no-verify-jwt` (segredos da Apple podem esperar o iOS) | Tito, ou eu com autorização | lista de funções do painel |
 | F1 | `node scripts/smoke-excluir-conta.mjs --url https://<ref>.supabase.co --chave <publishable>` — não cria nada | eu, com autorização | `APROVADO — 5 verificações` |
@@ -642,7 +642,8 @@ dele, se houver, é jovem demais para o prazo.
 - Desligar sem deploy: `revoke execute on function king_private.expurgar_lapides(uuid, uuid[]) from king_server;`
   (o servidor registra `expurgo das lápides falhou: 42501/transitoria` e mantém tudo). Religar: o `grant`
   da migration.
-- Depois do D2 e depois de todo reset do marcador, conferir que o banco registrou o diretório CERTO:
+- Depois da 1ª rodada do passo S (logo depois do D2 o marcador é nulo, por desenho) e depois de todo reset
+  do marcador, conferir que o banco registrou o diretório CERTO:
   `select outbox from king_private.expurgo_das_lapides;` igual a `cat /var/lib/king/progresso-outbox/.king-outbox`.
   Qualquer chamador com o papel `king_server` registraria o seu (e o servidor de verdade cairia em KL001 —
   falha segura, mas o expurgo para).
@@ -668,9 +669,12 @@ dele, se houver, é jovem demais para o prazo.
   fechava um ciclo com o `drop table` (40P01). "lock timeout" = um expurgo estava no meio: rodar de novo;
 - o estado do expurgo FICA se alguma lápide já saiu: é a prova de exclusão real;
 - o rollback pré-E do passo D recusa enquanto existir o estado — desfazer a E-2 antes;
-- o pós-E passou a travar a lápide em modo `share`: um expurgo no meio abortava a CONFERÊNCIA 4 à toa.
+- o pós-E passou a travar a lápide em modo `share`: um expurgo no meio abortava a CONFERÊNCIA 4 à toa;
+- reaplicar a E-2 depois de um rollback que MANTEVE o estado: colar a E-2 crua
+  (`20261026120000_retencao_das_lapides.sql`), que reaproveita a linha e o marcador — o arquivo do D2
+  (`supabase/rollout/retencao-aplicar.sql`) é só para a 1ª aplicação e recusa por desenho.
 
-**Rollout.** D2 (SQL Editor, esta migration) → S (deploy da VPS com o expurgo; `deploy-vps.sh` confere
+**Rollout.** D2 (SQL Editor: `supabase/rollout/retencao-aplicar.sql`, entre os checkpoints 1 e 3 de `supabase/rollout/`) → S (deploy da VPS com o expurgo; `deploy-vps.sh` confere
 o artefato) → E → … → G só depois de S provado (`ultima_rodada` não nula). O convidado descartável do
 F2 deixa uma lápide, que sai sozinha em 30 dias.
 
