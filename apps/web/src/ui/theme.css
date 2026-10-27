@@ -1910,6 +1910,10 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   font-size:clamp(.68rem,1.7vh,.82rem);padding:0 12px;text-decoration:underline;text-underline-offset:3px;
   min-height:44px;min-width:44px;display:inline-flex;align-items:center;justify-content:center;}
 .pc-lista{text-align:left;color:var(--ink);font-size:clamp(.72rem,1.8vh,.88rem);line-height:1.4;margin:8px 0;padding-left:1.2em;}
+/* O que fica por um tempo depois da exclusão (E-2): continuação da lista, em voz secundária — a cor e
+   o tamanho do rótulo do campo, colada à lista (a margem negativa come metade do respiro dela). Três
+   linhas nas telas baixas (o texto do titular); com pouca altura útil, ver `.pc-compacta`. */
+.pc-nota{text-align:left;color:var(--muted);font-size:clamp(.66rem,1.6vh,.8rem);line-height:1.35;margin:-4px 0 0;}
 .pc-campo{display:flex;flex-direction:column;gap:4px;text-align:left;margin-top:8px;}
 .pc-campo span{font-family:var(--disp);font-weight:800;font-size:clamp(.66rem,1.6vh,.8rem);color:var(--muted);}
 .pc-campo input{font-family:var(--disp);font-weight:800;font-size:1rem;letter-spacing:.12em;color:var(--ink);
@@ -1919,6 +1923,27 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   color:#fff;font-family:var(--disp);font-weight:800;cursor:pointer;}
 .pc-excluir:disabled{opacity:.45;cursor:default;}
 .pc-aviso{color:var(--gold);font-size:clamp(.7rem,1.7vh,.85rem);margin:8px 0 0;}
+/* "Excluir conta" COMPACTA — a classe vem do painel, que mede a altura ÚTIL (a da janela menos o respiro
+   e as bordas de segurança do aparelho) e conta o item a mais da conta Apple. Exigência do titular
+   (26/10): "Excluir minha conta" e "Cancelar" inteiros à vista, sem rolar, sem diminuir letra nem o alvo
+   de 44px. Só encolher o respiro não basta (medido: o "Cancelar" continuava quase todo fora), então as
+   ações também ficam lado a lado (aprovado por ele). Se nem assim couber (852×300 com a barra do iPhone),
+   só o que se lê — lista e nota — rola (`.pc-info-rola`, que o painel tira quando há aviso: na falha,
+   quem rola é o painel, como no visual aprovado): o cartão vira coluna flex, e campo e ações não
+   encolhem. Item flex não colapsa margem: a lista perde a de cima, e o título fica onde estava; e a
+   caixa que rola se estende 6px para os lados (o texto não sai do lugar) para não cortar as bolinhas
+   da lista, que ficam um pouco fora dela. Folga medida com as fontes embutidas, de métricas verticais
+   iguais em qualquer sistema. */
+.ovcard.pc-compacta{padding-top:8px;padding-bottom:8px;}
+.ovcard.pc-info-rola{display:flex;flex-direction:column;}
+.pc-info-rola .pc-info{min-height:0;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;margin:0 -6px;padding:0 6px;}
+.pc-compacta .pc-lista{margin-top:0;}
+.pc-compacta .pc-campo{margin-top:4px;}
+.pc-compacta .pc-acoes{flex-direction:row;justify-content:center;margin-top:6px;}
+.pc-compacta .pc-excluir{width:auto;flex:1 1 auto;}
+/* Na falha, o aviso empurra as ações e o painel rola até elas (PainelConta): a rolagem em pixel inteiro
+   deixava 0,3px delas de fora. 2px de margem bastam — mais que isso mudaria o topo da falha aprovada. */
+.pc-info ~ .pc-acoes{scroll-margin-bottom:2px;}
 
 /* O PROGRESSO NA HOME — o "player card" do Design System no mínimo: badge de nível em ouro e barra
    de XP turquesa→violeta. Uma pílula de vidro ABAIXO das ações, e menor que elas: é lembrança de

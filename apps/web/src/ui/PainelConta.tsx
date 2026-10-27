@@ -8,7 +8,8 @@
 //
 // O painel não conhece SDK, token nem plugin: recebe operações prontas (`useConta`,
 // `usePainelDaConta`) e devolve frases neutras — nunca um identificador.
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { ProvedorVinculavel } from "../auth/conta.js";
 import type { RevogacaoApple, ResultadoDaExclusao } from "../auth/exclusaoDeConta.js";
 import type { ContaDaHome, ServicosDaConta } from "../auth/useConta.js";
@@ -16,6 +17,22 @@ import type { ResultadoDaRecuperacao } from "../auth/recuperacaoDeConta.js";
 import { sfxTap } from "../audio/sounds.js";
 
 export const PALAVRA_DA_EXCLUSAO = "EXCLUIR";
+
+/**
+ * O que FICA por um tempo depois da exclusão (Fase 9, E-2) — a versão curta do que dizem
+ * `public/privacidade.html` e `public/excluir-conta.html`, nas palavras do titular (26/10): não
+ * mude sem ele. "Identificador técnico", nunca "anônimo"; a pendência técnica estende o prazo, sem
+ * teto prometido. Três linhas nas telas baixas; com pouca altura útil a tela se compacta (`compacta`).
+ */
+export const RETENCAO_DA_EXCLUSAO =
+  "Após excluir a conta, mantemos por 30 dias um identificador técnico e a data/hora para concluir créditos de XP. Pendências técnicas podem estender esse prazo até a resolução.";
+
+/**
+ * Abaixo destas alturas ÚTEIS (a do fundo menos o respiro e as bordas de segurança do aparelho), o
+ * arranjo normal da tela de exclusão já não mostra as duas ações inteiras com 5px de folga, e ela se
+ * compacta. Medidas com as fontes embutidas; a conta Apple no app tem um item (uma linha, 16px) a mais.
+ */
+export const ALTURA_UTIL_DA_EXCLUSAO = { normal: 342, comApple: 358 };
 
 const NOME: Record<ProvedorVinculavel, string> = { apple: "a Apple", google: "o Google" };
 
@@ -64,6 +81,40 @@ export function PainelConta({
   const [aviso, setAviso] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [digitado, setDigitado] = useState("");
+  const acoesDaExclusao = useRef<HTMLDivElement>(null);
+
+  // Com pouca altura ÚTIL, a tela de exclusão se COMPACTA (`.pc-compacta`, theme.css). Útil = a do fundo
+  // menos o respiro e as bordas de segurança do aparelho (a barra inferior do iPhone em paisagem), que
+  // media query não enxerga. Cada medida nova do observador entra ANTES de pintar (flushSync): nenhum
+  // quadro no arranjo velho, e a rolagem da falha se refaz no mesmo quadro em que a altura muda.
+  const fundo = useRef<HTMLDivElement>(null);
+  const [alturaUtil, setAlturaUtil] = useState(Infinity);
+  useLayoutEffect(() => {
+    const el = fundo.current;
+    if (!el || tela.nome !== "excluir" || typeof ResizeObserver !== "function") return;
+    const medir = () => {
+      const cs = getComputedStyle(el);
+      return el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    };
+    setAlturaUtil(medir());
+    const observador = new ResizeObserver(() => flushSync(() => setAlturaUtil(medir())));
+    observador.observe(el);
+    return () => observador.disconnect();
+  }, [tela.nome]);
+  const pedeApple = conta?.estado === "apple" && conta.nativo === true;
+  const compacta = tela.nome === "excluir"
+    && alturaUtil < (pedeApple ? ALTURA_UTIL_DA_EXCLUSAO.comApple : ALTURA_UTIL_DA_EXCLUSAO.normal);
+  // Sem aviso, se nem compacta couber, só a lista e a nota rolam (`.pc-info-rola`); com o aviso da
+  // falha, quem rola é o painel, até as ações — como no visual aprovado.
+  const classeDoCartao = !compacta ? "ovcard pc" : aviso ? "ovcard pc pc-compacta" : "ovcard pc pc-compacta pc-info-rola";
+
+  // Um aviso na tela de exclusão empurra as ações para baixo; em tela baixa elas saíam da dobra. O
+  // painel rola só o necessário para "Excluir minha conta" E "Cancelar" — com o aviso logo acima —
+  // ficarem à vista, e rola DE NOVO quando a altura útil muda com o aviso na tela (girar, a barra do
+  // navegador, o teclado): a rolagem de antes ficaria velha. Antes de pintar (layout effect).
+  useLayoutEffect(() => {
+    if (aviso && tela.nome === "excluir") acoesDaExclusao.current?.scrollIntoView?.({ block: "nearest" });
+  }, [aviso, tela.nome, alturaUtil]);
 
   const vinculada = conta?.estado === "google" || conta?.estado === "apple";
   const provedoresParaVincular: ProvedorVinculavel[] = conta && !vinculada ? (conta.provedores ?? ["google"]) : [];
@@ -134,8 +185,8 @@ export function PainelConta({
       : "Você joga como convidado neste aparelho.";
 
   return (
-    <div className="ov" onClick={fechar}>
-      <div className="ovcard pc" role="dialog" aria-modal="true" aria-labelledby="pc-titulo" onClick={(e) => e.stopPropagation()}>
+    <div className="ov" ref={fundo} onClick={fechar}>
+      <div className={classeDoCartao} role="dialog" aria-modal="true" aria-labelledby="pc-titulo" onClick={(e) => e.stopPropagation()}>
         {tela.nome === "inicio" && (
           <>
             <h2 id="pc-titulo">Conta</h2>
@@ -228,12 +279,15 @@ export function PainelConta({
         {tela.nome === "excluir" && (
           <>
             <h2 id="pc-titulo">Excluir conta</h2>
-            <ul className="pc-lista">
-              <li>Apaga para sempre a sua conta do KING: nível, XP, sequência e o vínculo com Google ou Apple.</li>
-              <li>Não dá para desfazer. Se jogar de novo, começa como um convidado novo.</li>
-              <li>O registro das partidas fica, sem nada que identifique você.</li>
-              {conta?.estado === "apple" && conta.nativo && <li>Vamos pedir para você confirmar com a Apple.</li>}
-            </ul>
+            <div className="pc-info">
+              <ul className="pc-lista">
+                <li>Apaga para sempre a sua conta do KING: nível, XP, sequência e o vínculo com Google ou Apple.</li>
+                <li>Não dá para desfazer. Se jogar de novo, começa como um convidado novo.</li>
+                <li>O registro das partidas fica, sem nada que identifique você.</li>
+                {pedeApple && <li>Vamos pedir para você confirmar com a Apple.</li>}
+              </ul>
+              <p className="pc-nota">{RETENCAO_DA_EXCLUSAO}</p>
+            </div>
             <label className="pc-campo">
               <span>Digite {PALAVRA_DA_EXCLUSAO} para confirmar</span>
               <input
@@ -246,7 +300,7 @@ export function PainelConta({
               />
             </label>
             {aviso && <p className="pc-aviso" role="status">{aviso}</p>}
-            <div className="pc-acoes">
+            <div className="pc-acoes" ref={acoesDaExclusao}>
               <button
                 className="pc-excluir"
                 disabled={ocupado || digitado.trim() !== PALAVRA_DA_EXCLUSAO}

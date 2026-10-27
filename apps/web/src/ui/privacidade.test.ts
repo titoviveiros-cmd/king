@@ -157,7 +157,7 @@ describe("depois da exclusão: a lápide (E-2)", () => {
 
   it("diz o que fica, para quê, por quanto tempo, com a exceção — e que ninguém de fora vê", () => {
     expect(i).toBeGreaterThan(0);
-    for (const t of ["identificador interno da conta excluída", "a data e a hora da exclusão", "partidas dos outros jogadores",
+    for (const t of ["identificador técnico da conta excluída", "a data e a hora da exclusão", "partidas dos outros jogadores",
       "crédito de partida pendente", "registro técnico dessa partida", "se participou", "não ficam acessíveis ao público",
       "O prazo normal é de 30 dias", "só se estende enquanto", "prestes a começar", "não puder ser confirmado com segurança",
       "pendência técnica ser resolvida", "são eliminadas"]) {

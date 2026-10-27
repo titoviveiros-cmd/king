@@ -6,7 +6,7 @@
 // muda na tela, a página tem de mudar junto — e proíbem a página de carregar qualquer coisa de fora.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { PALAVRA_DA_EXCLUSAO } from "./PainelConta.js";
+import { PALAVRA_DA_EXCLUSAO, RETENCAO_DA_EXCLUSAO } from "./PainelConta.js";
 import { CONFIRMACAO_DA_EXCLUSAO } from "../auth/exclusaoDeConta.js";
 
 const ler = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8").replace(/\r\n/g, "\n");
@@ -72,6 +72,57 @@ describe("a página fala da MESMA tela que o app desenha", () => {
     expect(TEXTO).toContain("toque em Conta");
     expect(TEXTO).toContain("Toque em Excluir conta");
     expect(TEXTO).toContain("toque em Excluir minha conta");
+  });
+});
+
+describe("a lápide (E-2): a tela do app e as duas páginas dizem a MESMA coisa", () => {
+  const texto = (html: string) => html.replace(/<!--[\s\S]*?-->/g, "").replace(/<style[\s\S]*?<\/style>/g, "")
+    .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
+  const i = PRIVACIDADE.indexOf('id="depois-da-exclusao"');
+  const NA_POLITICA = texto(PRIVACIDADE.slice(PRIVACIDADE.indexOf(">", i) + 1, PRIVACIDADE.indexOf("</p>", i)));
+  const NA_PAGINA = TEXTO.slice(TEXTO.indexOf("Por um prazo normal de 30 dias"), TEXTO.indexOf("A medição de uso anônima"));
+  const NO_APP = RETENCAO_DA_EXCLUSAO;
+
+  it("o quê: identificador TÉCNICO (nunca anônimo) e a data e a hora da exclusão", () => {
+    for (const [onde, t] of [["app", NO_APP], ["privacidade", NA_POLITICA], ["excluir-conta", NA_PAGINA]]) {
+      expect(t, onde).toContain("identificador técnico");
+      expect(t.replace("não um dado anônimo", ""), onde).not.toMatch(/anônim/i);
+    }
+    // a tela diz "a data/hora", depois de "Após excluir a conta" (texto do titular); as páginas, por extenso
+    expect(NO_APP).toMatch(/^Após excluir a conta, .*a data\/hora/);
+    expect(NA_POLITICA).toContain("a data e a hora da exclusão");
+    expect(NA_PAGINA).toContain("a data e a hora da exclusão");
+  });
+
+  it("para quê: concluir os créditos de XP — nas páginas, os dos OUTROS jogadores (o de quem excluiu some)", () => {
+    expect(NO_APP).toMatch(/para concluir créditos de XP/);
+    expect(NA_POLITICA).toMatch(/dos outros jogadores/);
+    expect(NA_PAGINA).toMatch(/dos outros jogadores/);
+  });
+
+  it("por quanto tempo: 30 dias, e a pendência técnica estende — sem teto prometido", () => {
+    for (const [onde, t] of [["app", NO_APP], ["privacidade", NA_POLITICA], ["excluir-conta", NA_PAGINA]]) {
+      expect(t, onde).toContain("30 dias");
+      expect(t, onde).toMatch(/pendência técnica|pendências técnicas/i);
+      expect(t, onde, "o código nunca apaga ANTES de 30 dias: nada de \"até 30 dias\"").not.toMatch(/até 30 dias/);
+      expect(t, onde, "com pendência não há teto a prometer").not.toMatch(/no máximo|prazo máximo/i);
+    }
+    // a tela: mantém por 30 dias, e a pendência estende ATÉ a resolução (texto do titular)
+    expect(NO_APP).toMatch(/mantemos por 30 dias/);
+    expect(NO_APP).toMatch(/Pendências técnicas podem estender esse prazo até a resolução\.$/);
+    // as páginas: depois, elimina; a pendência só adia
+    for (const [onde, t] of [["privacidade", NA_POLITICA], ["excluir-conta", NA_PAGINA]]) {
+      expect(t, onde).toMatch(/apagad|eliminad/);
+      expect(t, onde).toMatch(/apenas até essa pendência técnica ser resolvida/);
+    }
+  });
+
+  it("no app, curta e sem \"só\" (com crédito pendente fica também o registro dele), sem linguagem de política", () => {
+    // ≤ 180: o texto do titular (174) ocupa 3 linhas nas telas baixas; mais que isso perde a folga contra
+    // a 4ª, que a tela compacta de 852×300 não comporta (medido; a régua de verdade é o e2e)
+    expect(NO_APP.length).toBeLessThanOrEqual(180);
+    expect(NO_APP).not.toMatch(/\bsó um\b|\bapenas um\b/);
+    expect(NO_APP).not.toMatch(/titular|tratamento|LGPD|controlador|base legal/i);
   });
 });
 

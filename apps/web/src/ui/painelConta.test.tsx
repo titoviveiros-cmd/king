@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parse } from "node-html-parser";
-import { PainelConta } from "./PainelConta.js";
+import { ALTURA_UTIL_DA_EXCLUSAO, PainelConta } from "./PainelConta.js";
 import { Home } from "./Home.js";
 import type { ContaDaHome, ServicosDaConta } from "../auth/useConta.js";
 
@@ -18,6 +18,14 @@ function painel(conta: ContaDaHome | null, servicos: ServicosDaConta) {
 }
 
 describe("o painel Conta", () => {
+  it("a tela de exclusão se compacta pela altura ÚTIL — e, com o item a mais da Apple, antes", () => {
+    // sem bordas de segurança, 342 = a janela de 360px menos o respiro (2 × 9px): o ponto já aprovado
+    expect(ALTURA_UTIL_DA_EXCLUSAO.normal).toBe(342);
+    // a conta Apple no app tem um item a mais: uma linha da lista (11,52px × 1,4 ≈ 16px) — nenhum build
+    // de e2e liga o vínculo, então é aqui que o limiar dela fica guardado
+    expect(ALTURA_UTIL_DA_EXCLUSAO.comApple - ALTURA_UTIL_DA_EXCLUSAO.normal).toBeGreaterThanOrEqual(16);
+  });
+
   it("convidado no iPhone: Apple PRIMEIRO, depois Google; 'Já tenho uma conta'; 'Excluir conta'", () => {
     const dom = painel({ estado: "guest", aviso: null, onVincular: noop, provedores: ["apple", "google"], nativo: true }, { recuperacao, exclusao });
     expect(dom.querySelector("h2")!.text).toBe("Conta");
