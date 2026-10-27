@@ -40,6 +40,14 @@
 // E-2 (`trocasRetencao`) ou dos rollbacks — e as de privilégio tiram junto as conferências da própria
 // migração, para os TESTES provarem sozinhos.
 //
+// ══ PASSO D2 — O ARQUIVO DO TITO PARA A E-2 ══
+//
+// R13–R16 provam `supabase/rollout/retencao-aplicar.sql` (montado por scripts/montar-rollout-retencao.mjs) e
+// os checkpoints só de leitura, aplicados pelo papel do SQL Editor sobre o banco de Production de hoje
+// (`modelo_sem_retencao`): nenhuma lápide sai na instalação, defeito ou queda no meio não gravam nada,
+// colar de novo é recusado, a exclusão de conta no meio espera e o crédito não. As mutações `d2-*`
+// tiram cada proteção das partes do arquivo (`trocasD2Antes`, `trocasD2Conferencias`).
+//
 // USO:
 //   node scripts/testar-progresso-sql.mjs            # suíte GREEN
 //   node scripts/testar-progresso-sql.mjs --provas   # mutações (RED) + suíte GREEN
@@ -48,7 +56,7 @@ import pg from "pg";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { gerarSenha, validarVerificador, verificadorScram } from "./lib/scram.mjs";
@@ -74,6 +82,22 @@ const GRANT_DO_EXPURGO = "grant execute on function king_private.expurgar_lapide
 const FILTRO_DO_EXPURGO = "   where x.excluida_em < v_corte\n     and x.player_id <> all (p_protegidas);";
 const ROLLOUT_ANTES = ler("supabase/rollout/partes/1-antes.sql");
 const ROLLOUT_CONFERENCIAS = ler("supabase/rollout/partes/3-conferencias.sql");
+// FASE 9, D2: o arquivo do Tito para a E-2 (as partes; a E-2 entra verbatim) e os checkpoints só de leitura.
+const D2_ANTES = ler("supabase/rollout/partes/retencao-1-antes.sql");
+const D2_CONFERENCIAS = ler("supabase/rollout/partes/retencao-3-conferencias.sql");
+const CHECKPOINT_D2_ANTES = ler("supabase/rollout/retencao-checkpoint-1-antes.sql");
+const CHECKPOINT_D2_DEPOIS = ler("supabase/rollout/retencao-checkpoint-3-depois.sql");
+function trecho(texto, de, ate) {
+  const i = texto.indexOf(de);
+  const j = texto.indexOf(ate, i);
+  if (i < 0 || j < 0) throw new Error(`trecho ausente: ${de.slice(0, 50)}`);
+  return texto.slice(i, j);
+}
+const D2_RECUSA_DA_REAPLICACAO = trecho(D2_ANTES, "  if to_regprocedure('king_private.expurgar_lapides(uuid,uuid[])') is not null", "end $$;");
+const D2_CONFERENCIA_DAS_LAPIDES = trecho(D2_CONFERENCIAS, "  -- 1. nenhuma lápide", "  -- 2. o estado");
+const D2_CONFERENCIA_DO_ESTADO = trecho(D2_CONFERENCIAS, "  -- 2. o estado", "  -- 3. a porta");
+const D2_CONFERENCIA_DE_PRIVILEGIO = trecho(D2_CONFERENCIAS, "  -- 4. quem executa", "  -- 6. o passo D");
+const D2_CONFERENCIA_DO_PASSO_D = trecho(D2_CONFERENCIAS, "  -- 6. o passo D", "  -- 7. XP, ledger");
 
 const MARCADOR = "  -- [ponto-de-corrida]";
 const JANELA_MS = 400;
@@ -81,6 +105,21 @@ const TRAVA = "  perform 1 from public.progresso as g where g.player_id = any (v
 
 /** Cada mutação remove UMA proteção. `alvos` são os testes que precisam reprovar sem ela. */
 const MUTACOES = {
+  // ── PASSO D2 (o arquivo do Tito): cada proteção do arquivo, tirada em memória ──
+  "d2-sem-trava-da-lapide": {
+    // a exclusão de conta no meio gravaria lápide DURANTE a transação (e o retrato mudaria debaixo dela)
+    trocasD2Antes: [["lock table king_private.contas_excluidas in share mode;\n", ""]],
+    alvos: ["R16"],
+  },
+  "d2-aceita-reaplicar": {
+    // colado de novo, cairia no meio da E-2 ("already exists") em vez de recusar na parte 1
+    trocasD2Antes: [[D2_RECUSA_DA_REAPLICACAO, ""]],
+    alvos: ["R14"],
+  },
+  "d2-sem-conferencia-das-lapides": { trocasD2Conferencias: [[D2_CONFERENCIA_DAS_LAPIDES, ""]], alvos: ["R14"] },
+  "d2-sem-conferencia-do-estado": { trocasD2Conferencias: [[D2_CONFERENCIA_DO_ESTADO, ""]], alvos: ["R14"] },
+  "d2-sem-conferencia-de-privilegio": { trocasD2Conferencias: [[D2_CONFERENCIA_DE_PRIVILEGIO, ""]], alvos: ["R14"] },
+  "d2-sem-conferencia-do-passo-d": { trocasD2Conferencias: [[D2_CONFERENCIA_DO_PASSO_D, ""]], alvos: ["R14"] },
   // ── RETENÇÃO DAS LÁPIDES (Fase 9, E-2) ──
   "expurgo-sem-prazo": {
     // o pg_cron cego ao contrário: tira toda lápide não protegida, de qualquer idade
@@ -584,6 +623,46 @@ async function estadoDoExpurgo(admin) {
   const r = await admin.query("select outbox, rodadas::int as rodadas, lapides_removidas::int as removidas, ultima_rodada from king_private.expurgo_das_lapides");
   return r.rows[0] ?? null;
 }
+// ── passo D2 (o arquivo do Tito para a E-2) ──
+
+/** O texto do D2 como o Tito cola (sem o cabeçalho, que é só comentário): BEGIN, partes e a E-2 deste modelo — ou uma mutada. */
+const textoD2 = (ctx, migracao = ctx.retencao) => "begin;\n\n" + ctx.d2Antes + migracao + ctx.d2Conferencias;
+const lapidesComHora = async (admin) => (await admin.query(
+  "select player_id::text || '@' || extract(epoch from excluida_em)::text as l from king_private.contas_excluidas order by player_id")).rows.map((r) => r.l);
+const md5DoCredito = async (admin) => (await admin.query("select md5(prosrc) as m from pg_proc where oid = " +
+  "'king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)'::regprocedure")).rows[0].m;
+/** Que pedaço da E-2 existe no banco: "nenhum", ou quais. */
+async function pedacosDaE2(admin) {
+  const r = (await admin.query("select to_regprocedure('king_private.expurgar_lapides(uuid,uuid[])') is not null as porta, " +
+    "to_regclass('king_private.expurgo_das_lapides') is not null as estado, " +
+    "coalesce(position('greatest' in pg_get_functiondef(to_regprocedure('king_private.registrar_conta_excluida()'))) > 0, false) as lapide_nova")).rows[0];
+  const pedacos = Object.entries(r).filter(([, v]) => v).map(([k]) => k);
+  return pedacos.length ? pedacos.join(",") : "nenhum";
+}
+/** Até a conexão `pid` ter a trava CONCEDIDA na tabela. */
+async function esperarTrava(b, pid, tabela) {
+  const prazo = Date.now() + 30_000;
+  while ((await b.admin.query("select count(*)::int as n from pg_locks where pid = $1 and relation = $2::regclass and granted", [pid, tabela])).rows[0].n === 0) {
+    if (Date.now() > prazo) throw new Error(`a conexão ${pid} não pegou a trava de ${tabela}`);
+    await new Promise((ok) => setTimeout(ok, 5));
+  }
+}
+/** Até a conexão `pid` estar parada num pg_sleep: o ponto exato em que o teste a quer. */
+async function esperarDormindo(b, pid) {
+  const prazo = Date.now() + 30_000;
+  while ((await b.admin.query("select count(*)::int as n from pg_stat_activity where pid = $1 and wait_event = 'PgSleep'", [pid])).rows[0].n === 0) {
+    if (Date.now() > prazo) throw new Error(`a conexão ${pid} não chegou na pausa`);
+    await new Promise((ok) => setTimeout(ok, 5));
+  }
+}
+/** Como o SQL Editor (o `postgres` do Supabase), numa conexão que aguenta ser DERRUBADA sem derrubar a suíte. */
+async function conexaoDoSqlEditorDerrubavel(b) {
+  const c = new pg.Client({ host: "127.0.0.1", port: PORTA, database: b.nome, user: "supa_postgres", password: SENHA_SUPABASE });
+  c.on("error", () => {});
+  await c.connect();
+  return c;
+}
+
 /** Um fuso POSIX cujo horário de verão começou há 10 dias: nele, "30 days" valeria 719 h. */
 function fusoComVeraoRecente(agora = Date.now()) {
   const dia = (ms) => Math.floor((ms - Date.UTC(new Date(ms).getUTCFullYear(), 0, 1)) / 86_400_000);
@@ -2101,6 +2180,150 @@ const TESTES = [
     const r = await expurgar(await b.servidor(), randomUUID(), []);
     afirmar(r.removidas === 0 && (await lapides(b.admin)).length === 1, `a lápide de uma exclusão de agora saiu: ${JSON.stringify(r)}`);
   } },
+  // ── PASSO D2: o ARQUIVO que o Tito cola no SQL Editor de Production (partes + E-2 verbatim) ──
+  { id: "R13", semRetencao: true, nome: "D2 — o arquivo é o que as partes e a E-2 montam; pelo papel do SQL Editor, sobre o banco de hoje (XP, lápide jovem e VENCIDAS): aplica, confere e NÃO tira lápide nenhuma; o servidor antigo segue creditando", async fn(b, ctx) {
+    const { montarRollout } = await import(new URL("scripts/montar-rollout-retencao.mjs", RAIZ).href);
+    afirmar(ler("supabase/rollout/retencao-aplicar.sql") === montarRollout(), "supabase/rollout/retencao-aplicar.sql está desatualizado (rode node scripts/montar-rollout-retencao.mjs)");
+    afirmar(montarRollout().includes(RETENCAO), "a E-2 não entra verbatim no arquivo do D2");
+    afirmar(montarRollout().includes(createHash("sha256").update(RETENCAO).digest("hex")), "o cabeçalho do D2 não traz o sha256 da E-2");
+    // o banco de hoje: XP no ledger e lápides — uma jovem, duas vencidas (uma de mais de um ano)
+    const [a, x, jovem, v1, v2] = await b.jogadores(5);
+    const s = await b.servidor();
+    await creditar(s, { ...janelaDaPartida(0), humanos: [{ id: a, posicao: 1 }, { id: x, posicao: 2 }] });
+    await excluirHa(b.admin, jovem, 2);
+    await excluirHa(b.admin, v1, 31 * 24);
+    await excluirHa(b.admin, v2, 400 * 24);
+    const antes = { lapides: await lapidesComHora(b.admin), ledger: await resumoDoLedger(b.admin), credito: await md5DoCredito(b.admin) };
+    const rel = [].concat(await (await b.supabase()).query(textoD2(ctx))).at(-1).rows[0];
+    afirmar(rel?.resultado === "RETENÇÃO DAS LÁPIDES (E-2) APLICADA E CONFERIDA" && rel.expurgo === true && rel.servidor_executa === true
+      && Number(rel.estado) === 1 && rel.marcador_vazio_ate_o_passo_s === true && Number(rel.rodadas) === 0 && Number(rel.lapides_removidas) === 0
+      && Number(rel.lapides) === 3 && Number(rel.vencidas_esperando_o_passo_s) === 2, `relatório do D2: ${JSON.stringify(rel)}`);
+    afirmar(JSON.stringify(await lapidesComHora(b.admin)) === JSON.stringify(antes.lapides), "o D2 mexeu nas lápides");
+    afirmar(JSON.stringify(await resumoDoLedger(b.admin)) === JSON.stringify(antes.ledger), "o D2 mexeu no ledger");
+    afirmar(await md5DoCredito(b.admin) === antes.credito, "o D2 mudou a função de crédito");
+    // o servidor ANTIGO (sem expurgo, antes do passo S): crédito normal, e quem excluiu a conta é pulado
+    const { linhas } = await creditar(s, { ...janelaDaPartida(1), humanos: [{ id: a, posicao: 1 }, { id: v1, posicao: 2, participou: false }] });
+    afirmar(linhas.length === 1 && xpDe(linhas, a) > 0, `crédito do servidor antigo depois do D2: ${JSON.stringify(linhas)}`);
+    afirmar((await lapides(b.admin)).length === 3, "uma lápide saiu sem ninguém chamar o expurgo");
+  } },
+  { id: "R14", semRetencao: true, nome: "D2 — com defeito (lápide apagada, expurgo na instalação, GRANT a mais, o D desfeito) ou derrubado no meio, NADA é gravado; colado de novo, recusa na parte 1; a E-2 solta reaplicada também não muda nada", async fn(b, ctx) {
+    const [jovem, velha] = await b.jogadores(2);
+    await excluirHa(b.admin, jovem, 2);
+    await excluirHa(b.admin, velha, 45 * 24);
+    const retrato = async () => JSON.stringify({ acl: (await b.admin.query(RETRATO_DE_PRIVILEGIOS)).rows, lapides: await lapidesComHora(b.admin), e2: await pedacosDaE2(b.admin) });
+    const antes = await retrato();
+    afirmar(JSON.parse(antes).e2 === "nenhum", `o banco de hoje já tem pedaço da E-2: ${JSON.parse(antes).e2}`);
+    // (a) cada defeito, dentro do arquivo do D2: aborta na conferência e nada fica
+    const comoDono = (sql) => mutar(ctx.retencao, [["reset role;\n\nrevoke all on function king_private.expurgar_lapides", sql + "\nreset role;\n\nrevoke all on function king_private.expurgar_lapides"]]);
+    const defeitos = [
+      ["lápide vencida apagada na instalação", comoDono("delete from king_private.contas_excluidas where excluida_em < now() - interval '720 hours';"), /CONFERÊNCIA 1 FALHOU/],
+      ["marcador registrado na instalação", comoDono("update king_private.expurgo_das_lapides set outbox = gen_random_uuid();"), /CONFERÊNCIA 2 FALHOU/],
+      ["GRANT a mais (sem as conferências da própria E-2)", mutar(ctx.retencao, [[GRANT_DO_EXPURGO, GRANT_DO_EXPURGO.replace("to king_server;", "to king_server, anon;")], [CONFERENCIAS_RETENCAO, ""]]), /CONFERÊNCIA 4 FALHOU/],
+      ["gatilho da lápide de volta ao texto do D", mutar(ctx.retencao, [["on conflict (player_id) do update set excluida_em = greatest(x.excluida_em, excluded.excluida_em);", "on conflict (player_id) do nothing;"]]), /CONFERÊNCIA 6 FALHOU/],
+      ["GRANT de COLUNA na lápide para o servidor", comoDono("grant select (player_id) on king_private.contas_excluidas to king_server;"), /CONFERÊNCIA 5 FALHOU/],
+    ];
+    for (const [rotulo, migracao, motivo] of defeitos) {
+      const c = await b.supabase();
+      await reprova(c.query(textoD2(ctx, migracao)), motivo, `o D2 com defeito (${rotulo}) passou pelas conferências`);
+      await c.query("rollback").catch(() => {}); // como o Tito faria, para limpar a sessão
+      afirmar(await retrato() === antes, `o D2 que falhou (${rotulo}) deixou algo gravado`);
+    }
+    // (b) a conexão cai no meio da transação (depois da E-2, antes do COMMIT): nada fica
+    const caindo = await conexaoDoSqlEditorDerrubavel(b);
+    const meio = caindo.query(textoD2({ ...ctx, d2Conferencias: "select pg_sleep(30);\n" + ctx.d2Conferencias })).catch((e) => e);
+    await esperarTrava(b, caindo.processID, "king_private.contas_excluidas");
+    await esperarDormindo(b, caindo.processID);
+    await b.admin.query("select pg_terminate_backend($1)", [caindo.processID]);
+    afirmar((await meio) instanceof Error, "o D2 derrubado no meio terminou como se nada fosse");
+    afirmar(await retrato() === antes, "o D2 derrubado no meio deixou algo gravado");
+    // (c) o arquivo de verdade aplica; colado de novo, recusa na parte 1 e nada muda
+    const sp = await b.supabase();
+    const rel = [].concat(await sp.query(textoD2(ctx))).at(-1).rows[0];
+    afirmar(rel?.resultado === "RETENÇÃO DAS LÁPIDES (E-2) APLICADA E CONFERIDA", `relatório: ${JSON.stringify(rel)}`);
+    const aplicado = await retrato();
+    const c2 = await b.supabase();
+    await reprova(c2.query(textoD2(ctx)), /ROLLOUT D2 ABORTADO \(parte 1\)/, "o D2 rodou duas vezes");
+    await c2.query("rollback").catch(() => {});
+    afirmar(await retrato() === aplicado, "o D2 repetido mexeu em algo");
+    // (d) a E-2 SOLTA colada de novo por engano: falha inteira (a porta já existe) e nada muda
+    const c3 = await b.supabase();
+    await reprova(c3.query(ctx.retencao), /already exists|já existe/, "a E-2 reaplicada por cima do D2 não falhou");
+    await c3.query("rollback").catch(() => {});
+    afirmar(await retrato() === aplicado && (await estadoDoExpurgo(b.admin)).rodadas === 0, "a E-2 reaplicada mexeu em algo");
+  } },
+  { id: "R15", semRetencao: true, nome: "D2 — checkpoints: o 1 diz pronto antes e não depois; o 3 diz tudo_certo depois, com o crédito e as lápides iguais aos do 1; o rollback da E-2 logo em seguida devolve o banco ao retrato de antes", async fn(b, ctx) {
+    const [jovem, velha] = await b.jogadores(2);
+    await excluirHa(b.admin, jovem, 3);
+    await excluirHa(b.admin, velha, 50 * 24);
+    // como no Supabase: o postgres do SQL Editor lê auth.users (a consulta de anomalia do checkpoint 1)
+    await b.admin.query("grant usage on schema auth to supa_postgres; grant select on auth.users to supa_postgres");
+    const sp = await b.supabase();
+    const um = async () => (await sp.query(CHECKPOINT_D2_ANTES)).rows[0];
+    const tres = async () => (await sp.query(CHECKPOINT_D2_DEPOIS)).rows[0];
+    const acl = async () => JSON.stringify((await b.admin.query(RETRATO_DE_PRIVILEGIOS)).rows);
+    const antes = await um();
+    afirmar(antes.pronto_para_aplicar === true && antes.passo_d_inteiro === true && antes.e2_ausente === true && antes.aplicador_herda_o_dono === true
+      && antes.servidor_fora_do_dono === true && Number(antes.lapides) === 2 && Number(antes.vencidas_720h) === 1
+      && antes.lapide_de_conta_viva !== null && Number(antes.lapide_de_conta_viva) === 0 && antes.rollback_pre_e_do_d_ainda_vale === false
+      && antes.api_executa_credito === false && antes.alguem_le_ou_escreve_lapide === false && Number(antes.progresso_divergente_do_ledger) === 0,
+    `checkpoint 1 antes: ${JSON.stringify(antes)}`);
+    afirmar((await tres()).tudo_certo === false, "o checkpoint 3 disse tudo_certo antes do D2");
+    // o arquivo CORTADO antes do COMMIT, conferido na MESMA sessão: o checkpoint 3 não pode dizer tudo_certo
+    const cortado = await b.supabase();
+    const texto = textoD2(ctx);
+    await cortado.query(texto.slice(0, texto.indexOf("\ncommit;\n")));
+    const naMesma = (await cortado.query(CHECKPOINT_D2_DEPOIS)).rows[0];
+    afirmar(naMesma.tudo_certo === false && naMesma.transacao_aberta === true, `checkpoint 3 com o D2 sem COMMIT: ${JSON.stringify(naMesma)}`);
+    await cortado.query("rollback");
+    afirmar(await pedacosDaE2(b.admin) === "nenhum", "o D2 cortado deixou pedaço da E-2");
+    const aclAntes = await acl();
+    await sp.query(textoD2(ctx));
+    const depois1 = await um();
+    afirmar(depois1.pronto_para_aplicar === false && depois1.e2_ausente === false, `checkpoint 1 depois do D2: ${JSON.stringify(depois1)}`);
+    const depois3 = await tres();
+    afirmar(depois3.tudo_certo === true && depois3.funcao_de_expurgo_existe === true && depois3.servidor_executa_expurgo === true
+      && depois3.alguem_le_ou_escreve_lapide_ou_estado === false && depois3.rollback_e2_tira_tambem_o_estado === true
+      && depois3.credito_md5 === antes.credito_md5 && Number(depois3.lapides) === 2 && Number(depois3.vencidas_720h) === 1
+      && Number(depois3.progresso_divergente_do_ledger) === 0, `checkpoint 3 depois do D2: ${JSON.stringify(depois3)}`);
+    // o rollback da E-2, logo depois: sem remoção, o estado sai junto — e o banco volta ao retrato de antes
+    const rb = [].concat(await sp.query(ctx.rollbackRetencao)).at(-1).rows[0];
+    afirmar(rb?.resultado === "ROLLBACK E-2 APLICADO" && rb.sem_expurgo && rb.estado_mantido === false && Number(rb.lapides_preservadas) === 2,
+      `rollback da E-2 depois do D2: ${JSON.stringify(rb)}`);
+    afirmar(await acl() === aclAntes, "o rollback da E-2 não devolveu os privilégios de antes do D2");
+    const de_novo = await um();
+    afirmar(de_novo.pronto_para_aplicar === true && de_novo.credito_md5 === antes.credito_md5 && Number(de_novo.lapides) === 2,
+      `checkpoint 1 depois do rollback: ${JSON.stringify(de_novo)}`);
+    afirmar((await tres()).tudo_certo === false, "o checkpoint 3 disse tudo_certo depois do rollback");
+  } },
+  { id: "R15b", semSequencia: true, nome: "D2 — num banco SEM o passo D, os checkpoints não dão erro: o 1 diz não pronto (passo D incompleto) e o 3 diz não tudo_certo; o arquivo do D2 recusa na parte 1", async fn(b, ctx) {
+    const sp = await b.supabase();
+    const um = (await sp.query(CHECKPOINT_D2_ANTES)).rows[0];
+    afirmar(um.pronto_para_aplicar === false && um.passo_d_inteiro === false && um.lapides === null, `checkpoint 1 sem o D: ${JSON.stringify(um)}`);
+    afirmar((await sp.query(CHECKPOINT_D2_DEPOIS)).rows[0].tudo_certo === false, "o checkpoint 3 disse tudo_certo sem o D");
+    await reprova(sp.query(textoD2(ctx)), /ROLLOUT D2 ABORTADO \(parte 1\): o passo D/, "o D2 rodou sem o passo D");
+    await sp.query("rollback").catch(() => {});
+    afirmar(await pedacosDaE2(b.admin) === "nenhum", "o D2 recusado deixou pedaço da E-2");
+  } },
+  { id: "R16", semRetencao: true, nome: "D2 com o servidor ANTIGO no ar: a exclusão de conta que chega no meio ESPERA o COMMIT (e grava a lápide depois dele); o crédito de XP não espera; nada chama o expurgo", async fn(b, ctx) {
+    const [a, x, sai, velha] = await b.jogadores(4);
+    await excluirHa(b.admin, velha, 40 * 24);
+    const s = await b.servidor();
+    // uma pausa logo DEPOIS do retrato (a lápide já travada) e ANTES da E-2: a janela em que a conta sai
+    const sp = await b.supabase();
+    const d2 = dispararSql(sp, textoD2({ ...ctx, d2Antes: ctx.d2Antes + "select pg_sleep(3);\n" }));
+    await esperarTrava(b, d2.pid, "king_private.contas_excluidas");
+    const saida = dispararSql(await b.outraAdmin(), `delete from auth.users where id = '${sai}'`);
+    afirmar(await paradaOuTerminou(b, saida, [d2.pid]) === "parada", "a exclusão de conta não esperou o D2 (a lápide não estava travada)");
+    const { linhas } = await creditar(s, { ...janelaDaPartida(0), humanos: [{ id: a, posicao: 1 }, { id: x, posicao: 2 }] });
+    afirmar(!d2.estado.terminou && linhas.length === 2, "o crédito de XP esperou o D2");
+    const rel = [].concat(await d2.p).at(-1).rows[0];
+    afirmar(rel?.resultado === "RETENÇÃO DAS LÁPIDES (E-2) APLICADA E CONFERIDA", `relatório do D2: ${JSON.stringify(rel)}`);
+    await saida.p;
+    const l = await lapides(b.admin);
+    afirmar(l.includes(sai) && l.includes(velha) && l.length === 2, `lápides depois do D2 com a exclusão no meio: ${JSON.stringify(l)}`);
+    const e = await estadoDoExpurgo(b.admin);
+    afirmar(e.rodadas === 0 && e.removidas === 0 && e.outbox === null, `alguém chamou o expurgo: ${JSON.stringify(e)}`);
+  } },
   { id: "S23", semSequencia: true, nome: "o ARQUIVO do rollout: igual à migração; com defeito (backfill), aborta e não grava NADA; repetido, recusa na parte 1", async fn(b, ctx) {
     // (a) o arquivo que o Tito cola é exatamente o que as partes e a migração montam hoje
     const { montarRollout } = await import(new URL("scripts/montar-rollout-sequencia.mjs", RAIZ).href);
@@ -2144,6 +2367,7 @@ async function rodar(testes, modelos, { esperaReprovar = false } = {}) {
       sequencia: modelos.textoSequencia, retencao: modelos.textoRetencao ?? RETENCAO,
       rollbackRetencao: modelos.rollbackRetencao ?? ROLLBACK_RETENCAO, rollbackCredito: modelos.rollbackCredito ?? ROLLBACK_CREDITO,
       rollbackCreditoPosE: modelos.rollbackCreditoPosE ?? ROLLBACK_CREDITO_POS_E,
+      d2Antes: modelos.d2Antes ?? D2_ANTES, d2Conferencias: modelos.d2Conferencias ?? D2_CONFERENCIAS,
     };
     try { await t.fn(b, ctx); } catch (e) { erro = e; } finally { await b.fechar(); }
     resultados.push({ t, erro });
@@ -2206,7 +2430,8 @@ try {
         semSequencia: "modelo_sem_sequencia", semRetencao: "modelo_sem_retencao", textoSequencia: mutadoSeq, textoRetencao: mutadoRetencao,
         rollbackRetencao: mutar(ROLLBACK_RETENCAO, m.trocasRollbackRetencao ?? []),
         rollbackCredito: mutar(ROLLBACK_CREDITO, m.trocasRollbackCredito ?? []),
-        rollbackCreditoPosE: mutar(ROLLBACK_CREDITO_POS_E, m.trocasRollbackPosE ?? []) }, { esperaReprovar: true });
+        rollbackCreditoPosE: mutar(ROLLBACK_CREDITO_POS_E, m.trocasRollbackPosE ?? []),
+        d2Antes: mutar(D2_ANTES, m.trocasD2Antes ?? []), d2Conferencias: mutar(D2_CONFERENCIAS, m.trocasD2Conferencias ?? []) }, { esperaReprovar: true });
       const passaram = r.filter((x) => !x.erro).map((x) => x.t.id);
       if (passaram.length) { falhou = true; console.log(`   ✗ MUTAÇÃO NÃO DETECTADA por: ${passaram.join(", ")}`); }
     }
