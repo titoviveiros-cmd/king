@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- KING: gerado por scripts/gerar-recursos-android.mjs. Não editar à mão.
+     Fundo da janela até o app pintar (Android 7–11): cor do app + emblema no tamanho dele, centralizado. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/king_splash_fundo" />
+    <item>
+        <bitmap android:gravity="center" android:src="@drawable/king_splash_emblema" />
+    </item>
+</layer-list>

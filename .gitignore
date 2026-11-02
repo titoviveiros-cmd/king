@@ -8,6 +8,8 @@ build/
 .DS_Store
 .env
 .env.local
+# Variáveis por modo (ex.: .env.production.local, do build de loja): nunca versionadas.
+.env.*.local
 coverage/
 # Playwright (relatórios e artefatos de diagnóstico)
 playwright-report/

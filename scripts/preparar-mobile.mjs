@@ -13,7 +13,8 @@
 // O que ele NÃO faz: instalar SDK, compilar, assinar ou publicar. Compilar iOS exige macOS com
 // Xcode e CocoaPods; este projeto vive no Windows, então o build de iOS roda em runner macOS de
 // CI. O Android compila em qualquer runner Linux com o SDK.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { variavelDoBuild } from "./lib/ambiente-vite.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -62,6 +63,30 @@ function escrever(arquivo, rotulo, conteudo) {
   mkdirSync(pasta, { recursive: true });
   writeFileSync(alvo, conteudo);
   feitos.push(`${rotulo} — aplicado`);
+}
+
+/**
+ * Uma árvore de arquivos NOSSA (versionada, binária ou não) copiada para dentro do projeto nativo.
+ * Grava só o que difere — idempotente, e sobrescreve o que o `npx cap add` tiver posto no lugar.
+ */
+function copiarArvore(origem, destino, rotulo) {
+  if (!existsSync(caminho(destino.split("/")[0] + "/"))) { pulados.push(`${rotulo} — ${destino.split("/")[0]}/ não existe (rode "npx cap add" antes)`); return; }
+  let gravados = 0;
+  let iguais = 0;
+  const andar = (rel) => {
+    for (const e of readdirSync(caminho(origem + rel), { withFileTypes: true })) {
+      const r = rel + e.name;
+      if (e.isDirectory()) { andar(r + "/"); continue; }
+      const conteudo = readFileSync(caminho(origem + r));
+      const alvo = caminho(destino + r);
+      if (existsSync(alvo) && readFileSync(alvo).equals(conteudo)) { iguais += 1; continue; }
+      mkdirSync(dirname(alvo), { recursive: true });
+      writeFileSync(alvo, conteudo);
+      gravados += 1;
+    }
+  };
+  andar("");
+  feitos.push(`${rotulo} — ${gravados > 0 ? `${gravados} arquivo(s) aplicado(s)` : `já estava aplicado (${iguais} arquivos)`}`);
 }
 
 /** Como `ajustar`, mas troca TODAS as ocorrências: o Xcode repete chaves por configuração. */
@@ -205,6 +230,104 @@ ajustar(
   /versionCode\s+\d+/,
   `versionCode ${BUILD}`,
   (s) => new RegExp(`versionCode\\s+${BUILD}\\b`).test(s),
+);
+
+// ÍCONE E SPLASH: a arte APROVADA pelo titular, já nos tamanhos do Android, mora versionada em
+// `recursos-nativos/res-android/` (gerada por scripts/gerar-recursos-android.mjs). Aqui ela só é
+// copiada por cima do que o `cap add` criou — o "X" azul do Capacitor nunca chega a uma loja.
+copiarArvore("recursos-nativos/res-android/", "android/app/src/main/res/", "Android: ícone (adaptativo, legado, redondo) e splash do KING");
+
+// SPLASH DO ANDROID 7–11: o fundo da janela era um PNG de tela inteira (`splash.png`), que o Android
+// ESTICA para a tela — num celular 20:9 o emblema saía achatado. O fundo passa a ser a `layer-list`
+// `king_splash` (cor sólida + emblema centralizado, sem escala), e os `splash.png` do `cap add` saem
+// do projeto: nada de imagem morta (nem o "X" azul do Capacitor) dentro do pacote.
+ajustar(
+  "android/app/src/main/res/values/styles.xml",
+  "Android: splash do Android 7–11 sem esticar (layer-list king_splash)",
+  /<item name="android:background">@drawable\/splash<\/item>/,
+  '<item name="android:background">@drawable/king_splash</item>',
+  (s) => s.includes('<item name="android:background">@drawable/king_splash</item>'),
+);
+// Junto saem os vetores do ícone-modelo do Capacitor (o "X" azul e a grade): nada os referencia — o
+// adaptativo usa @mipmap/ic_launcher_foreground e @color/ic_launcher_background —, mas iriam no pacote.
+const ARTE_DO_MODELO = [
+  ...["drawable", ...["land", "port"].flatMap((o) => ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"].map((d) => `drawable-${o}-${d}`))]
+    .map((pasta) => `${pasta}/splash.png`),
+  "drawable-v24/ic_launcher_foreground.xml",
+  "drawable/ic_launcher_background.xml",
+].map((p) => `android/app/src/main/res/${p}`);
+if (existsSync(caminho("android/"))) {
+  const restantes = ARTE_DO_MODELO.filter((p) => existsSync(caminho(p)));
+  for (const p of restantes) rmSync(caminho(p));
+  feitos.push(`Android: splash.png esticável e ícone-modelo do Capacitor fora do projeto — ${restantes.length > 0 ? `${restantes.length} removido(s)` : "já estava aplicado"}`);
+}
+
+// SPLASH DO ANDROID 12+: o sistema desenha o ícone sobre `windowSplashScreenBackground`. Sem isto,
+// o fundo seria o claro do tema e o app piscaria branco antes do roxo da mesa.
+ajustar(
+  "android/app/src/main/res/values/styles.xml",
+  "Android: splash do Android 12+ no fundo do app, com o ícone do KING",
+  /(<style name="AppTheme\.NoActionBarLaunch" parent="Theme\.SplashScreen">\s*\n)/,
+  "$1        <item name=\"windowSplashScreenBackground\">@color/king_splash_fundo</item>\n" +
+    "        <item name=\"windowSplashScreenAnimatedIcon\">@mipmap/ic_launcher_foreground</item>\n" +
+    "        <item name=\"windowSplashScreenIconBackgroundColor\">@color/king_splash_fundo_do_icone</item>\n",
+  (s) => s.includes("@color/king_splash_fundo</item>"),
+);
+
+// ASSINATURA DE RELEASE. Nada secreto entra no repositório nem no projeto gerado:
+//   • o keystore fica FORA do repo (padrão: ~/king-release-privado/king-upload.jks);
+//   • as senhas vêm SÓ do ambiente da sessão que compila — quem compila as digita na hora.
+// Sem keystore ou sem senha, o Gradle RECUSA o bundle/APK de release, em vez de entregar um sem
+// assinatura (que a Play rejeita, mas só depois do envio).
+escrever(
+  "android/app/assinatura-king.gradle",
+  "Android: assinatura de release (keystore fora do repo, senhas só do ambiente)",
+  `// KING — assinatura de release. Gerado por scripts/preparar-mobile.mjs. Não editar à mão.
+//
+// Nada secreto mora aqui:
+//   KING_UPLOAD_KEYSTORE        caminho do keystore (padrão: ~/king-release-privado/king-upload.jks)
+//   KING_UPLOAD_KEY_ALIAS       alias da chave (padrão: king-upload)
+//   KING_UPLOAD_STORE_PASSWORD  senha do keystore — SÓ no ambiente da sessão que compila
+//   KING_UPLOAD_KEY_PASSWORD    senha da chave (padrão: a do keystore, como no PKCS12 do keytool)
+def kingKeystore = System.getenv("KING_UPLOAD_KEYSTORE") ?: "\${System.getProperty('user.home')}/king-release-privado/king-upload.jks"
+def kingAlias = System.getenv("KING_UPLOAD_KEY_ALIAS") ?: "king-upload"
+def kingSenhaDoKeystore = System.getenv("KING_UPLOAD_STORE_PASSWORD")
+def kingSenhaDaChave = System.getenv("KING_UPLOAD_KEY_PASSWORD") ?: kingSenhaDoKeystore
+def kingAssinaturaPronta = file(kingKeystore).exists() && kingSenhaDoKeystore
+
+if (kingAssinaturaPronta) {
+    android {
+        signingConfigs {
+            release {
+                storeFile file(kingKeystore)
+                storePassword kingSenhaDoKeystore
+                keyAlias kingAlias
+                keyPassword kingSenhaDaChave
+            }
+        }
+        buildTypes {
+            release {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+gradle.taskGraph.whenReady { grafo ->
+    def pedeRelease = ["bundleRelease", "assembleRelease"].any { grafo.hasTask("\${project.path}:\${it}") }
+    if (pedeRelease && !kingAssinaturaPronta) {
+        def falta = file(kingKeystore).exists() ? "a variável KING_UPLOAD_STORE_PASSWORD na sessão" : "o keystore em \${kingKeystore}"
+        throw new GradleException("KING: release SEM assinatura recusado — falta \${falta}. Nada foi gerado.")
+    }
+}
+`,
+);
+ajustar(
+  "android/app/build.gradle",
+  "Android: assinatura de release ligada no build.gradle",
+  /(\napply from: 'capacitor\.build\.gradle'\n)/,
+  "$1apply from: 'assinatura-king.gradle'\n",
+  (s) => s.includes("apply from: 'assinatura-king.gradle'"),
 );
 
 // ─────────────────────────── iOS ───────────────────────────
@@ -406,4 +529,4 @@ if (pulados.length > 0) {
   console.log("\nNada foi quebrado: o que faltou é projeto nativo ainda não gerado.");
   console.log('Gere com: cd apps/web && npx cap add android && npx cap add ios\n');
 }
-console.log("Lembrete: ícone, splash e assinatura ainda não estão configurados.\n");
+console.log("Lembrete: ícone, splash e assinatura só no Android; no iOS ainda não estão configurados.\n");
