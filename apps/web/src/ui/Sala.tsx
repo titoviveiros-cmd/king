@@ -1,11 +1,12 @@
 // SALA PRIVADA — a antessala do multiplayer.
 //
 // A mesa tem sempre QUATRO assentos, mas não exige quatro pessoas. As composições oficiais são
-// 4 humanos, 3 humanos + 1 bot e 2 humanos + 2 bots. Um humano só não inicia: sala privada com
-// uma pessoa é o modo local com passos a mais, e esse já existe sem servidor nenhum.
+// 4 humanos, 3+1, 2+2 e — desde 03/11/2026 — 1 humano + 3 bots, que joga normalmente mas NÃO vale
+// XP (o rodapé avisa). O piso vem do SERVIDOR (boas-vindas): um servidor anterior não o anuncia e
+// continua exigindo 2, e o lobby diz isso em vez de prometer uma partida que não começaria.
 //
-// A regra de início (Fase 5, atualizada): **4 assentos ocupados + pelo menos 2 humanos + todos
-// os humanos prontos**. O anfitrião NÃO inicia a partida — ele só monta a composição. Por isso
+// A regra de início: **4 assentos ocupados + o piso de humanos do servidor + todos os humanos
+// prontos**. O anfitrião NÃO inicia a partida — ele só monta a composição. Por isso
 // não existe botão "Iniciar" para ninguém.
 //
 // Os botões de bot aparecem só para o anfitrião, mas isso é APRESENTAÇÃO: quem autoriza é o
@@ -38,18 +39,20 @@ const MESAS = [
 
 const LUGARES: Seat[] = [0, 1, 2, 3];
 
-/** Piso oficial de humanos numa mesa multiplayer privada. Espelha `MIN_HUMANOS` do servidor. */
-const MIN_HUMANOS = 2;
+/** Piso de humanos quando ninguém informa: a regra dos servidores anteriores a 03/11/2026. */
+const PISO_SEM_ANUNCIO = 2;
 
 export function Sala({
   sala, conexao, erro, eu, souAnfitriao, onPronto, onEscolherMesa, onEscolherAvatar, recusa,
-  onAdicionarBot, onRemoverBot, onSair, onOpenAudio,
+  onAdicionarBot, onRemoverBot, onSair, onOpenAudio, minHumanos = PISO_SEM_ANUNCIO,
 }: {
   sala: EstadoDaSalaLido | null;
   conexao: EstadoDaConexao;
   erro: string | null;
   eu: Seat | null;
   souAnfitriao: boolean;
+  /** Piso de humanos anunciado pelo servidor (ausente = servidor anterior = 2). */
+  minHumanos?: number;
   onPronto: (pronto: boolean) => void;
   /** Cosmético da sala. Só o anfitrião; o servidor recusa de qualquer outro. */
   onEscolherMesa: (tema: string) => void;
@@ -309,7 +312,7 @@ export function Sala({
         <AudioButton onOpen={onOpenAudio} />
       </div>
 
-      <div className="foot">{rodape(ocupados, humanos, souAnfitriao)}</div>
+      <div className="foot">{rodape(ocupados, humanos, souAnfitriao, minHumanos)}</div>
     </div>
   );
 }
@@ -390,15 +393,17 @@ function Insignia({ vazio, bot, avatar }: { vazio: boolean; bot: boolean; avatar
  * Diz em uma linha o que falta para começar. É o que evita o jogador olhar uma tela parada sem
  * entender por quê — a diferença entre "travou" e "falta o Vitor marcar pronto".
  */
-function rodape(ocupados: number, humanos: number, anfitriao: boolean): string {
+export function rodape(ocupados: number, humanos: number, anfitriao: boolean, minHumanos = PISO_SEM_ANUNCIO): string {
   if (ocupados < 4) {
     const faltam = 4 - ocupados;
     const dica = anfitriao ? " — ou complete com bots" : "";
     return `${ocupados} de 4 lugares ocupados · faltam ${faltam}${dica}`;
   }
-  if (humanos < MIN_HUMANOS) {
-    return `A mesa precisa de pelo menos ${MIN_HUMANOS} pessoas — troque um bot por alguém para começar`;
+  if (humanos < minHumanos) {
+    return `A mesa precisa de pelo menos ${minHumanos} pessoas — troque um bot por alguém para começar`;
   }
+  // 1 + 3 bots: joga normalmente, mas o XP continua exigindo duas pessoas — dito ANTES de começar
+  if (humanos === 1) return "Você e 3 bots · começa quando você estiver pronto · sem XP com 1 pessoa";
   return "Quatro na mesa · a partida começa quando todos os humanos estiverem prontos";
 }
 

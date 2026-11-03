@@ -221,3 +221,37 @@ test("Android: servidor que não responde → mensagem e volta ao painel no praz
     await a.ctx.close();
   }
 });
+
+test("Android: 1 humano + 3 bots — o anfitrião completa a mesa, marca pronto e a partida começa (sem XP, avisado)", async ({ browser }) => {
+  // Regra de 03/11/2026 (2º QA físico: "1 humano + 3 bots não inicia"). Exige o servidor deste
+  // commit: o piso vem nas boas-vindas, e um servidor anterior seguiria pedindo a 2ª pessoa.
+  const a = await aparelho(browser, "44444444-4444-4444-8444-444444444444");
+  try {
+    await abrirPainel(a.page);
+    await a.page.locator(".hm-online input").first().fill("Tito");
+    await a.page.getByRole("button", { name: "Criar uma sala" }).click();
+    await escolherAvatar(a.page, "Sapo");
+    await expect(a.page.locator(".sl-lugar.voce")).toContainText("anfitrião", { timeout: 15_000 });
+
+    for (let n = 1; n <= 3; n++) {
+      await a.page.locator(".sl-bot.add").first().click();
+      await expect(a.page.locator(".sl-lugar.robo")).toHaveCount(n, { timeout: 15_000 });
+    }
+    // o rodapé diz que começa com você e que não vale XP
+    await expect(a.page.locator(".foot")).toHaveText(/começa quando você estiver pronto.*sem XP/);
+
+    await a.page.getByRole("button", { name: /Estou pronto/ }).click();
+    await expect(a.page.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+
+    // queda e volta com um humano só: a mesa continua a dele
+    await a.ctx.setOffline(true);
+    await a.page.waitForTimeout(1_500);
+    await a.ctx.setOffline(false);
+    await expect(a.page.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+
+    expect(a.fora, "requisição para fora da máquina").toEqual([]);
+    expect(a.erros, "erro de página").toEqual([]);
+  } finally {
+    await a.ctx.close();
+  }
+});

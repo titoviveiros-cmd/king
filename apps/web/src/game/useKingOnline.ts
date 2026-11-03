@@ -83,6 +83,8 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
   const [prontos, setProntos] = useState<Seat[]>([]);
   const [autoAcao, setAutoAcao] = useState<AutoAcaoRecebida | null>(null);
   const [recusa, setRecusa] = useState<{ mensagem: string; nonce: number } | null>(null);
+  /** Piso de humanos do SERVIDOR (boas-vindas). Sem o campo, é um servidor anterior: a regra antiga, 2. */
+  const [minHumanos, setMinHumanos] = useState(PISO_ANTIGO_DE_HUMANOS);
   /**
    * Mensagens sociais em cartaz, por assento. Efêmeras de propósito: nada disso é estado de
    * jogo — não entra no `Schema`, não sobrevive à queda e não vira histórico. Quem chegou
@@ -237,6 +239,7 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       assento.current = w.you.seat;
       // A credencial ROTACIONA a cada retorno: guardar sempre, não só na primeira vez.
       guardarRecuperacao(w.you.recoveryToken);
+      setMinHumanos(pisoDeHumanos(w.minHumanos));
       setConexao("conectado");
       setErro(null);
       setSala(s.estado());
@@ -518,10 +521,22 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     podeVoltar: lerRecuperacao() !== null,
     /** Sou o anfitrião desta sala? Vem do estado sincronizado, não de suposição do cliente. */
     souAnfitriao: assento.current !== null && !!sala?.seats[assento.current]?.host,
+    /** Quantos humanos ESTE servidor exige para começar (1 desde a regra 1+3; 2 num servidor anterior). */
+    minHumanos,
     criarSala, entrarNaSala, voltarParaSala, sairDaSala, definirPronto, adicionarBot, removerBot,
     definirTemaDaMesa,
     definirAvatar,
   };
+}
+
+/** A regra de composição antes de 03/11/2026 — o que vale num servidor que não anuncia o piso. */
+export const PISO_ANTIGO_DE_HUMANOS = 2;
+
+/** O piso anunciado pelo servidor, ou a regra antiga quando ele não anuncia (ou anuncia lixo). */
+export function pisoDeHumanos(anunciado: unknown): number {
+  return typeof anunciado === "number" && Number.isInteger(anunciado) && anunciado >= 1 && anunciado <= 4
+    ? anunciado
+    : PISO_ANTIGO_DE_HUMANOS;
 }
 
 /**

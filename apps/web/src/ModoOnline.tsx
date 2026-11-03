@@ -64,6 +64,7 @@ export default function ModoOnline({
         erro={g.erro}
         eu={g.humanSeat}
         souAnfitriao={g.souAnfitriao}
+        minHumanos={g.minHumanos}
         onPronto={g.definirPronto}
         onAdicionarBot={g.adicionarBot}
         onRemoverBot={g.removerBot}

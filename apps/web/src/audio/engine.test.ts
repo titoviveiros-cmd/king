@@ -34,15 +34,27 @@ class NoFalso {
   loop = false;
   contexto: ContextoFalso;
   constructor(contexto: ContextoFalso) { this.contexto = contexto; }
+  /** Ligações que saem deste nó e ainda estão de pé (o navegador as processa a cada quantum). */
+  saidas = 0;
+  onended: (() => void) | null = null;
+  fftSize = 2048;
   /** Como no navegador: ligar nós de contextos diferentes é erro. */
   connect(destino: { contexto: ContextoFalso }) {
     if (destino.contexto !== this.contexto) {
       throw new Error(`InvalidAccessError: nó do contexto #${this.contexto.id} ligado no #${destino.contexto.id}`);
     }
+    this.saidas++;
+    this.contexto.ligacoes++;
   }
-  disconnect() {}
+  disconnect() { this.contexto.ligacoes -= this.saidas; this.saidas = 0; }
   start() {}
-  stop() {}
+  /** A fonte acaba no instante pedido e avisa (`ended`), como no navegador. */
+  stop(quando = 0) {
+    const ms = Math.max(0, quando - this.contexto.currentTime) * 1000;
+    setTimeout(() => this.onended?.(), ms);
+  }
+  /** Analisador: o que sai do master. Envenenado = NaN (o compressor nunca mais devolve número). */
+  getFloatTimeDomainData(buf: Float32Array) { buf.fill(this.contexto.envenenado ? Number.NaN : 0); }
 }
 
 class ContextoFalso {
@@ -73,6 +85,12 @@ class ContextoFalso {
   /** O resume nunca responde, nem com gesto. */
   pendurarSempre = false;
   onstatechange: (() => void) | null = null;
+  /** O dispositivo de saída falhou (Chrome: evento `error` do AudioContext). */
+  onerror: (() => void) | null = null;
+  /** Ligações vivas entre nós deste contexto. */
+  ligacoes = 0;
+  /** O sinal virou NaN no meio do grafo (e o compressor guarda o NaN para sempre). */
+  envenenado = false;
   private estado: string;
   private congelado = false;
   private base = 0;
@@ -96,6 +114,8 @@ class ContextoFalso {
   private marcar() { this.base = this.currentTime; this.marco = Date.now(); }
   /** O navegador muda o estado e avisa. */
   mudar(s: string) { this.marcar(); this.estado = s; this.onstatechange?.(); }
+  /** O navegador muda o estado SEM avisar (o `statechange` se perdeu). */
+  mudarCalado(s: string) { this.marcar(); this.estado = s; }
   /** Zumbi: continua "running", mas o relógio para. */
   congelar() { this.marcar(); this.congelado = true; }
   descongelar() { this.marcar(); this.congelado = false; }
@@ -122,6 +142,7 @@ class ContextoFalso {
   createBiquadFilter() { return new NoFalso(this); }
   createOscillator() { this.osciladores++; return new NoFalso(this); }
   createBufferSource() { this.fontes++; return new NoFalso(this); }
+  createAnalyser() { return new NoFalso(this); }
 }
 
 let doc: Alvo & { visibilityState: string };
@@ -721,7 +742,9 @@ describe("red team da V2 (23/10): os ataques que derrubaram a 1ª versão dela",
     await passar(60_000); // 30 compassos de relógio parado
     expect(c.osciladores - umCompasso, "compassos empilhados num relógio parado").toBe(0);
     c.descongelar();
-    await passar(2_100);
+    // Desde o vigia (03/11), o relógio parado é VISTO: a música para e, quando o relógio volta a
+    // andar, o vigia absolve, confere e recomeça — alguns segundos, não um compasso.
+    await passar(8_000);
     expect(c.osciladores, "a música não voltou quando o relógio andou").toBeGreaterThan(umCompasso);
     expect(m.invariantesVioladas()).toEqual([]);
   });
@@ -1059,5 +1082,126 @@ describe("16. painel de som no Android: religar Música/Efeitos recupera o áudi
     m.set({ musicVol: 0.2, sfxVol: 0.3 });
     expect(m.get()).toMatchObject({ music: true, sfx: true, musicVol: 0.2, sfxVol: 0.3 });
     expect(gravados).toContain("king.audio");
+  });
+});
+
+describe("26. Android, 2º QA físico (03/11): o som morre NO MEIO do uso, com a página à vista", () => {
+  // No aparelho o som começou, sumiu depois de um tempo de uso e não voltou. A máquina só olhava o
+  // contexto na ida ao fundo, na volta e no `statechange`: um contexto que morre com a página à vista
+  // e sem aviso (relógio parado, estado trocado sem evento, NaN no master, erro do dispositivo) ficava
+  // "ativo" para sempre — e, "ativo", nenhum toque o trocava. Agora um VIGIA confere a saúde enquanto
+  // o jogo está à vista, e o próximo toque real resolve.
+  const prefs = { music: true, sfx: true };
+
+  it("relógio congela sem aviso: o vigia percebe, a música para e o PRÓXIMO toque troca o contexto", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    await passar(10_000);
+    const morto = atual();
+    morto.congelar();
+    await passar(5_000);
+    expect(m.estadoDoCiclo().fase, "o vigia não viu o relógio parado").toBe("esperando-gesto");
+    expect(agendadores.size, "música viva num relógio parado").toBe(0);
+    await tocar();
+    expect(atual(), "o toque não trocou o contexto morto").not.toBe(morto);
+    expect(morto.closes, "o contexto morto não foi fechado").toBe(1);
+    await funciona(m, prefs, "depois do toque");
+    pronto(m, "depois do toque");
+  });
+
+  it("estado sai de 'running' SEM statechange: o vigia para a música; o toque retoma o MESMO contexto", async () => {
+    ambiente({ tique: true });
+    ContextoFalso.soComGesto = true;
+    const m = motor(prefs);
+    const c = atual();
+    c.mudarCalado("suspended");
+    await passar(5_000);
+    expect(m.estadoDoCiclo().fase, "o vigia não viu o contexto parado").toBe("esperando-gesto");
+    expect(agendadores.size).toBe(0);
+    await tocar();
+    expect(atual(), "retomável não precisa de contexto novo").toBe(c);
+    await funciona(m, prefs, "depois do toque");
+    pronto(m, "depois do toque");
+  });
+
+  it("sinal envenenado (NaN no master) com o relógio andando: condenado até o toque, que troca por um novo", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual();
+    c.envenenado = true;
+    await passar(15_000);
+    expect(m.estadoDoCiclo().fase, "o vigia não viu o NaN").toBe("esperando-gesto");
+    expect(agendadores.size, "música tocando num grafo envenenado").toBe(0);
+    await tocar();
+    expect(atual()).not.toBe(c);
+    expect(c.closes).toBe(1);
+    await funciona(m, prefs, "depois do toque");
+    pronto(m, "depois do toque");
+  });
+
+  it("erro do dispositivo de saída (evento error do AudioContext): o toque troca o contexto", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual();
+    c.onerror?.();
+    await passar(100);
+    expect(m.estadoDoCiclo().fase).toBe("esperando-gesto");
+    await tocar();
+    expect(atual()).not.toBe(c);
+    await funciona(m, prefs, "depois do toque");
+    pronto(m, "depois do toque");
+  });
+
+  it("zumbi que volta a andar sozinho é absolvido pelo vigia: a música volta sem troca e sem toque", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual();
+    c.congelar();
+    await passar(5_000);
+    expect(m.estadoDoCiclo().fase).toBe("esperando-gesto");
+    c.descongelar();
+    await passar(8_000);
+    expect(atual()).toBe(c);
+    await funciona(m, prefs, "absolvido");
+    pronto(m, "absolvido");
+  });
+
+  it("acúmulo de nós: 10 minutos de música e efeitos não deixam ligações penduradas no contexto", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual();
+    const tocarPor = async (s: number) => {
+      for (let i = 0; i < s; i++) { m.tone({ freq: 440, dur: 0.1, space: 0.2 }); m.noise({ dur: 0.1, space: 0.2 }); await passar(1000); }
+    };
+    await tocarPor(60);
+    const umMinuto = c.ligacoes;
+    await tocarPor(540);
+    expect(c.ligacoes - umMinuto, `ligações acumuladas (1 min: ${umMinuto}, 10 min: ${c.ligacoes})`).toBeLessThan(60);
+    expect(c.ligacoes, "ligações vivas depois de 10 min").toBeLessThan(400);
+    pronto(m);
+  }, 60_000);
+
+  it("saudável não dispara o vigia: 10 minutos tocando = 1 contexto, nenhuma troca, nenhum ouvinte de gesto (Android e iPhone)", async () => {
+    for (const ios of [false, true]) {
+      ambiente({ ios, tique: true });
+      const m = motor(prefs);
+      const c = atual();
+      await passar(600_000);
+      expect(atual(), ios ? "iPhone" : "Android").toBe(c);
+      await funciona(m, prefs, ios ? "iPhone" : "Android");
+      pronto(m, ios ? "iPhone" : "Android");
+    }
+  }, 60_000);
+
+  it("escondido, o vigia não mexe em nada nem cria contexto", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    esconder();
+    atual().congelar();
+    atual().envenenado = true;
+    await passar(30_000);
+    expect(ContextoFalso.todos.length).toBe(1);
+    expect(m.estadoDoCiclo()).toMatchObject({ fase: "fundo", gestoArmado: false });
+    expect(m.invariantesVioladas()).toEqual([]);
   });
 });

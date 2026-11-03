@@ -1,14 +1,15 @@
 // MESA MISTA — humanos + BOT NORMAL na sala privada.
 //
 // A mesa tem sempre QUATRO assentos, mas não exige quatro pessoas. As composições oficiais são
-// 4 humanos, 3+1 e 2+2. **1 humano + 3 bots não inicia**: uma sala privada com um humano só não
-// é multiplayer, é o modo local com passos a mais — e esse já existe, sem servidor nenhum.
+// 4 humanos, 3+1, 2+2 e — desde 03/11/2026 (decisão de produto depois do 2º QA físico) — 1+3: quem
+// cria a sala completa a mesa com três bots e joga. A partida 1+3 NÃO credita XP (o piso de dois
+// humanos continua em `resultadoParaCredito` e no banco).
 //
 // O que estes testes protegem, em ordem de importância:
 //
 //   1. AUTORIZAÇÃO NO SERVIDOR. Esconder o botão de quem não é anfitrião é apresentação. Aqui a
 //      mensagem é enviada de propósito por quem não pode, e tem de ser recusada.
-//   2. COMPOSIÇÃO. O piso de dois humanos não pode ser contornado por ordem de cliques.
+//   2. COMPOSIÇÃO. Quatro assentos ocupados, um humano no mínimo, nunca contornado por ordem de cliques.
 //   3. READY. Bot não clica em nada; humano clica. A partida só começa com todos os humanos.
 //   4. FRONTEIRA. O bot do servidor decide pela visão redigida, como qualquer jogador.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -23,6 +24,8 @@ import {
 import { ASSENTOS, MIN_HUMANOS } from "./KingRoom.js";
 import { AVATAR_PADRAO, AVATARES, NOMES_DE_BOT } from "./identidade.js";
 import { COOLDOWN_MS, MENSAGENS_SOCIAIS } from "./social.js";
+import { configurarProgresso, restaurarProgresso } from "../progresso/servico.js";
+import { resultadoParaCredito, type PartidaEncerrada } from "../progresso/resultado.js";
 
 let colyseus: ColyseusTestServer;
 
@@ -241,7 +244,7 @@ describe("2 · composições oficiais da mesa", () => {
     expect(bots(dono)).toBe(0);
   });
 
-  it("1 humano + 3 bots NÃO INICIA — é o piso da composição", async () => {
+  it("1 humano + 3 bots INICIA — o piso é um humano (decisão de 03/11/2026)", async () => {
     const { dono } = await criarSala("Tito");
     await addBot(dono, 1);
     await addBot(dono, 2);
@@ -249,11 +252,26 @@ describe("2 · composições oficiais da mesa", () => {
 
     expect(ocupados(dono)).toBe(ASSENTOS);
     expect(humanos(dono)).toBe(1);
-    expect(humanos(dono)).toBeLessThan(MIN_HUMANOS);
+    expect(MIN_HUMANOS).toBe(1);
+    expect(dono.boasVindas!.minHumanos, "o servidor anuncia o piso nas boas-vindas").toBe(1);
+    // os bots já nascem prontos; quem falta é o humano
+    expect(assentosDe(dono).filter((a) => a.bot).every((a) => a.ready)).toBe(true);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(sala(dono).status, "começou sem o humano marcar pronto").toBe("lobby");
 
     dono.sdk.send("CLIENT_SET_READY", { ready: true });
-    // dá tempo de sobra para o servidor iniciar se fosse iniciar
+    await ate(() => sala(dono).status === "playing", 10_000, "partida iniciada 1+3");
+    await ate(() => dono.view !== null, 8000, "primeira visão");
+    expect(dono.view!.hand!.handNumber).toBe(1);
+  });
+
+  it("1 humano + 2 bots + 1 assento vago NÃO inicia — a mesa continua sendo de quatro", async () => {
+    const { dono } = await criarSala("Tito");
+    await addBot(dono, 1);
+    await addBot(dono, 2);
+    dono.sdk.send("CLIENT_SET_READY", { ready: true });
     await new Promise((r) => setTimeout(r, 300));
+    expect(ocupados(dono)).toBe(3);
     expect(sala(dono).status).toBe("lobby");
     expect(dono.view).toBeNull();
   });
@@ -490,6 +508,37 @@ async function jogarPartidaCompleta(
 }
 
 describe("6 · partida completa com bots na mesa", () => {
+  it("1 humano + 3 bots joga as 10 mãos, fecha o placar com checksum 0 e NÃO credita XP", async () => {
+    const recebidas: PartidaEncerrada[] = [];
+    configurarProgresso({ estado: "closed", partidaEncerrada: (p) => { recebidas.push(p); } });
+    try {
+      const { dono } = await criarSala("Tito");
+      await addBot(dono, 1);
+      await addBot(dono, 2);
+      await addBot(dono, 3);
+      dono.sdk.send("CLIENT_SET_READY", { ready: true });
+      await ate(() => sala(dono).status === "playing", 10_000, "iniciou 1+3");
+      await ate(() => dono.view !== null, 8000, "primeira visão");
+
+      const v = await jogarPartidaCompleta([{ c: dono, seat: 0 }], 150_000);
+      expect(v.finished).toBe(true);
+      expect(v.history.map((h) => h.handNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      expect(v.cumulative.reduce((x, y) => x + y, 0)).toBe(0);
+      expect(dono.rejeicoes).toHaveLength(0);
+      await ate(() => sala(dono).status === "finished", 10_000, "status finished no schema");
+
+      // UMA entrega ao progresso — e ela não vira crédito: um humano só não grava XP, bot nunca
+      await ate(() => recebidas.length === 1, 5000, "entrega ao progresso");
+      expect(recebidas[0]!.assentos.filter((a) => a.bot)).toHaveLength(3);
+      expect(resultadoParaCredito(recebidas[0]!), "partida 1+3 virou crédito de XP").toBeNull();
+
+      // e sair da mesa encerrada funciona como em qualquer outra
+      await dono.sdk.leave(true);
+    } finally {
+      restaurarProgresso();
+    }
+  }, 180_000);
+
   it("2 humanos + 2 bots joga as 10 mãos inteiras e fecha com checksum 0", async () => {
     const { dono, codigo } = await criarSala("Tito");
     const raiza = await entrar(codigo, "Raiza");
@@ -579,6 +628,30 @@ describe("6 · partida completa com bots na mesa", () => {
 });
 
 // ═══════════════════ 7 · RECONNECT EM MESA MISTA ═══════════════════
+
+describe("7 · início único e reconexão com UM humano", () => {
+  it("'Estou pronto' repetido não começa a partida duas vezes, e os bots não mudam depois do início", async () => {
+    const { dono } = await criarSala("Tito");
+    await addBot(dono, 1);
+    await addBot(dono, 2);
+    await addBot(dono, 3);
+    for (let i = 0; i < 4; i++) dono.sdk.send("CLIENT_SET_READY", { ready: true });
+    await ate(() => sala(dono).status === "playing", 10_000, "iniciou");
+    await ate(() => dono.view !== null, 8000, "visão");
+    const mao = dono.view!.hand!;
+    for (let i = 0; i < 3; i++) dono.sdk.send("CLIENT_SET_READY", { ready: true });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(sala(dono).status).toBe("playing");
+    expect(dono.view!.hand!.handNumber).toBe(1);
+    expect(dono.view!.hand!.hands[0]).toEqual(mao.hands[0]); // mesma distribuição: não houve 2º início
+
+    const antes = dono.rejeicoes.length;
+    dono.sdk.send("CLIENT_REMOVE_BOT", { seat: 3 });
+    await ate(() => dono.rejeicoes.length > antes, 8000, "recusa WRONG_PHASE");
+    expect(dono.rejeicoes.at(-1)!.code).toBe("WRONG_PHASE");
+    expect(bots(dono)).toBe(3);
+  });
+});
 
 describe("7 · reconnect com bots na mesa", () => {
   it("humano cai, bots continuam, ele volta ao MESMO assento e nada da mão dele vazou", async () => {

@@ -19,6 +19,10 @@ export default defineConfig({
   define: {
     __KING_VERCEL_ENV__: JSON.stringify(process.env.VERCEL_ENV ?? ""),
     __KING_VERSAO__: JSON.stringify(VERSAO),
+    // DIAGNÓSTICO DO ÁUDIO (src/audio/diagnostico.ts): SÓ no APK DEBUG de QA, ligado por
+    // `KING_DIAG_AUDIO=1` no ambiente do build. Não é `VITE_*` de propósito: nenhum arquivo .env
+    // liga isto por acidente. Desligado, o ramo some do pacote.
+    __KING_DIAG_AUDIO__: JSON.stringify(process.env.KING_DIAG_AUDIO === "1"),
   },
   resolve: {
     alias: {

@@ -189,6 +189,15 @@ export interface BoasVindas {
   /** O código que se compartilha para os outros entrarem. É o próprio `roomId`. */
   roomCode: string;
   roomId: string;
+  /**
+   * O piso de HUMANOS deste servidor para a partida começar (`MIN_HUMANOS` da KingRoom).
+   *
+   * Campo NOVO e opcional (03/11/2026, regra 1 humano + 3 bots): um servidor anterior não o manda,
+   * e o cliente assume 2 — a regra antiga. Assim o lobby nunca promete que "você e três bots" vai
+   * começar num servidor que ainda exige duas pessoas. Cliente antigo ignora: `PROTOCOL_VERSION`
+   * não sobe.
+   */
+  minHumanos?: number;
   you: {
     playerId: string;
     sessionToken: string;
