@@ -18,7 +18,7 @@ describe("o que a página precisa dizer", () => {
   it("responsável e contato", () => {
     expect(TEXTO).toContain("Tito Viveiros");
     expect(TEXTO).toMatch(/pessoa física/);
-    expect(HTML).toContain('href="mailto:titoviveiros@gmail.com"');
+    expect(HTML).toContain('href="mailto:titoviveiros@hotmail.com"');
   });
 
   it("finalidade, fornecedor e região", () => {
@@ -170,5 +170,30 @@ describe("depois da exclusão: a lápide (E-2)", () => {
     expect(LAPIDE.replace("não um dado anônimo", "")).not.toMatch(/anônim/i);
     expect(TEXTO).toMatch(/cria uma conta de convidado, sem e-mail e sem senha/);
     expect(TEXTO).not.toMatch(/conta anônima/i);
+  });
+});
+
+describe("retenção dos dados do jogo (D3, 02/11/2026): o que é verdade hoje, sem prazo inventado", () => {
+  const i = HTML.indexOf('id="retencao"');
+  const RETENCAO = HTML.slice(i, HTML.indexOf("</ul>", i)).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  it("separa conta em uso, convidado sem uso, exclusão e registro das partidas", () => {
+    expect(i).toBeGreaterThan(0);
+    for (const t of ["Conta em uso", "enquanto ela existir", "Conta de convidado sem uso",
+      "não existe exclusão automática de contas de convidado inativas", "esta página muda antes",
+      "Ao excluir a conta", "apagados na hora", "Registro das partidas", "sem identificar ninguém"]) {
+      expect(RETENCAO, t).toContain(t);
+    }
+  });
+
+  it("aponta a lápide (30 dias + pendência) em vez de repetir prazo, e não cita prazo próprio", () => {
+    expect(RETENCAO).toContain("o que fica por tempo limitado está descrito acima");
+    expect(RETENCAO).not.toMatch(/\b\d+\s*(dias?|mes(es)?|anos?|semanas?|horas?)\b/i);
+  });
+
+  it("Google e Apple: descritos como AINDA NÃO disponíveis (nenhum build de produção os oferece)", () => {
+    expect(TEXTO).toMatch(/Salvar o progresso com Google ou Apple ainda não está disponível \(quando estiver, será opcional\)/);
+    expect(TEXTO).toMatch(/Salvar o progresso com Google ou Apple ainda não está disponível\. Quando estiver, será opcional/);
+    expect(TEXTO).not.toMatch(/Google ou Apple é opcional/);
   });
 });

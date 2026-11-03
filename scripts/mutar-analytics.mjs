@@ -118,7 +118,7 @@ const MUTACOES = [
   <p><strong>Se você não quiser ser medido:</strong>`, PRIV],
   ["página esquece o e-mail na lista do que nunca é enviado", PAGINA, `      <li>e-mail</li>
 `, "", PRIV],
-  ["página sem o contato do responsável", PAGINA, '<a href="mailto:titoviveiros@gmail.com">titoviveiros@gmail.com</a>', "o responsável", PRIV],
+  ["página sem o contato do responsável", PAGINA, '<a href="mailto:titoviveiros@hotmail.com">titoviveiros@hotmail.com</a>', "o responsável", PRIV],
   ["Home sem o link de privacidade", join(WEB, "src", "ui", "Home.tsx"), '<a className="hm-privacidade" href="/privacidade.html">Privacidade</a>', "Privacidade", PRIV],
   ["reescrita /privacidade removida", join(RAIZ, "vercel.json"), `    {
       "source": "/privacidade",
