@@ -815,6 +815,13 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .home .foot{margin-top:clamp(10px,2vh,16px);color:var(--faint);font-size:clamp(.62rem,1.6vh,.8rem);max-width:min(86vw,520px);}
 .home .foot .hm-privacidade{color:inherit;text-decoration:underline;text-underline-offset:3px;}
 .home .foot .hm-privacidade:active{color:var(--gold);}
+/* A versão (src/versao.ts): canto de baixo, à direita, fora do fluxo e sem toque — nada sobe nem
+   desce na Home. Respeita as áreas seguras (notch em paisagem, barra de gestos) e fica abaixo de
+   qualquer painel (.ov é 50). Mesmo tom do rodapé, um pouco menor. */
+.home .hm-versao{position:fixed;z-index:1;margin:0;pointer-events:none;
+  right:calc(var(--sr) + 8px);bottom:calc(var(--sb) + 4px);
+  color:var(--faint);opacity:.8;font-family:var(--body);font-weight:700;
+  font-size:clamp(.56rem,1.4vh,.7rem);line-height:1.2;font-variant-numeric:tabular-nums;letter-spacing:.02em;}
 
 /* ---- aviso de rotação (o gameplay é landscape — Design System) ---- */
 .rotate{position:fixed;inset:0;z-index:200;display:none;flex-direction:column;align-items:center;justify-content:center;

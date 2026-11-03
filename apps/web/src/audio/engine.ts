@@ -165,6 +165,20 @@ export class AudioEngine {
   }
 
   // ---- ciclo de vida ----
+  /**
+   * RELIGAR, dentro do toque: Música ou Efeitos voltaram a ON no painel — o pedido explícito de quem
+   * quer ouvir. Hotfix do AAB 0.1.0 vc1 (Android): o som sumiu com o painel aberto e desligar/religar
+   * não o trazia, porque `unlock` só retoma contexto PARADO. Um contexto "running", de relógio
+   * andando, cuja saída física morreu é invisível ao JS (o mesmo limite do iPhone, acima) — então
+   * religar troca por um contexto NOVO, pelo caminho já provado (`reconstruir`). Timbre, mix e
+   * preferências não mudam. Escondido, ou com uma troca em curso, não faz nada.
+   */
+  religar(): void {
+    if (!this.ctx) { this.unlock(); return; }
+    if (this.fase === "reconstruindo" || this.fase === "fundo" || !visivel()) return;
+    this.reconstruir();
+  }
+
   /** Cria/retoma o contexto. PRECISA rodar dentro de um gesto real — exigência do iOS. */
   unlock(): void {
     let ctx = this.ctx;

@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AudioEngine, audio } from "./engine.js";
 import { sfxCardPlay, sfxTap, sfxYourTurn } from "./sounds.js";
+import { alternarPreferencia } from "../ui/AudioPanel.js";
 
 class Alvo {
   ouvintes = new Map<string, Set<(e: unknown) => void>>();
@@ -960,5 +961,103 @@ describe("red team da V2 (23/10): os ataques que derrubaram a 1ª versão dela",
     await tocar();
     await funciona(m, prefs, "contexto novo na volta seguinte");
     pronto(m);
+  });
+});
+
+// ─────────────────────────── HOTFIX ANDROID (AAB 0.1.0 vc1, 03/11/2026) ───────────────────────────
+//
+// Relato do 1º teste físico no Android: tocar no ícone de som na Home, o painel abre e o som some —
+// e desligar/religar Música ou Efeitos NÃO o traz de volta. A causa no aparelho não foi reproduzida
+// (não há WebView do Android aqui); o que o código mostra é que o painel não tinha como recuperar:
+// `unlock` só retoma contexto PARADO, e um contexto "running" de relógio andando cuja saída física
+// morreu é invisível ao JS (o mesmo limite já descrito para o iPhone). Este falso simula exatamente
+// isso: `saidaMorta` — "running", relógio andando, e mudo. Religar no painel é o pedido explícito de
+// quem quer ouvir: agora troca o contexto por um novo, dentro do toque, pelo caminho já provado.
+describe("16. painel de som no Android: religar Música/Efeitos recupera o áudio", () => {
+  /** O toque no painel: dentro do gesto, como no aparelho. */
+  const noPainel = async (m: AudioEngine, k: "music" | "sfx") => {
+    ContextoFalso.dentroDoGesto = true;
+    try { alternarPreferencia(m, k, () => {}); } finally { ContextoFalso.dentroDoGesto = false; }
+    await passar();
+  };
+
+  it("saída morta com o contexto 'running': Música OFF→ON troca por um contexto novo, com música e efeitos nele", async () => {
+    const prefs = { music: true, sfx: true };
+    const m = motor(prefs);
+    await funciona(m, prefs, "início");
+    const morto = atual(); // "running", relógio andando — e mudo: o JS não tem como ver
+    await noPainel(m, "music");
+    await noPainel(m, "music");
+    expect(atual(), "religar a Música não trocou o contexto de saída morta").not.toBe(morto);
+    expect(morto.closes, "o contexto velho não foi fechado").toBe(1);
+    await funciona(m, prefs, "depois de religar a Música");
+    pronto(m, "depois de religar a Música");
+  });
+
+  it("o mesmo com Efeitos OFF→ON (a música continua, agora no contexto novo)", async () => {
+    const prefs = { music: true, sfx: true };
+    const m = motor(prefs);
+    const morto = atual();
+    await noPainel(m, "sfx");
+    await noPainel(m, "sfx");
+    expect(atual()).not.toBe(morto);
+    await funciona(m, prefs, "depois de religar os Efeitos");
+    pronto(m);
+  });
+
+  it("DESLIGAR não troca nada: só a música (ou só os efeitos) para", async () => {
+    const m = motor({ music: true, sfx: true });
+    const c = atual();
+    await noPainel(m, "music");
+    expect(atual()).toBe(c);
+    await funciona(m, { music: false, sfx: true }, "música desligada");
+    await noPainel(m, "sfx");
+    expect(atual()).toBe(c);
+    await funciona(m, { music: false, sfx: false }, "tudo desligado");
+    pronto(m);
+  });
+
+  it("todas as combinações, ida e volta: cada estado funciona e nada se acumula", async () => {
+    const m = motor({ music: true, sfx: true });
+    const sequencia: ("music" | "sfx")[] = ["music", "sfx", "music", "sfx", "sfx", "music", "music", "sfx"];
+    for (const [i, k] of sequencia.entries()) {
+      await noPainel(m, k);
+      await funciona(m, { music: m.get().music, sfx: m.get().sfx }, `passo ${i + 1} (${k})`);
+      expect(m.invariantesVioladas(), `passo ${i + 1}`).toEqual([]);
+    }
+    const abertos = ContextoFalso.todos.filter((c) => c.state !== "closed");
+    expect(abertos.length, "contextos abertos ao mesmo tempo").toBe(1);
+  });
+
+  it("abrir e fechar o painel muitas vezes (o toque no ícone) não troca contexto nem duplica a música", async () => {
+    const prefs = { music: true, sfx: true };
+    const m = motor(prefs);
+    const c = atual();
+    for (let i = 0; i < 12; i++) {
+      ContextoFalso.dentroDoGesto = true;
+      try { m.unlock(); } finally { ContextoFalso.dentroDoGesto = false; }
+      await passar(300);
+    }
+    expect(atual()).toBe(c);
+    await funciona(m, prefs, "depois de 12 aberturas");
+    pronto(m);
+  });
+
+  it("religar com a página escondida não cria contexto (só a volta e o gesto mexem)", async () => {
+    const m = motor({ music: true, sfx: true });
+    const c = atual();
+    esconder();
+    m.religar();
+    expect(atual()).toBe(c);
+    expect(m.invariantesVioladas()).toEqual([]);
+  });
+
+  it("os volumes respondem no contexto novo, e as escolhas ficam gravadas", async () => {
+    const m = motor({ music: true, sfx: true });
+    await noPainel(m, "music");
+    await noPainel(m, "music");
+    m.set({ musicVol: 0.2, sfxVol: 0.3 });
+    expect(m.get()).toMatchObject({ music: true, sfx: true, musicVol: 0.2, sfxVol: 0.3 });
+    expect(gravados).toContain("king.audio");
   });
 });

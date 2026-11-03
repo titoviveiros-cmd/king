@@ -3,6 +3,7 @@ dist/
 dist-e2e-progresso/
 dist-e2e-analytics/
 dist-e2e-sequencia/
+dist-e2e-nativo/
 build/
 *.log
 .DS_Store

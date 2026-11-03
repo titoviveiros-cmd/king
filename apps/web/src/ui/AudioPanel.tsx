@@ -1,6 +1,20 @@
 import { useEffect, useState } from "react";
-import { audio, supportsHaptics, type AudioPrefs } from "../audio/engine.js";
+import { audio, supportsHaptics, type AudioEngine, type AudioPrefs } from "../audio/engine.js";
 import { sfxTap } from "../audio/sounds.js";
+
+/**
+ * O liga/desliga de uma chave do painel, DENTRO do toque. Exportado para o teste do motor.
+ *
+ * Religar Música ou Efeitos troca o contexto de áudio por um novo (`religar`): no Android do vc1 o
+ * som sumiu e desligar/religar não o trazia de volta. Desligar só desliga — nada é recriado.
+ */
+export function alternarPreferencia(motor: AudioEngine, k: keyof AudioPrefs, tocar: () => void = sfxTap): void {
+  const antes = motor.get();
+  motor.unlock();
+  motor.set({ [k]: !antes[k] } as Partial<AudioPrefs>);
+  if ((k === "music" || k === "sfx") && !antes[k]) motor.religar();
+  if (k !== "music" || !antes.music) tocar();
+}
 
 /** Lê e reage às preferências de áudio (compartilhadas por toda a app). */
 export function useAudioPrefs(): AudioPrefs {
@@ -31,11 +45,7 @@ export function AudioButton({ onOpen }: { onOpen: () => void }) {
  */
 export function AudioPanel({ onClose }: { onClose: () => void }) {
   const prefs = useAudioPrefs();
-  const toggle = (k: keyof AudioPrefs) => () => {
-    audio.unlock();
-    audio.set({ [k]: !prefs[k] } as Partial<AudioPrefs>);
-    if (k !== "music" || !prefs.music) sfxTap();
-  };
+  const toggle = (k: keyof AudioPrefs) => () => alternarPreferencia(audio, k);
   return (
     <div className="ov" onClick={onClose}>
       <div className="ovcard" onClick={(e) => e.stopPropagation()}>

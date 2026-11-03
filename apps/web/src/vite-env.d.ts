@@ -17,6 +17,9 @@ interface ImportMetaEnv {
 /** O `VERCEL_ENV` do momento do build (ver `vite.config.ts`). Vazio fora da Vercel. */
 declare const __KING_VERCEL_ENV__: string;
 
+/** A versão do KING, do package.json da RAIZ no build (ver `vite.config.ts` e `src/versao.ts`). */
+declare const __KING_VERSAO__: string;
+
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }

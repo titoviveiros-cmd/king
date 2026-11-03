@@ -123,32 +123,43 @@ export function identidadeConfigurada(): ResultadoDaIdentidade {
  */
 export function identidadeSupabase(cfg: { url: string; anonKey: string }): ProvedorDeIdentidade {
   return {
-    async token() {
-      try {
-        const porta = await portaDeAutenticacao(cfg);
-        if (!porta) return undefined;
-        const atual = await porta.getSession();
-        const token = atual.data.session?.access_token;
-        if (token) return token;
-        // A RENOVAÇÃO FALHOU (rede ou 5xx, que o SDK trata como passageiros): o SDK MANTÉM a sessão do convidado
-        // guardada e responde `session: null` COM `error`. Criar convidado aqui gravaria OUTRO
-        // usuário por cima do único que o aparelho conhece — no celular, voltar do segundo plano
-        // com o token vencido e a rede piscando bastaria para o jogador perder a conta (provado
-        // com o SDK real no red team de 23/10/2026). Sem token agora; a próxima tentativa renova.
-        if (atual.error) return undefined;
-        // ENTRAR PARA JOGAR PODE CRIAR CONVIDADO. É uma conta de verdade, sem cadastro — e é ela
-        // que, mais tarde, o jogador vincula ao Google sem perder o que já é dele.
-        //
-        // Esta permissão é DESTE caminho e de mais nenhum. Concluir um vínculo de conta sem
-        // sessão precisa FALHAR, nunca inventar um usuário novo para "continuar" — ver
-        // `concluirRetornoOAuth` em `conta.ts`.
-        const novo = await porta.signInAnonymously();
-        return novo.data.session?.access_token ?? undefined;
-      } catch {
-        return undefined; // provedor indisponível ≠ jogador impedido de jogar
-      }
+    // UMA BUSCA POR VEZ (hotfix vc1). O prazo da credencial (`credencialPara`, 8 s) abandona a
+    // espera, não a busca: um `signInAnonymously` lento segue em voo. Uma segunda chamada nesse
+    // meio-tempo leria a sessão ainda vazia e criaria OUTRO convidado por cima — então ela espera
+    // a mesma busca. Nada fica guardado depois que ela termina.
+    token() {
+      tokenEmCurso ??= buscarToken(cfg).finally(() => { tokenEmCurso = null; });
+      return tokenEmCurso;
     },
   };
+}
+
+let tokenEmCurso: Promise<string | undefined> | null = null;
+
+async function buscarToken(cfg: { url: string; anonKey: string }): Promise<string | undefined> {
+  try {
+    const porta = await portaDeAutenticacao(cfg);
+    if (!porta) return undefined;
+    const atual = await porta.getSession();
+    const token = atual.data.session?.access_token;
+    if (token) return token;
+    // A RENOVAÇÃO FALHOU (rede ou 5xx, que o SDK trata como passageiros): o SDK MANTÉM a sessão do convidado
+    // guardada e responde `session: null` COM `error`. Criar convidado aqui gravaria OUTRO
+    // usuário por cima do único que o aparelho conhece — no celular, voltar do segundo plano
+    // com o token vencido e a rede piscando bastaria para o jogador perder a conta (provado
+    // com o SDK real no red team de 23/10/2026). Sem token agora; a próxima tentativa renova.
+    if (atual.error) return undefined;
+    // ENTRAR PARA JOGAR PODE CRIAR CONVIDADO. É uma conta de verdade, sem cadastro — e é ela
+    // que, mais tarde, o jogador vincula ao Google sem perder o que já é dele.
+    //
+    // Esta permissão é DESTE caminho e de mais nenhum. Concluir um vínculo de conta sem
+    // sessão precisa FALHAR, nunca inventar um usuário novo para "continuar" — ver
+    // `concluirRetornoOAuth` em `conta.ts`.
+    const novo = await porta.signInAnonymously();
+    return novo.data.session?.access_token ?? undefined;
+  } catch {
+    return undefined; // provedor indisponível ≠ jogador impedido de jogar
+  }
 }
 
 /** O provedor real, ou `null` quando esta publicação não tem identidade configurada. */

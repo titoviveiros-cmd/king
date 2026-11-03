@@ -1,6 +1,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+
+// A VERSÃO DO KING tem UMA fonte: o package.json da RAIZ. É o mesmo arquivo de onde
+// `scripts/preparar-mobile.mjs` tira o `versionName` do Android (e `validar-mobile.mjs` confere),
+// então a Home, o AAB e a loja não divergem. Nada de número escrito à mão em componente.
+const VERSAO = (JSON.parse(
+  readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8"),
+) as { version: string }).version;
 
 export default defineConfig({
   plugins: [react()],
@@ -10,6 +18,7 @@ export default defineConfig({
   // e o analytics trata vazio como "development" (ver `src/analytics/contexto.ts`).
   define: {
     __KING_VERCEL_ENV__: JSON.stringify(process.env.VERCEL_ENV ?? ""),
+    __KING_VERSAO__: JSON.stringify(VERSAO),
   },
   resolve: {
     alias: {

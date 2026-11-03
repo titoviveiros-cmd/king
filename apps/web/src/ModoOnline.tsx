@@ -45,10 +45,14 @@ export default function ModoOnline({
   // NÃO passa por `sairDaSala`: ele esquece a recuperação, que vale para TODAS as abas — o
   // anfitrião que toca o próprio link no mesmo celular (4004) perderia o "Voltar para a minha
   // sala" da partida de verdade. Entrada que falhou não abriu sessão: não há o que fechar.
-  const falhou = entrada.tipo === "entrar" && !g.sala && g.conexao === "erro" && !!g.erro;
+  // CRIAR também volta (hotfix do vc1): antes, a falha deixava um lobby vazio com "Sem conexão" e
+  // só o Sair; agora a pessoa lê o motivo no painel e toca "Criar sala" de novo, com o apelido mantido.
+  const falhou = (entrada.tipo === "entrar" || entrada.tipo === "criar")
+    && !g.sala && g.conexao === "erro" && !!g.erro;
   useEffect(() => {
-    if (!falhou || entrada.tipo !== "entrar") return;
-    onSair({ codigo: entrada.codigo, nick: entrada.nick, aviso: g.erro ?? undefined });
+    if (!falhou) return;
+    if (entrada.tipo === "entrar") onSair({ codigo: entrada.codigo, nick: entrada.nick, aviso: g.erro ?? undefined });
+    else if (entrada.tipo === "criar") onSair({ nick: entrada.nick, aviso: g.erro ?? undefined });
   }, [falhou, entrada, g.erro, onSair]);
   useBotaoVoltar(g.screen === "mesa", sair);
 

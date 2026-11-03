@@ -31,14 +31,43 @@ export interface DependenciasDaSessaoNativa {
   local: () => LocalSimples | null;
 }
 
+/**
+ * O PLUGIN NUNCA SAI CRU DE UMA FUNÇÃO `async` — defeito do AAB 0.1.0 (vc1), "Conectando…" eterno.
+ *
+ * O plugin do Capacitor é um Proxy que responde a QUALQUER propriedade com um método nativo,
+ * inclusive `then`. Devolvido por uma função `async` (ou por um `.then`), o JavaScript o toma por
+ * promessa e chama `plugin.then(ok, falha)`; no Android não existe método nativo "then", a chamada
+ * é rejeitada por dentro e `ok` nunca é chamado. O cofre nunca ficava pronto, o cliente do Supabase
+ * nunca nascia, o token nunca chegava e "Criar sala" esperava para sempre. Na web nada disso roda.
+ *
+ * Por isso o plugin é embrulhado num objeto COMUM, só com os métodos que o KING usa: um objeto sem
+ * `then` não vira promessa por acidente. Provado com o `@capacitor/core` real em
+ * `cofreNativo.test.ts`.
+ */
+export function cofreDoPlugin(plugin: CofreDoSistema): CofreDoSistema {
+  return {
+    setKeyPrefix: (prefixo) => plugin.setKeyPrefix(prefixo),
+    setSynchronize: (sincronizar) => plugin.setSynchronize(sincronizar),
+    setDefaultKeychainAccess: (acesso) => plugin.setDefaultKeychainAccess(acesso),
+    getItem: (chave) => plugin.getItem(chave),
+    setItem: (chave, valor) => plugin.setItem(chave, valor),
+    removeItem: (chave) => plugin.removeItem(chave),
+    clear: () => plugin.clear(),
+  };
+}
+
+export async function carregarCofreDoPlugin(): Promise<CofreDoSistema> {
+  const { SecureStorage } = await import("@aparajita/capacitor-secure-storage");
+  return cofreDoPlugin(SecureStorage as unknown as CofreDoSistema);
+}
+
 const dependenciasReais: DependenciasDaSessaoNativa = {
   nativo: () => ehAppNativo(),
   urlDaIdentidade: () => {
     const r = identidadeConfigurada();
     return r.configurado ? r.url : null;
   },
-  carregarCofre: async () =>
-    (await import("@aparajita/capacitor-secure-storage")).SecureStorage as unknown as CofreDoSistema,
+  carregarCofre: carregarCofreDoPlugin,
   local: () => { try { return globalThis.localStorage ?? null; } catch { return null; } },
 };
 

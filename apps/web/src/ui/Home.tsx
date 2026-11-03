@@ -7,6 +7,7 @@ import type { ContaDaHome } from "../auth/useConta.js";
 import type { ProgressoDoJogador } from "../auth/progresso.js";
 import { ProgressoNaHome } from "./Progresso.js";
 import type { Convite } from "../net/convite.js";
+import { ROTULO_DA_VERSAO } from "../versao.js";
 
 /**
  * O código da sala tem QUATRO DÍGITOS e é sempre string.
@@ -296,6 +297,10 @@ export function Home({
         1 jogador + 3 bots · 4 jogadores · 10 mãos · base jogável (motor real) ·{" "}
         <a className="hm-privacidade" href="/privacidade.html">Privacidade</a>
       </div>
+
+      {/* A VERSÃO, NO CANTO: fora do fluxo (não acrescenta altura a uma Home que precisa caber em
+          852×300), sem toque e abaixo de qualquer painel. Vem do build — ver `src/versao.ts`. */}
+      {ROTULO_DA_VERSAO && <p className="hm-versao">{ROTULO_DA_VERSAO}</p>}
     </div>
   );
 }

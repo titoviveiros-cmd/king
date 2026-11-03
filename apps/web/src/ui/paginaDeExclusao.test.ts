@@ -28,7 +28,7 @@ describe("o que a Google Play pede da página", () => {
   it("dá o caminho no app e um caminho SEM o app (pedido por e-mail)", () => {
     expect(TEXTO).toMatch(/No app/);
     expect(TEXTO).toMatch(/Sem o app/);
-    expect(HTML).toContain('href="mailto:titoviveiros@gmail.com?subject=Excluir%20conta%20KING"');
+    expect(HTML).toContain('href="mailto:titoviveiros@hotmail.com?subject=Excluir%20conta%20KING"');
   });
 
   it("diz o que é excluído e o que fica", () => {
@@ -139,5 +139,34 @@ describe("o endereço público", () => {
     expect(PRIVACIDADE).toContain('<a href="/excluir-conta">');
     expect(PRIVACIDADE).toMatch(/Excluir a sua conta/);
     expect(PRIVACIDADE).toMatch(/Nenhum token do Google ou da Apple fica guardado/);
+  });
+});
+
+describe("pedido SEM o app (D1/D2, 02/11/2026): o contato oficial e o convidado sem prova", () => {
+  const SEM_APP = TEXTO.slice(TEXTO.indexOf("Sem o app"), TEXTO.indexOf("O que é excluído"));
+
+  it("o único contato é o e-mail oficial dos jogos — nunca o Gmail", () => {
+    for (const [onde, html] of [["excluir-conta", HTML], ["privacidade", PRIVACIDADE]]) {
+      expect(html, onde).toContain("titoviveiros@hotmail.com");
+      expect(html, onde).not.toMatch(/gmail/i);
+    }
+  });
+
+  it("Google/Apple: a titularidade se mostra pela confirmação no e-mail da conta, antes de excluir", () => {
+    expect(SEM_APP).toMatch(/Antes de excluir, respondemos para esse endereço pedindo a sua confirmação/);
+  });
+
+  it("convidado: há um caminho para pedir, mas nada de excluir por apelido, código de sala ou identificador", () => {
+    expect(SEM_APP).toMatch(/escreva mesmo assim/);
+    expect(SEM_APP).toContain("não excluímos uma conta de convidado só pelo apelido, pelo código de uma sala ou por um identificador informado por e-mail");
+    expect(SEM_APP).toMatch(/ninguém consegue entrar nessa conta, nem você/);
+    expect(HTML).toContain('<a href="/privacidade#retencao">');
+    expect(PRIVACIDADE).toContain('id="retencao"');
+  });
+
+  it("não promete o que não existe: nem prazo de resposta, nem exclusão automática, nem formulário", () => {
+    expect(SEM_APP).not.toMatch(/\b\d+\s*(dias?|horas?|semanas?)\b/i);
+    expect(SEM_APP).not.toMatch(/automaticamente/i);
+    expect(HTML).not.toMatch(/<form|<input/i);
   });
 });
