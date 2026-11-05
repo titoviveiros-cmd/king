@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { audio, supportsHaptics, type AudioEngine, type AudioPrefs } from "../audio/engine.js";
 import { sfxTap } from "../audio/sounds.js";
+import { DIAG_LIGADO } from "../audio/diagnostico.js";
+import { BotaoDiagnosticoDeAudio, aoAbrirPainelDeSom } from "./DiagnosticoDeAudio.js";
 
 /**
  * O liga/desliga de uma chave do painel, DENTRO do toque. Exportado para o teste do motor.
@@ -30,7 +32,10 @@ export function AudioButton({ onOpen }: { onOpen: () => void }) {
   return (
     <button
       className="audiobtn"
-      onClick={() => { audio.unlock(); sfxTap(); onOpen(); }}
+      // Abrir o painel REATIVA o som (contexto novo, dentro do toque): é o gesto natural de quem
+      // perdeu o som, e há mortes da saída do Android que o motor não enxerga (2º QA, 03/11/2026).
+      // APK DEBUG (rodada 5): antes do reparo, o diagnóstico guarda o motor como estava.
+      onClick={() => { if (DIAG_LIGADO) aoAbrirPainelDeSom(); audio.reativar(); sfxTap(); onOpen(); }}
       aria-label="Som e vibração"
       title="Som e vibração"
     >
@@ -65,6 +70,9 @@ export function AudioPanel({ onClose }: { onClose: () => void }) {
           disabled={!supportsHaptics}
           onToggle={toggle("haptics")}
         />
+
+        {/* SÓ no APK DEBUG de QA (constante de build): no build normal isto some do pacote. */}
+        {DIAG_LIGADO && <BotaoDiagnosticoDeAudio />}
 
         <div style={{ marginTop: 14 }}>
           <button className="btn gold" onClick={() => { sfxTap(); onClose(); }}>Voltar ao jogo</button>

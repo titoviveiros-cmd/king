@@ -22,6 +22,8 @@ declare const __KING_VERSAO__: string;
 
 /** Diagnóstico do áudio só no APK DEBUG de QA (`KING_DIAG_AUDIO=1` no build; ver `vite.config.ts`). */
 declare const __KING_DIAG_AUDIO__: boolean;
+/** Identificador do build DEBUG de QA, só para o relatório do diagnóstico (vazio fora dele). */
+declare const __KING_DIAG_BUILD__: string;
 
 interface ImportMeta {
   readonly env: ImportMetaEnv;

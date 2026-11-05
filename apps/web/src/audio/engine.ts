@@ -10,7 +10,15 @@
 // (a mesa passa a ter ambiente) e colam os picos (nada estoura quando dois eventos coincidem).
 // Nada aqui conhece regra de KING — os sons semânticos ficam em sounds.ts.
 
-import { diagAudio } from "./diagnostico.js";
+import { DIAG_LIGADO, carimbar, diagAudio, type Retrato, type RetratoGuardado } from "./diagnostico.js";
+import {
+  PARAMETROS_DO_GRAFO, PERFIL_ORIGINAL, PERFIS, REVERB_LEVE, compensacaoDoReverbLeve, gerarImpulso, perfilPadrao, tocaGanza, tocaNotaDoViolao,
+  type NomeDoPerfil, type PerfilDoGrafo,
+} from "./perfilDoGrafo.js";
+import { criarMonitor, type Monitor } from "./monitorDeAudio.js";
+
+// Rodada 8: os números do grafo e o impulso moram em perfilDoGrafo.ts (o laboratório usa os mesmos).
+export { PARAMETROS_DO_GRAFO, gerarImpulso };
 
 export interface AudioPrefs {
   music: boolean;
@@ -84,12 +92,58 @@ function soltar(...nos: (AudioNode | null)[]): void {
   }
 }
 
+/** Retoma sem deixar rejeição solta — e, no APK de QA, registra a recusa (é a pergunta "o resume falhou?"). */
+function retomar(ctx: AudioContext, onde: string): void {
+  void ctx.resume().catch((e: unknown) => {
+    diagAudio.registrar("resume-recusado", { onde, erro: nomeDoErro(e) });
+  });
+}
+
+/** Só o nome do erro (NotAllowedError, InvalidStateError…): nada de mensagem livre na fita. */
+function nomeDoErro(e: unknown): string {
+  return e instanceof Error ? e.name : typeof e;
+}
+
+/** Ganho atual de um nó (o Chrome devolve o valor calculado no último quantum). */
+function ganho(no: GainNode | null): number | null {
+  return no ? Number(no.gain.value.toFixed(4)) : null;
+}
+
+/**
+ * A SAÍDA DO APARELHO, como o navegador a relata: `getOutputTimestamp` diz até onde o dispositivo
+ * de saída já tocou (e quando); `outputLatency`, o atraso dele. Relógio do contexto andando com a
+ * marca da saída parada é o retrato de "o motor toca, o alto-falante não".
+ */
+function saidaDoAparelho(ctx: AudioContext): Record<string, number | null> {
+  try {
+    const c = ctx as AudioContext & { getOutputTimestamp?: () => AudioTimestamp; outputLatency?: number };
+    const ts = c.getOutputTimestamp?.();
+    return {
+      saidaCtx: ts && Number.isFinite(ts.contextTime) ? Number(ts.contextTime!.toFixed(3)) : null,
+      saidaIdadeMs: ts && Number.isFinite(ts.performanceTime) && typeof performance !== "undefined"
+        ? Math.round(performance.now() - ts.performanceTime!) : null,
+      latSaida: Number.isFinite(c.outputLatency) ? Number(c.outputLatency!.toFixed(3)) : null,
+    };
+  } catch {
+    return { saidaCtx: null, saidaIdadeMs: null, latSaida: null };
+  }
+}
+
 /** Estados do contexto. "interrupted" é do Safari/iOS e não está em toda tipagem do TypeScript. */
 type EstadoDoContexto = AudioContextState | "interrupted";
 
 /** iPhone/iPad (o iPad se apresenta como Mac com toque). Todo navegador lá é WebKit. */
 const ehIOS = () => typeof navigator !== "undefined"
   && (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+/** Android (Chrome e a WebView do app). */
+const ehAndroid = () => typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+
+/**
+ * Celular: iPhone ou Android. Nos dois, ida ao fundo e interrupção deixam a SAÍDA FÍSICA sob
+ * suspeita — o JS não vê se ela voltou (ver `naoConfiavel`).
+ */
+const ehMovel = () => ehIOS() || ehAndroid();
 
 const visivel = () => typeof document === "undefined" || document.visibilityState !== "hidden";
 
@@ -120,10 +174,74 @@ interface Grafo {
   noiseBuf: AudioBuffer;
   /** Escuta o master (fora do caminho do som) para o vigia ver NaN. Ausente onde não há analisador. */
   analisador: AnalyserNode | null;
+  /** Rodada 8: o peso deste grafo (o reverb, os envios, a polifonia) — escolhido quando ele nasce. */
+  perfil: PerfilDoGrafo;
+  /** Envios ao reverb COMPARTILHADOS (perfil leve): um nó por quantidade, ligado ao reverbIn. */
+  envios: Map<number, GainNode>;
+}
+
+/** Um som de teste do painel de diagnóstico: o motor antes e ~300 ms depois de mandar tocar. */
+export interface ResultadoDoTeste {
+  qual: "musica" | "efeito" | "direto";
+  /** As notas foram agendadas no contexto atual (não quer dizer que o alto-falante tocou). */
+  tocou: boolean;
+  motivo: string | null;
+  antes: Retrato;
+  durante: Retrato | null;
+}
+
+/** Uma troca de contexto vista pelo diagnóstico: o motor antes, logo depois e ~1 s depois. */
+export interface TrocaRegistrada { antes: RetratoGuardado; depois: RetratoGuardado | null; umSegundoDepois: RetratoGuardado | null; falhou: boolean }
+
+/**
+ * SÓ NO APK DEBUG: a sonda do painel "Diagnóstico de áudio" (rodada 5, sem cabo USB). Lê o motor sem
+ * mexer nele; os únicos verbos são o som de teste (pelos barramentos de verdade) e `recuperar`, que é
+ * o `religar` de sempre — chamado só pelo botão "Tentar recuperar".
+ */
+export interface SondaDoMotor {
+  /** O motor AGORA, sem efeito colateral (não retoma, não troca, não marca nada). */
+  retrato(): Retrato;
+  /** Retratos tirados no `pointerdown` — ANTES do touchend/click que pode trocar o contexto (até 6). */
+  antesDoToque(): RetratoGuardado[];
+  /** As últimas trocas de contexto, com o antes e o depois (até 6). */
+  trocas(): TrocaRegistrada[];
+  tocarTeste(qual: "musica" | "efeito"): Promise<ResultadoDoTeste>;
+  /**
+   * Rodada 6 (teste A′): um tom direto no `destination` do contexto ATUAL — Oscillator → Gain →
+   * destination, sem barramentos, sem compressor, sem master. Sem resume, sem troca.
+   */
+  tomDireto(): Promise<ResultadoDoTeste>;
+  recuperar(): void;
+  /** Rodada 7: o contexto atual, SÓ para medir o relógio (currentTime, getOutputTimestamp, latências). */
+  contextoParaMedir(): AudioContext | null;
+  /** Rodada 7: para o agendador da música SEM mexer nas preferências. Devolve se ela estava agendada. */
+  pararMusica(): boolean;
+  /**
+   * Rodada 7: tira o grafo do KING do processamento — o master sai do destination E do analisador (que
+   * puxa o grafo sozinho). Nada é destruído: `restaurar` religa as duas ligações. Devolve se isolou.
+   */
+  isolarGrafo(): boolean;
+  /** Rodada 7: religa o que `isolarGrafo` tirou (só no MESMO contexto) e a música volta se estiver ligada. */
+  restaurar(): { religou: boolean; musica: boolean };
+  /** Rodada 8: o perfil do grafo em uso (e se foi forçado pelo painel). */
+  perfil(): { nome: NomeDoPerfil; forcado: boolean };
+  /**
+   * Rodada 8 (variantes A–E): força um perfil (`null` = volta ao automático) e TROCA o contexto por um novo
+   * montado com ele — pelo caminho de sempre (`reconstruir`), dentro do toque: um contexto só de cada vez.
+   * Devolve se trocou (fundo, troca em curso ou sem contexto: não troca).
+   */
+  usarPerfil(nome: NomeDoPerfil | null): boolean;
+  /** Rodada 8: o monitor contínuo do relógio (só existe no APK DEBUG). */
+  monitor(): Monitor | null;
+}
+
+interface SondaInterna extends SondaDoMotor {
+  guardarAntesDoToque(): void;
+  registrarTroca(momento: "antes" | "depois" | "falhou"): void;
 }
 
 /** Por que o vigia condenou o contexto — só para o diagnóstico. */
-type Condenacao = "zumbi" | "envenenado" | "erro";
+type Condenacao = "zumbi" | "envenenado" | "erro" | "mudo";
 
 interface OpcoesDaRecuperacao {
   /** Volta do fundo: espera o navegador assentar antes de mexer. */
@@ -143,6 +261,28 @@ export class AudioEngine {
   private noiseBuf: AudioBuffer | null = null;
   private analisador: AnalyserNode | null = null;
   private amostras: Float32Array<ArrayBuffer> | null = null;
+  /** O analisador deste contexto já mostrou som (≠ 0): só então um zero absoluto quer dizer algo. */
+  private analisadorProvado = false;
+  /** Exames seguidos do vigia com a música agendada e o master em zero absoluto. */
+  private zerosSeguidos = 0;
+  /** Quando o agendador da música (re)começou — o 1º compasso precisa de um instante para soar. */
+  private musicaDesde = 0;
+  /** Quando o contexto atual nasceu (o 🔊 não troca um contexto que acabou de nascer). */
+  private nasceuEm = 0;
+  /** DIAGNÓSTICO (só no APK de QA): vozes no ar e o último compasso agendado. */
+  private vozes = 0;
+  private compassoEm = 0;
+  /** DIAGNÓSTICO (só no APK de QA): a sonda do painel; `null` no build normal, sempre. */
+  private sonda: SondaInterna | null = null;
+  /** DIAGNÓSTICO (rodada 7): o que `isolarGrafo` desligou, para religar no mesmo contexto. */
+  private isolado: { ctx: AudioContext; master: GainNode; analisador: AnalyserNode | null } | null = null;
+  /** Rodada 8: o perfil do grafo atual e os envios compartilhados dele. */
+  private perfil: PerfilDoGrafo = PERFIL_ORIGINAL;
+  private envios = new Map<number, GainNode>();
+  /** DIAGNÓSTICO (rodada 8): perfil forçado pelo painel (variantes); `null` = automático. */
+  private perfilForcado: PerfilDoGrafo | null = null;
+  /** DIAGNÓSTICO (rodada 8): o monitor contínuo do relógio; `null` fora do APK DEBUG. */
+  private monitorDoRelogio: Monitor | null = null;
   private musicTimer: number | null = null;
   private musicStep = 0;
   private prefs: AudioPrefs = loadPrefs();
@@ -201,6 +341,27 @@ export class AudioEngine {
     this.reconstruir();
   }
 
+  /**
+   * O 🔊 (2º QA físico do Android, 03/11/2026): quem abre o painel de som quer OUVIR. Há mortes da
+   * saída que o JS não enxerga — contexto "running", relógio andando, grafo com som, alto-falante
+   * mudo (saída trocada pelo navegador, rota de áudio que mudou). O que o aparelho provou é que um
+   * contexto NOVO, criado dentro de um toque, toca ("funciona no começo"). Então o 🔊 troca por um
+   * novo, pelo caminho de sempre (`religar`): um toque, e o som volta, seja qual for a causa.
+   * Contexto que acabou de nascer não é trocado (toque duplo), e as travas da troca no gesto valem
+   * aqui também (uma tentativa por toque; grafo que quebrou no meio só na próxima volta).
+   * SÓ NO ANDROID: no iPhone e no computador o som funciona hoje, e trocar um contexto saudável lá
+   * é risco sem ganho (o novo pode demorar a partir) — nesses, o 🔊 continua só retomando.
+   */
+  reativar(): void {
+    diagAudio.registrar("reativar", { fase: this.fase, idadeMs: this.ctx ? Date.now() - this.nasceuEm : null });
+    const travado = this.trocaBloqueada || Date.now() - this.trocaFalhouEm < 1000;
+    if (!ehAndroid() || travado || (this.ctx && Date.now() - this.nasceuEm < AudioEngine.REATIVAR_MIN_MS)) {
+      this.unlock();
+      return;
+    }
+    this.religar();
+  }
+
   /** Cria/retoma o contexto. PRECISA rodar dentro de um gesto real — exigência do iOS. */
   unlock(): void {
     let ctx = this.ctx;
@@ -218,7 +379,7 @@ export class AudioEngine {
       ctx = g.ctx;
     }
     const estado = ctx.state as EstadoDoContexto;
-    if (estado === "suspended" || estado === "interrupted") void ctx.resume().catch(() => {});
+    if (estado === "suspended" || estado === "interrupted") retomar(ctx, "unlock");
     if (this.prefs.music) this.startMusic();
     // Ainda parado (contexto que acabou de nascer, ou unlock chamado fora de um gesto): confere, e
     // se não partir sozinho o próximo gesto real retoma — a música nasce quando o relógio andar.
@@ -236,20 +397,35 @@ export class AudioEngine {
       window.AudioContext ??
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
-    const ctx = new Ctor();
+    // Rodada 8: o peso do grafo. Produção: "leve-24k" no Android, "original" no resto (perfilDoGrafo.ts).
+    const perfil = (DIAG_LIGADO ? this.perfilForcado : null) ?? perfilPadrao(ehAndroid());
+    // Sem taxa no perfil: `new Ctor()` SEM opção nenhuma, como sempre. Com taxa (Android): se o aparelho
+    // recusar a opção, o contexto nasce como sempre — nunca fica sem som por causa dela.
+    let ctx: AudioContext;
+    if (perfil.taxa) {
+      try {
+        ctx = new Ctor({ sampleRate: perfil.taxa });
+      } catch (e) {
+        diagAudio.registrar("taxa-recusada", { pedida: perfil.taxa, erro: nomeDoErro(e) });
+        ctx = new Ctor();
+      }
+    } else {
+      ctx = new Ctor();
+    }
     try {
-      const noiseBuf = this.makeNoise(ctx, 1.2);
+      const P = PARAMETROS_DO_GRAFO;
+      const noiseBuf = this.makeNoise(ctx, P.ruidoSegundos);
 
       const master = ctx.createGain();
-      master.gain.value = 0.9;
+      master.gain.value = P.master;
 
       // Limitador suave: impede que King capturado + música + carta jogada estourem juntos.
       const comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -15;
-      comp.knee.value = 26;
-      comp.ratio.value = 3.2;
-      comp.attack.value = 0.004;
-      comp.release.value = 0.22;
+      comp.threshold.value = P.compressor.threshold;
+      comp.knee.value = P.compressor.knee;
+      comp.ratio.value = P.compressor.ratio;
+      comp.attack.value = P.compressor.attack;
+      comp.release.value = P.compressor.release;
       comp.connect(master);
       master.connect(ctx.destination);
       // O VIGIA ESCUTA O MASTER por um analisador em derivação (não leva a lugar nenhum: nada do que
@@ -257,24 +433,32 @@ export class AudioEngine {
       // recebe um NaN guarda o NaN e cala o contexto inteiro, com o relógio andando.
       const analisador = typeof ctx.createAnalyser === "function" ? ctx.createAnalyser() : null;
       if (analisador) {
-        analisador.fftSize = 256;
+        analisador.fftSize = P.analisadorFft;
         master.connect(analisador);
       }
 
       // Reverb por convolução com resposta impulsiva gerada na hora (nenhum arquivo).
-      const conv = ctx.createConvolver();
-      conv.buffer = this.makeImpulse(ctx, 2.4, 2.6);
-      const wet = ctx.createGain();
-      wet.gain.value = 0.9;
-      const damp = ctx.createBiquadFilter(); // corta o brilho do rabo do reverb
-      damp.type = "lowpass";
-      damp.frequency.value = 3200;
+      // Rodada 8: no perfil "leve" (Android), o impulso é o COMEÇO mono (1,2 s) do mesmo envelope, e o
+      // molhado é compensado para sair no mesmo volume; no "nenhum" (só variante B do DEBUG) não existe
+      // convolução nenhuma — e nenhum envio é criado (ganho zero não tiraria o peso do processamento).
       const reverbIn = ctx.createGain();
       reverbIn.gain.value = 1;
-      reverbIn.connect(conv);
-      conv.connect(damp);
-      damp.connect(wet);
-      wet.connect(comp);
+      if (perfil.reverb !== "nenhum") {
+        const leve = perfil.reverb === "mono-curto";
+        const conv = ctx.createConvolver();
+        conv.buffer = leve
+          ? gerarImpulso(ctx, P.reverb.segundos, P.reverb.decaimento, REVERB_LEVE)
+          : gerarImpulso(ctx, P.reverb.segundos, P.reverb.decaimento);
+        const wet = ctx.createGain();
+        wet.gain.value = leve ? P.reverb.wet * compensacaoDoReverbLeve(ctx.sampleRate) : P.reverb.wet;
+        const damp = ctx.createBiquadFilter(); // corta o brilho do rabo do reverb
+        damp.type = "lowpass";
+        damp.frequency.value = P.reverb.corte;
+        reverbIn.connect(conv);
+        conv.connect(damp);
+        damp.connect(wet);
+        wet.connect(comp);
+      }
 
       const musicBus = ctx.createGain();
       musicBus.gain.value = this.musicTarget;
@@ -283,10 +467,11 @@ export class AudioEngine {
       const sfxBus = ctx.createGain();
       sfxBus.gain.value = this.prefs.sfx ? this.prefs.sfxVol : 0;
       sfxBus.connect(comp);
-      return { ctx, master, reverbIn, musicBus, sfxBus, noiseBuf, analisador };
+      return { ctx, master, reverbIn, musicBus, sfxBus, noiseBuf, analisador, perfil, envios: new Map() };
     } catch {
       // nasceu, mas o grafo quebrou no meio: fecha (melhor esforço) e avisa quem tentou a troca
       void ctx.close().catch(() => {});
+      diagAudio.registrar("contexto-fechado", { estado: ctx.state, motivo: "grafo-quebrou" });
       this.grafoQuebrou = true;
       return null;
     }
@@ -301,7 +486,13 @@ export class AudioEngine {
     this.sfxBus = g.sfxBus;
     this.noiseBuf = g.noiseBuf;
     this.analisador = g.analisador;
+    this.perfil = g.perfil;
+    this.envios = g.envios;
     this.amostras = null;
+    this.analisadorProvado = false;
+    this.zerosSeguidos = 0;
+    this.nasceuEm = Date.now();
+    this.vozes = 0; // diagnóstico: conta as vozes DESTE contexto (as do velho não descontam aqui)
     this.ultimoEstado = g.ctx.state as EstadoDoContexto;
     this.zumbi = false;
     this.condenado = null;
@@ -322,13 +513,14 @@ export class AudioEngine {
       estado: ctx.state, taxa: ctx.sampleRate,
       latencia: Number.isFinite(ctx.baseLatency) ? ctx.baseLatency : null,
       analisador: g.analisador !== null,
+      perfil: g.perfil.nome,
     });
   }
 
   private grafoAtual(): Grafo | null {
-    const { ctx, master, reverbIn, musicBus, sfxBus, noiseBuf, analisador } = this;
+    const { ctx, master, reverbIn, musicBus, sfxBus, noiseBuf, analisador, perfil, envios } = this;
     return ctx && master && reverbIn && musicBus && sfxBus && noiseBuf
-      ? { ctx, master, reverbIn, musicBus, sfxBus, noiseBuf, analisador }
+      ? { ctx, master, reverbIn, musicBus, sfxBus, noiseBuf, analisador, perfil, envios }
       : null;
   }
 
@@ -398,6 +590,12 @@ export class AudioEngine {
   private static readonly FALHAS_QUE_CONDENAM = 2;
   /** O vigia confere a saúde do contexto a cada 2 s com o jogo à vista (barato: duas leituras). */
   private static readonly VIGIA_MS = 2000;
+  /** Música tocando há tanto tempo antes de um zero absoluto contar (o 1º compasso entra em 0,12 s). */
+  private static readonly MUDO_DEPOIS_MS = 4000;
+  /** Exames seguidos em zero absoluto que condenam (2 × 2 s). */
+  private static readonly EXAMES_MUDOS = 2;
+  /** O 🔊 não troca um contexto mais novo que isto. */
+  private static readonly REATIVAR_MIN_MS = 1500;
   /** Gestos que de fato liberam áudio: `pointerdown`/`touchstart` de toque não contam (o iOS libera no `touchend`). */
   private static readonly GESTOS = ["touchend", "click", "keydown"] as const;
 
@@ -447,7 +645,220 @@ export class AudioEngine {
         setTimeout(() => void ctx.close().catch(() => {}), 1500);
         return ctx.state;
       },
+      reativar: () => { this.reativar(); return this.ctx?.state ?? null; },
     });
+    // O QUE ACONTECEU EM VOLTA do som (só no APK de QA): ciclo de vida do Capacitor (`pause` e
+    // `resume` no document), congelamento da página, foco, rede — e o TOQUE que não fez nada.
+    // Um toque com a fase "ativo" e o som mudo é a assinatura da morte que o vigia não enxerga.
+    const ev = (alvo: EventTarget, nome: string) => alvo.addEventListener(nome, () => {
+      diagAudio.registrar(`ev-${nome}`, { fase: this.fase, estado: this.ctx?.state ?? null, visivel: visivel() });
+    });
+    for (const nome of ["pause", "resume", "freeze", "visibilitychange"]) ev(document, nome);
+    for (const nome of ["blur", "focus", "pagehide", "online", "offline"]) ev(window, nome);
+    // O RETRATO ANTES DO TOQUE (rodada 5): o `pointerdown` vem antes do touchend/click — os eventos
+    // em que o motor troca o contexto. Assim o estado DEFEITUOSO fica salvo antes de qualquer reparo
+    // que o próprio toque dispare (o 🔊, um toque na mesa, o "Registrar falha").
+    const sonda = this.sondaDeDiagnostico() as SondaInterna | null;
+    if (sonda) window.addEventListener("pointerdown", () => sonda.guardarAntesDoToque(), { capture: true, passive: true });
+    // RODADA 8: o monitor contínuo do relógio (janelas de 5 s: razão e underruns por diferença), para o
+    // teste de uso real. Só lê; segue o contexto atual sozinho (troca no meio = janela descartada).
+    if (DIAG_LIGADO && !this.monitorDoRelogio) {
+      this.monitorDoRelogio = criarMonitor({
+        contexto: () => this.ctx,
+        perfil: () => this.perfil.nome,
+        visivel,
+        agora: () => Date.now(),
+      });
+      this.monitorDoRelogio.iniciar();
+    }
+    let ultimoToque = 0;
+    window.addEventListener("touchend", () => {
+      if (Date.now() - ultimoToque < 5000) return;
+      ultimoToque = Date.now();
+      diagAudio.registrar("toque", {
+        fase: this.fase, estado: this.ctx?.state ?? null, gesto: this.aoGesto !== null,
+        musica: this.musicTimer !== null, condenado: this.condenado, zumbi: this.zumbi,
+      });
+    }, { capture: true, passive: true });
+  }
+
+  /**
+   * SÓ NO APK DEBUG (`null` em qualquer outro build — e o corpo some do pacote): a sonda do painel
+   * "Diagnóstico de áudio". Lê o motor sem mexer nele. O analisador é lido num buffer PRÓPRIO, para
+   * não mexer na prova do vigia (`analisadorProvado`). Atenção de leitura: o analisador mede o SINAL
+   * DENTRO do grafo; ele não prova que o alto-falante tocou — por isso o painel pergunta "ouviu?".
+   */
+  sondaDeDiagnostico(): SondaDoMotor | null {
+    if (!DIAG_LIGADO) return null;
+    if (this.sonda) return this.sonda;
+    const motor = this; // a sonda lê o motor de dentro das funções dela
+    const toques: RetratoGuardado[] = [];
+    const trocas: TrocaRegistrada[] = [];
+    let ultimoToque = 0;
+    const medir = (): { rms: number | null; pico: number | null; nan: boolean | null } => {
+      const a = motor.analisador;
+      if (!a) return { rms: null, pico: null, nan: null };
+      const buf = new Float32Array(a.fftSize);
+      try { a.getFloatTimeDomainData(buf); } catch { return { rms: null, pico: null, nan: null }; }
+      let soma = 0;
+      let pico = 0;
+      let nan = false;
+      for (const v of buf) {
+        if (!Number.isFinite(v)) { nan = true; continue; }
+        soma += v * v;
+        pico = Math.max(pico, Math.abs(v));
+      }
+      return { rms: Number(Math.sqrt(soma / buf.length).toFixed(5)), pico: Number(pico.toFixed(5)), nan };
+    };
+    const retrato = (): Retrato => {
+      const ctx = motor.ctx;
+      const agora = Date.now();
+      const ref = motor.refDoVigia;
+      const m = medir();
+      const p = motor.prefs;
+      const base = ctx && Number.isFinite(ctx.baseLatency) ? Number(ctx.baseLatency.toFixed(4)) : null;
+      return {
+        fase: motor.fase,
+        contexto: ctx ? (ctx.state as string) : null,
+        relogio: ctx ? Number(ctx.currentTime.toFixed(3)) : null,
+        // quanto o relógio andou desde o último exame do vigia (a cada 2 s, com a página à vista)
+        andouDesdeVigia: ctx && ref ? Number((ctx.currentTime - ref.ctx).toFixed(3)) : null,
+        paredeDesdeVigiaMs: ref ? agora - ref.real : null,
+        taxa: ctx ? ctx.sampleRate : null,
+        latBase: base,
+        ...(ctx ? saidaDoAparelho(ctx) : { saidaCtx: null, saidaIdadeMs: null, latSaida: null }),
+        idadeContextoMs: ctx ? agora - motor.nasceuEm : null,
+        geracao: motor.geracao,
+        musicaAgendada: motor.musicTimer !== null,
+        compassoHaMs: motor.compassoEm ? agora - motor.compassoEm : null,
+        musicaDesdeMs: motor.musicTimer !== null && motor.musicaDesde ? agora - motor.musicaDesde : null,
+        prefMusica: p.music, volMusica: p.musicVol, prefEfeitos: p.sfx, volEfeitos: p.sfxVol, prefVibracao: p.haptics,
+        ganhoMaster: ganho(motor.master), ganhoMusica: ganho(motor.musicBus), ganhoEfeitos: ganho(motor.sfxBus),
+        analisador: motor.analisador !== null, rms: m.rms, pico: m.pico, sinalNaN: m.nan,
+        analisadorProvado: motor.analisadorProvado, vozes: motor.vozes,
+        perfil: motor.perfil.nome, perfilForcado: motor.perfilForcado !== null,
+        zumbi: motor.zumbi, condenado: motor.condenado, naoConfiavel: motor.naoConfiavel,
+        gestoArmado: motor.aoGesto !== null, recuperando: motor.recuperacao !== null,
+        trocaBloqueada: motor.trocaBloqueada, falhasDoGesto: motor.falhasDoGesto,
+        visivel: visivel(),
+        foco: typeof document !== "undefined" && typeof document.hasFocus === "function" ? document.hasFocus() : null,
+      };
+    };
+    const guardar = <T>(lista: T[], item: T) => { lista.push(item); if (lista.length > 6) lista.shift(); };
+    const sonda: SondaInterna = {
+      retrato,
+      antesDoToque: () => toques.slice(),
+      trocas: () => trocas.map((t) => ({ ...t })),
+      guardarAntesDoToque() {
+        // pointerdown e o touchstart do mesmo dedo: um retrato por toque
+        if (Date.now() - ultimoToque < 250) return;
+        ultimoToque = Date.now();
+        guardar(toques, carimbar("antes-do-toque", retrato()));
+      },
+      registrarTroca(momento) {
+        if (momento === "antes") {
+          guardar(trocas, { antes: carimbar("antes-da-troca", retrato()), depois: null, umSegundoDepois: null, falhou: false });
+          return;
+        }
+        const t = trocas[trocas.length - 1];
+        if (!t) return;
+        if (momento === "falhou") { t.falhou = true; t.depois = carimbar("troca-falhou", retrato()); return; }
+        t.depois = carimbar("logo-depois-da-troca", retrato());
+        setTimeout(() => { t.umSegundoDepois = carimbar("1s-depois-da-troca", retrato()); }, 1000);
+      },
+      async tocarTeste(qual) {
+        const antes = retrato();
+        const ctx = motor.ctx;
+        const bus = qual === "musica" ? motor.musicBus : motor.sfxBus;
+        diagAudio.registrar("teste-de-som", { qual, estado: ctx?.state ?? null, geracao: motor.geracao });
+        if (!ctx || !bus) return { qual, tocou: false, motivo: "sem-contexto", antes, durante: null };
+        // pelos barramentos DE VERDADE (com o volume e o liga/desliga que estão valendo): sem resume, sem troca
+        const notas: [number, number][] = qual === "musica" ? [[392, 0], [494, 0.18], [587, 0.36]] : [[880, 0], [1320, 0.09]];
+        try {
+          for (const [freq, delay] of notas) {
+            motor.rawTone({ freq, delay, dur: qual === "musica" ? 0.5 : 0.16, gain: 0.25, wave: qual === "musica" ? "triangle" : "sine" }, bus, 0.1);
+          }
+        } catch (e) {
+          return { qual, tocou: false, motivo: nomeDoErro(e), antes, durante: null };
+        }
+        await new Promise((ok) => setTimeout(ok, 300));
+        const durante = retrato();
+        diagAudio.registrar("teste-de-som-medido", { qual, rms: durante.rms, relogio: durante.relogio, estado: durante.contexto });
+        return { qual, tocou: true, motivo: null, antes, durante };
+      },
+      async tomDireto() {
+        const antes = retrato();
+        const ctx = motor.ctx;
+        diagAudio.registrar("teste-de-som", { qual: "direto", estado: ctx?.state ?? null, geracao: motor.geracao });
+        if (!ctx) return { qual: "direto", tocou: false, motivo: "sem-contexto", antes, durante: null };
+        try {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          const t0 = ctx.currentTime + 0.05;
+          osc.frequency.value = 523.25;
+          g.gain.setValueAtTime(0, t0);
+          g.gain.linearRampToValueAtTime(0.2, t0 + 0.02);
+          g.gain.setValueAtTime(0.2, t0 + 0.56);
+          g.gain.linearRampToValueAtTime(0, t0 + 0.6);
+          osc.connect(g);
+          g.connect(ctx.destination);
+          osc.onended = () => soltar(osc, g);
+          osc.start(t0);
+          osc.stop(t0 + 0.62);
+        } catch (e) {
+          return { qual: "direto", tocou: false, motivo: nomeDoErro(e), antes, durante: null };
+        }
+        await new Promise((ok) => setTimeout(ok, 300));
+        const durante = retrato();
+        diagAudio.registrar("teste-de-som-medido", { qual: "direto", rms: durante.rms, relogio: durante.relogio, estado: durante.contexto });
+        return { qual: "direto", tocou: true, motivo: null, antes, durante };
+      },
+      recuperar: () => motor.religar(),
+      contextoParaMedir: () => motor.ctx,
+      pararMusica() {
+        const tocava = motor.musicTimer !== null || motor.musicaAgendada !== null;
+        motor.stopMusic();
+        diagAudio.registrar("lab-musica-parada", { tocava });
+        return tocava;
+      },
+      isolarGrafo() {
+        const { ctx, master, analisador } = motor;
+        if (!ctx || !master || motor.isolado) return false;
+        try { master.disconnect(); } catch { return false; }
+        motor.isolado = { ctx, master, analisador };
+        diagAudio.registrar("lab-grafo-isolado", { estado: ctx.state, geracao: motor.geracao });
+        return true;
+      },
+      restaurar() {
+        const iso = motor.isolado;
+        motor.isolado = null;
+        let religou = false;
+        if (iso && iso.ctx === motor.ctx && (iso.ctx.state as EstadoDoContexto) !== "closed") {
+          try {
+            iso.master.connect(iso.ctx.destination);
+            if (iso.analisador) iso.master.connect(iso.analisador);
+            religou = true;
+          } catch { /* contexto morreu no meio: a próxima troca resolve */ }
+        }
+        if (motor.prefs.music) motor.startMusic(); // startMusic não duplica: sai se já houver agendador
+        const musica = motor.musicTimer !== null;
+        diagAudio.registrar("lab-restaurado", { religou, musica });
+        return { religou, musica };
+      },
+      perfil: () => ({ nome: motor.perfil.nome, forcado: motor.perfilForcado !== null }),
+      usarPerfil(nome) {
+        motor.perfilForcado = nome === null ? null : PERFIS[nome];
+        const pode = motor.ctx !== null && visivel() && motor.fase !== "reconstruindo" && motor.fase !== "fundo";
+        diagAudio.registrar("lab-perfil", { pedido: nome, pode, atual: motor.perfil.nome });
+        if (!pode) return false;
+        motor.isolado = null; // o grafo isolado era do contexto velho
+        motor.reconstruir();
+        return motor.perfil.nome === (motor.perfilForcado ?? perfilPadrao(ehAndroid())).nome;
+      },
+      monitor: () => motor.monitorDoRelogio,
+    };
+    this.sonda = sonda;
+    return sonda;
   }
 
   // ---- o vigia: o contexto que morre NO MEIO do uso ----
@@ -496,14 +907,17 @@ export class AudioEngine {
       // o navegador tirou o áudio e o aviso não veio: o mesmo que o `statechange` faria
       diagAudio.registrar("vigia-parado", { estado });
       this.stopMusic();
-      if (estado !== "closed") void ctx.resume().catch(() => {});
+      if (estado !== "closed") retomar(ctx, "vigia");
       this.esperarGesto();
       return;
     }
-    if (this.sinalEnvenenado()) return this.condenar("envenenado");
+    const master = this.lerMaster();
+    if (master === "nan") return this.condenar("envenenado");
+    // relógio parado é "zumbi" (que tem absolvição se voltar a andar) — antes do "mudo", que não tem
     if (ref && agora.real - ref.real >= AudioEngine.GESTO_CONDENA_MS && agora.ctx - ref.ctx < AudioEngine.AVANCO_MINIMO) {
-      this.condenar("zumbi");
+      return this.condenar("zumbi");
     }
+    if (this.saidaMuda(master)) this.condenar("mudo");
   }
 
   /** Contexto que não presta mais: a música para e o próximo toque real troca por um novo. */
@@ -523,18 +937,43 @@ export class AudioEngine {
     this.esperarGesto();
   }
 
-  /** NaN (ou infinito) saindo do master: o compressor envenenado não volta a dar número. */
-  private sinalEnvenenado(): boolean {
+  /**
+   * O que sai do master agora: NaN/infinito (o compressor envenenado não volta a dar número), zero
+   * ABSOLUTO, som, ou nada a ler (sem analisador).
+   */
+  private lerMaster(): "nan" | "zero" | "som" | null {
     const a = this.analisador;
-    if (!a) return false;
+    if (!a) return null;
     const buf = this.amostras ??= new Float32Array(a.fftSize);
     try {
       a.getFloatTimeDomainData(buf);
     } catch {
+      return null;
+    }
+    let zero = true;
+    for (const v of buf) {
+      if (!Number.isFinite(v)) return "nan";
+      if (v !== 0) zero = false;
+    }
+    if (!zero) this.analisadorProvado = true;
+    return zero ? "zero" : "som";
+  }
+
+  /**
+   * O GRAFO CALOU POR DENTRO: a música está agendada há segundos, o volume dela não é zero, e o
+   * master dá ZERO ABSOLUTO em dois exames seguidos. Com a bossa no ar isso não acontece (a cauda do
+   * reverb sozinha já não é zero). Só conta num analisador que já mostrou som neste contexto: um
+   * analisador que sempre devolve zero (WebView que não o implementa direito) nunca condena — senão
+   * a música pararia a cada 6 s para sempre.
+   */
+  private saidaMuda(master: "nan" | "zero" | "som" | null): boolean {
+    const musicaNoAr = master !== null && this.prefs.music && this.musicTarget > 0 && this.musicTimer !== null
+      && Date.now() - this.musicaDesde >= AudioEngine.MUDO_DEPOIS_MS;
+    if (!musicaNoAr || master !== "zero" || !this.analisadorProvado) {
+      this.zerosSeguidos = 0;
       return false;
     }
-    for (const v of buf) if (!Number.isFinite(v)) return true;
-    return false;
+    return ++this.zerosSeguidos >= AudioEngine.EXAMES_MUDOS;
   }
 
   /** Diagnóstico DEBUG (só no APK de QA): um retrato a cada ~10 s. Nada de identidade, só áudio. */
@@ -556,6 +995,11 @@ export class AudioEngine {
       parede: ref ? agora.real - ref.real : null,
       rms: rms === null ? null : Number(rms.toFixed(5)),
       musica: this.musicTimer !== null, gesto: this.aoGesto !== null,
+      compassoHaMs: this.compassoEm ? Date.now() - this.compassoEm : null,
+      vozes: this.vozes,
+      ganhoMaster: ganho(this.master), ganhoMusica: ganho(this.musicBus), ganhoEfeitos: ganho(this.sfxBus),
+      ...saidaDoAparelho(ctx),
+      provado: this.analisadorProvado,
       prefMusica: this.prefs.music, prefEfeitos: this.prefs.sfx,
       volMusica: this.prefs.musicVol, volEfeitos: this.prefs.sfxVol,
       visivel: visivel(), zumbi: this.zumbi, condenado: this.condenado, geracao: this.geracao,
@@ -577,7 +1021,13 @@ export class AudioEngine {
     this.zumbi = false; // a próxima volta mede de novo
     this.vereditoZumbi = null;
     this.trocaBloqueada = false;
-    if (ehIOS()) this.naoConfiavel = true; // ida ao fundo no iPhone = interrupção real
+    // Ida ao fundo no CELULAR = a saída física sob suspeita. No iPhone, interrupção real (V2,
+    // 23/10). No Android (2º QA físico, 03/11): sem som contínuo o Chrome troca a saída real por
+    // uma falsa depois de 30 s de silêncio e precisa destrocá-la na volta; rota de áudio
+    // (Bluetooth/fone) que muda com o app no fundo deixa o contexto velho falando para o nada. Em
+    // todos, o relógio anda e o JS não vê. A música volta sozinha e o 1º toque troca o contexto
+    // por um novo — o caminho que o aparelho provou.
+    if (ehMovel()) this.naoConfiavel = true;
     this.fase = "fundo";
     diagAudio.registrar("fundo", { estado: this.ctx.state, geracao: this.geracao });
   }
@@ -619,7 +1069,9 @@ export class AudioEngine {
       try {
         // sem permissão, o resume pode nunca responder (a especificação permite): espera com prazo
         await Promise.race([ctx.resume(), this.dormir(AudioEngine.PRAZO_DO_RESUME_MS)]);
-      } catch { /* recusado sem gesto: o próximo gesto resolve */ }
+      } catch (e) {
+        diagAudio.registrar("resume-recusado", { onde: "recuperar", erro: nomeDoErro(e) }); // o próximo gesto resolve
+      }
       if (!vivo()) return;
       if (estado() !== "running") {
         // nem com gesto: na 2ª vez seguida o contexto fica condenado e o próximo gesto troca por um novo
@@ -743,7 +1195,7 @@ export class AudioEngine {
       if (this.trocaBloqueada || Date.now() - this.trocaFalhouEm < 1000) return;
       return this.reconstruir();
     }
-    if ((ctx.state as EstadoDoContexto) !== "running") void ctx.resume().catch(() => {});
+    if ((ctx.state as EstadoDoContexto) !== "running") retomar(ctx, "gesto");
     if (!this.recuperacao) void this.iniciarRecuperacao({ porGesto: true }); // confere o relógio depois do gesto
   }
 
@@ -763,6 +1215,8 @@ export class AudioEngine {
    * antes: isso gastaria a ativação. O velho sai depois, sem ninguém esperar por ele.
    */
   private reconstruir(): void {
+    // diagnóstico (só APK DEBUG): o motor como estava, ANTES de esta troca mexer em qualquer coisa
+    if (DIAG_LIGADO) this.sonda?.registrarTroca("antes");
     const velho = this.grafoAtual();
     this.fase = "reconstruindo";
     this.geracao++;
@@ -781,6 +1235,7 @@ export class AudioEngine {
     }
     if (!novo) {
       diagAudio.registrar("reconstruir-falhou", { grafoQuebrou: this.grafoQuebrou });
+      if (DIAG_LIGADO) this.sonda?.registrarTroca("falhou");
       // o aparelho não deu outro contexto (limite), ou o grafo quebrou no meio: fica no atual, se ele
       // ainda puder servir; senão, o próximo gesto tenta de novo (o que quebrou no meio, só na próxima volta)
       this.trocaFalhouEm = Date.now();
@@ -790,18 +1245,20 @@ export class AudioEngine {
       const serve = atual && !this.zumbi && !this.condenado && this.falhasDoGesto < AudioEngine.FALHAS_QUE_CONDENAM
         && (atual.state as EstadoDoContexto) !== "closed";
       if (atual && serve) {
-        void atual.resume().catch(() => {}); // ainda dentro do gesto
+        retomar(atual, "troca-falhou"); // ainda dentro do gesto
         void this.iniciarRecuperacao({ porGesto: true });
       } else {
         this.esperarGesto();
       }
       return;
     }
-    void novo.ctx.resume().catch(() => {}); // ainda dentro do gesto
+    retomar(novo.ctx, "contexto-novo"); // ainda dentro do gesto
     this.assumir(novo);
     this.applyLevels();
     if (this.prefs.music) this.startMusic(); // só sai se o novo já estiver rodando; senão, a conferência liga
     if (velho) this.aposentar(velho);
+    diagAudio.registrar("reconstruir-ok", { estadoNovo: novo.ctx.state, geracao: this.geracao });
+    if (DIAG_LIGADO) this.sonda?.registrarTroca("depois");
     // confere o novo (com folga para partir devagar): se até ele nascer zumbi, o próximo gesto cria outro
     void this.iniciarRecuperacao({ janelas: AudioEngine.JANELAS_DO_NOVO });
   }
@@ -823,6 +1280,7 @@ export class AudioEngine {
         .catch(() => {})
         .finally(() => {
           try { v.master.disconnect(); } catch { /* já fechado */ }
+          diagAudio.registrar("contexto-fechado", { estado: v.ctx.state, motivo: "aposentado" });
         });
     }, 80);
   }
@@ -836,7 +1294,7 @@ export class AudioEngine {
     diagAudio.registrar("estado", { antes, agora, fase: this.fase, visivel: visivel() });
     if (antes === "running" && agora !== "running") {
       // tiraram o áudio (fundo, ligação, outro app); no iPhone, este contexto fica sob suspeita
-      if (ehIOS()) this.naoConfiavel = true;
+      if (ehMovel()) this.naoConfiavel = true;
       if (this.fase !== "fundo" && visivel()) {
         this.stopMusic(); // relógio parado empilharia compassos — em QUALQUER fase
         if (this.fase === "ativo") this.esperarGesto();
@@ -896,22 +1354,6 @@ export class AudioEngine {
     return buf;
   }
 
-  /** Ruído com decaimento exponencial = sala plausível, em estéreo, sem assets. */
-  private makeImpulse(ctx: AudioContext, seconds: number, decay: number): AudioBuffer {
-    const len = Math.floor(ctx.sampleRate * seconds);
-    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = buf.getChannelData(ch);
-      for (let i = 0; i < len; i++) {
-        const t = i / len;
-        // pré-atraso curto deixa o ataque do som limpo antes da cauda entrar
-        const pre = t < 0.012 ? t / 0.012 : 1;
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay) * pre;
-      }
-    }
-    return buf;
-  }
-
   // ---- primitivas ----
   tone(o: ToneOpts): void {
     if (!this.prefs.sfx) return;
@@ -925,7 +1367,20 @@ export class AudioEngine {
 
   private send(node: AudioNode, amount: number, at: number, dur: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.reverbIn || amount <= 0) return;
+    if (!ctx || !this.reverbIn || amount <= 0 || this.perfil.reverb === "nenhum") return;
+    if (this.perfil.enviosCompartilhados) {
+      // Rodada 8 (perfil leve): UM nó de envio por quantidade, ligado ao reverb de uma vez. A nota liga a
+      // voz nele; quando ela acaba, `soltar` desliga a voz de tudo (inclusive dele). Mesma soma no reverb.
+      let e = this.envios.get(amount);
+      if (!e) {
+        e = ctx.createGain();
+        e.gain.value = amount;
+        e.connect(this.reverbIn);
+        this.envios.set(amount, e);
+      }
+      node.connect(e);
+      return;
+    }
     const g = ctx.createGain();
     g.gain.value = amount;
     node.connect(g);
@@ -968,7 +1423,8 @@ export class AudioEngine {
     node.connect(g);
     g.connect(bus);
     this.send(g, space, t, dur);
-    osc.onended = () => soltar(osc, f, g);
+    if (diagAudio.ligado) this.vozes++;
+    osc.onended = () => { soltar(osc, f, g); if (diagAudio.ligado && ctx === this.ctx) this.vozes--; };
     osc.start(t);
     osc.stop(t + dur + 0.05);
   }
@@ -999,7 +1455,8 @@ export class AudioEngine {
     f.connect(g);
     g.connect(bus);
     this.send(g, space, t, dur);
-    src.onended = () => soltar(src, f, g);
+    if (diagAudio.ligado) this.vozes++;
+    src.onended = () => { soltar(src, f, g); if (diagAudio.ligado && ctx === this.ctx) this.vozes--; };
     src.start(t);
     src.stop(t + dur + 0.05);
   }
@@ -1086,7 +1543,11 @@ export class AudioEngine {
     const bar = () => {
       if (!this.prefs.music || !this.ctx) return;
       // O compasso anterior ainda nem começou (relógio parado, ou "running" zumbi): não empilha outro.
-      if (this.ctx.currentTime < this.inicioDoCompasso) return;
+      if (this.ctx.currentTime < this.inicioDoCompasso) {
+        diagAudio.registrar("compasso-pulado", { relogio: this.ctx.currentTime, inicio: this.inicioDoCompasso });
+        return;
+      }
+      this.compassoEm = Date.now();
       const n = this.musicStep++;
       const c = AudioEngine.BOSSA[n % AudioEngine.BOSSA.length];
       const comp = (festa ? AudioEngine.COMP_FESTA : AudioEngine.COMP)[n % 2];
@@ -1118,6 +1579,7 @@ export class AudioEngine {
       for (const slot of comp) {
         const t = lead + slot * S;
         c.notes.forEach((f, i) => {
+          if (!tocaNotaDoViolao(this.perfil, i)) return; // variante D (só DEBUG)
           this.rawTone(
             {
               freq: f, wave: "triangle", dur: 0.52, gain: 0.03 - i * 0.003, attack: 0.004,
@@ -1138,6 +1600,7 @@ export class AudioEngine {
       );
       // ganzá nas colcheias, com acento leve nos tempos
       for (let i = 0; i < 16; i += 2) {
+        if (!tocaGanza(this.perfil, i)) continue; // variante D (só DEBUG)
         this.rawNoise(
           { freq: 6800, to: 5200, q: 1.4, dur: 0.032, gain: i % 4 === 0 ? 0.012 : 0.007, delay: lead + i * S },
           this.musicBus, 0.18,
@@ -1153,6 +1616,7 @@ export class AudioEngine {
         });
       }
     };
+    this.musicaDesde = Date.now();
     bar();
     this.musicTimer = window.setInterval(bar, festa ? AudioEngine.BAR_MS_FESTA : AudioEngine.BAR_MS);
   }

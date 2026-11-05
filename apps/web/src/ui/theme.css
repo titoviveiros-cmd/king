@@ -1406,6 +1406,15 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   color:#231206;background:linear-gradient(180deg,#ffe27a,var(--gold));
   border-radius:999px;padding:.4em 1em;align-self:center;flex:none;
   box-shadow:0 6px 18px -8px #000;}
+/* A REGRA DOS DOIS HUMANOS (sala multiplayer). Informativa, não alarme: moldura dourada discreta,
+   texto claro. Nunca some na tela baixa (ao contrário do rodapé) — é a única explicação de por que
+   a partida não começa. Compacta: duas linhas curtas, sem empurrar o "Estou pronto" para fora. */
+.sl-regra{flex:none;align-self:center;max-width:min(94vw,640px);text-align:center;
+  display:flex;flex-direction:column;gap:1px;padding:.35em .9em;border-radius:12px;
+  font-size:calc(var(--ui)*.72);line-height:1.25;color:var(--ink);
+  background:rgba(244,197,66,.10);border:1px solid rgba(244,197,66,.45);}
+.sl-regra b{font-family:var(--disp);font-weight:800;color:var(--gold);}
+.sl-regra span{color:var(--muted);}
 .sl-avscrim{position:absolute;inset:0;z-index:2;}
 .sl-avpainel{position:absolute;z-index:3;left:50%;top:50%;transform:translate(-50%,-50%);
   display:flex;flex-direction:column;align-items:center;gap:calc(var(--ui)*.3);
@@ -2057,6 +2066,16 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .sala .sl-lugares{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
   touch-action:pan-y;justify-content:space-between;}
 .sala .sl-lugar{flex:1 1 auto;min-height:calc(var(--ui) * 2.7);}
+/* O MIOLO = os lugares + o aviso da regra dos 2 humanos. Em retrato o aviso fica embaixo da lista
+   (sobra altura). Em PAISAGEM BAIXA ele vai para o lado: ali sobra largura e falta altura, e o
+   aviso embaixo derrubava o 4º lugar para fora da tela (667x375, 852x300 — compacto.spec). */
+.sala .sl-miolo{flex:1 1 auto;min-height:0;width:100%;display:flex;flex-direction:column;
+  align-items:center;gap:clamp(4px,1.1vh,10px);}
+@media (orientation:landscape) and (max-height:500px){
+  .sala .sl-miolo{flex-direction:row;justify-content:center;align-items:stretch;}
+  .sala .sl-miolo .sl-lugares{flex:0 1 auto;}
+  .sala .sl-miolo .sl-regra{flex:0 1 auto;align-self:center;max-width:min(34vw,300px);text-align:left;}
+}
 
 /* ── Navegação do tutorial: VOLTAR · AVANÇAR · pedido de ação ──
    Alvos de toque de verdade (44px de altura), lado a lado, com hierarquia clara: Voltar é

@@ -23,6 +23,9 @@ export default defineConfig({
     // `KING_DIAG_AUDIO=1` no ambiente do build. Não é `VITE_*` de propósito: nenhum arquivo .env
     // liga isto por acidente. Desligado, o ramo some do pacote.
     __KING_DIAG_AUDIO__: JSON.stringify(process.env.KING_DIAG_AUDIO === "1"),
+    // Identificador do build DEBUG no relatório do diagnóstico (`KING_DIAG_BUILD`, texto livre curto).
+    // Só é lido pelo painel de diagnóstico; no build normal ninguém o usa.
+    __KING_DIAG_BUILD__: JSON.stringify(process.env.KING_DIAG_AUDIO === "1" ? (process.env.KING_DIAG_BUILD ?? "") : ""),
   },
   resolve: {
     alias: {

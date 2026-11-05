@@ -7,6 +7,7 @@
 // nó de outro contexto (como no navegador). Prova a LÓGICA; não substitui o teste físico no iPhone.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AudioEngine, audio } from "./engine.js";
+import { compensacaoDoReverbLeve } from "./perfilDoGrafo.js";
 import { sfxCardPlay, sfxTap, sfxYourTurn } from "./sounds.js";
 import { alternarPreferencia } from "../ui/AudioPanel.js";
 
@@ -54,7 +55,7 @@ class NoFalso {
     setTimeout(() => this.onended?.(), ms);
   }
   /** Analisador: o que sai do master. Envenenado = NaN (o compressor nunca mais devolve número). */
-  getFloatTimeDomainData(buf: Float32Array) { buf.fill(this.contexto.envenenado ? Number.NaN : 0); }
+  getFloatTimeDomainData(buf: Float32Array) { buf.fill(this.contexto.envenenado ? Number.NaN : this.contexto.saida); }
 }
 
 class ContextoFalso {
@@ -91,6 +92,8 @@ class ContextoFalso {
   ligacoes = 0;
   /** O sinal virou NaN no meio do grafo (e o compressor guarda o NaN para sempre). */
   envenenado = false;
+  /** O que o analisador lê no master (0 = silêncio absoluto; o padrão, para os testes antigos). */
+  saida = 0;
   private estado: string;
   private congelado = false;
   private base = 0;
@@ -157,7 +160,7 @@ const gestosArmados = () => win.quantos("touchend") + win.quantos("click") + win
 const atual = () => ContextoFalso.todos[ContextoFalso.todos.length - 1]!;
 
 /** `tique`: o agendador da música roda de verdade (cada compasso no seu intervalo), em vez de só registrar. */
-function ambiente(o: { ios?: boolean; ativacao?: { isActive: boolean }; tique?: boolean } = {}) {
+function ambiente(o: { ios?: boolean; desktop?: boolean; ativacao?: { isActive: boolean }; tique?: boolean } = {}) {
   ContextoFalso.todos = [];
   ContextoFalso.estadoInicial = "running";
   ContextoFalso.falharAoCriar = false;
@@ -193,7 +196,9 @@ function ambiente(o: { ios?: boolean; ativacao?: { isActive: boolean }; tique?: 
   vi.stubGlobal("navigator", {
     ...(o.ios
       ? { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15", platform: "iPhone", maxTouchPoints: 5 }
-      : { userAgent: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/141.0 Mobile Safari/537.36", platform: "Linux armv8l", maxTouchPoints: 5 }),
+      : o.desktop
+        ? { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/141.0 Safari/537.36", platform: "Win32", maxTouchPoints: 0 }
+        : { userAgent: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/141.0 Mobile Safari/537.36", platform: "Linux armv8l", maxTouchPoints: 5 }),
     userActivation: o.ativacao,
   });
 }
@@ -328,9 +333,11 @@ describe("16. estresse: 22 idas e voltas seguidas, variando o que o navegador fa
     "zumbi", "zumbi", "interrupted", "recusado", "running", "pendurado", "suspended", "zumbi",
     "running", "interrupted", "recusado", "suspended", "pendurado", "running",
   ];
-  for (const ios of [false, true]) {
-    it(`${ios ? "iPhone" : "Android"}: ao fim de CADA ciclo o som funciona, 1 agendador, 0 gesto, nada preso, prefs intactas`, async () => {
-      ambiente({ ios });
+  for (const plat of ["android", "ios", "desktop"] as const) {
+    const ios = plat === "ios";
+    const nome = { android: "Android", ios: "iPhone", desktop: "Chrome no computador" }[plat];
+    it(`${nome}: ao fim de CADA ciclo o som funciona, 1 agendador, 0 gesto, nada preso, prefs intactas`, async () => {
+      ambiente({ ios, desktop: plat === "desktop" });
       const prefs = { music: true, sfx: true };
       const m = motor(prefs);
       const antes = JSON.stringify(m.get());
@@ -343,8 +350,9 @@ describe("16. estresse: 22 idas e voltas seguidas, variando o que o navegador fa
         expect(gravados, `${rotulo}: gravou preferência`).toEqual([]);
       }
       const zumbis = ROTEIRO.filter((v) => v === "zumbi").length;
-      // Android só troca o que o relógio condenou; o iPhone troca no 1º toque de cada volta
-      expect(ContextoFalso.todos.length).toBe(ios ? ROTEIRO.length + 1 : zumbis + 1);
+      // O CELULAR (iPhone e, desde 03/11, Android) troca no 1º toque de cada volta: a saída física
+      // ficou sob suspeita. O computador só troca o que o relógio condenou.
+      expect(ContextoFalso.todos.length).toBe(plat === "desktop" ? zumbis + 1 : ROTEIRO.length + 1);
     });
   }
 });
@@ -529,8 +537,9 @@ describe("22. efeitos depois da reconstrução", () => {
   });
 });
 
-describe("23. Android/Chrome: saudável não reconstrói", () => {
+describe("23. Chrome no computador: saudável não reconstrói", () => {
   it("10 idas e voltas saudáveis (mesmo as que pedem gesto) = 1 AudioContext a execução inteira", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const prefs = { music: true, sfx: true };
     const m = motor(prefs);
     const roteiro: Volta[] = ["running", "suspended", "recusado", "pendurado", "suspended", "running", "recusado", "suspended", "pendurado", "running"];
@@ -543,6 +552,7 @@ describe("23. Android/Chrome: saudável não reconstrói", () => {
   });
 
   it("retomada recusada sem gesto: o toque retoma o MESMO contexto (sem trocar)", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const prefs = { music: true, sfx: true };
     const m = motor(prefs);
     esconder();
@@ -635,6 +645,7 @@ describe("24. iPhone", () => {
 
 describe("25. visibilitychange + pageshow da MESMA volta = uma recuperação", () => {
   it("dois avisos de visível e um pageshow: um resume, uma medição", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const m = motor({ music: true, sfx: true });
     const c = atual();
     esconder();
@@ -653,6 +664,7 @@ describe("25. visibilitychange + pageshow da MESMA volta = uma recuperação", (
   });
 
   it("idas e voltas rápidas (escondeu no meio da recuperação): nunca dois agendadores, nada preso", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const prefs = { music: true, sfx: true };
     const m = motor(prefs);
     for (let i = 0; i < 8; i++) {
@@ -683,6 +695,7 @@ describe("25. visibilitychange + pageshow da MESMA volta = uma recuperação", (
 
 describe("o compasso que ficou pela metade (relógio congelado no fundo)", () => {
   it("a música espera o compasso antigo terminar — nunca dois acordes por cima", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const m = motor({ music: true, sfx: true }); // compasso agendado em t=0, termina em 2,12 s
     await passar(800);
     esconder();
@@ -701,6 +714,7 @@ describe("o compasso que ficou pela metade (relógio congelado no fundo)", () =>
   });
 
   it("o unlock (Iniciar, painel de som) também retoma o 'interrupted' do Safari", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const m = motor({ music: true, sfx: true });
     const c = atual();
     c.mudar("interrupted");
@@ -714,6 +728,7 @@ describe("o compasso que ficou pela metade (relógio congelado no fundo)", () =>
 
 describe("ligação ou outro app com a página à vista", () => {
   it("o navegador tira o áudio: a música para; quando ele devolve sozinho, a música volta", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const prefs = { music: true, sfx: true };
     const m = motor(prefs);
     atual().mudar("interrupted");
@@ -840,7 +855,8 @@ describe("red team da V2 (23/10): os ataques que derrubaram a 1ª versão dela",
     pronto(m);
   });
 
-  it("zumbi que volta a andar depois do veredito é absolvido no toque (Android): sem troca, e a música volta", async () => {
+  it("zumbi que volta a andar depois do veredito é absolvido no toque (Chrome no computador): sem troca, e a música volta", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const prefs = { music: true, sfx: true };
     const m = motor(prefs);
     const c = atual();
@@ -856,7 +872,8 @@ describe("red team da V2 (23/10): os ataques que derrubaram a 1ª versão dela",
     pronto(m);
   });
 
-  it("RT-E Android: contexto que não parte nem com gesto — na 2ª falha é condenado (vale entre voltas) e o toque seguinte troca", async () => {
+  it("RT-E Chrome no computador: contexto que não parte nem com gesto — na 2ª falha é condenado (vale entre voltas) e o toque seguinte troca", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const prefs = { music: true, sfx: true };
     const m = motor(prefs);
     const c = atual();
@@ -877,7 +894,8 @@ describe("red team da V2 (23/10): os ataques que derrubaram a 1ª versão dela",
     pronto(m);
   });
 
-  it("RT-F Android: o sistema suspende no começo da medição — não vira zumbi; quando ele devolve, a música volta sem troca", async () => {
+  it("RT-F Chrome no computador: o sistema suspende no começo da medição — não vira zumbi; quando ele devolve, a música volta sem troca", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const m = motor({ music: true, sfx: true });
     esconder();
     atual().mudar("suspended");
@@ -925,7 +943,8 @@ describe("red team da V2 (23/10): os ataques que derrubaram a 1ª versão dela",
     expect(m.estadoDoCiclo().fase).toBe("ativo");
   });
 
-  it("RT-I Android: relógio 'running' que demora 700 ms (Bluetooth reabrindo) e toque aos 600 ms — não troca", async () => {
+  it("RT-I Chrome no computador: relógio 'running' que demora 700 ms (Bluetooth reabrindo) e toque aos 600 ms — não troca", async () => {
+    ambiente({ desktop: true }); // a lógica do Chrome que confia no relógio vale no computador; o celular troca na volta (§27)
     const m = motor({ music: true, sfx: true });
     const c1 = atual();
     esconder();
@@ -1203,5 +1222,706 @@ describe("26. Android, 2º QA físico (03/11): o som morre NO MEIO do uso, com a
     expect(ContextoFalso.todos.length).toBe(1);
     expect(m.estadoDoCiclo()).toMatchObject({ fase: "fundo", gestoArmado: false });
     expect(m.invariantesVioladas()).toEqual([]);
+  });
+});
+
+describe("27. Android, rodada 4 (03/11): o som que morre SEM o motor perceber", () => {
+  // O aparelho provou uma coisa só: um contexto NOVO, criado dentro de um toque, toca ("funciona no
+  // começo"). O que mata o som depois nem sempre aparece para o JS — saída trocada pelo navegador
+  // depois de silêncio, rota de áudio que mudou com o app no fundo, grafo que calou por dentro. Esta
+  // seção prova os três gatilhos novos que levam ao contexto novo: a volta do fundo no celular, o
+  // master em zero absoluto com a música no ar, e o 🔊.
+  const prefs = { music: true, sfx: true };
+
+  it("Android: volta do fundo com o relógio andando — a música volta sozinha e o 1º toque troca o contexto; o 2º não troca de novo", async () => {
+    const m = motor(prefs);
+    const c1 = atual();
+    esconder();
+    await passar(40_000); // 40 s no fundo: o bastante para o Chrome trocar a saída real pela falsa
+    await voltar();
+    expect(agendadores.size, "a música não voltou sozinha").toBe(1);
+    expect(m.estadoDoCiclo(), "o toque não ficou armado").toMatchObject({ fase: "esperando-gesto", gestoArmado: true });
+    await tocar();
+    expect(atual(), "o 1º toque não trocou o contexto").not.toBe(c1);
+    expect(c1.closes, "o velho não foi fechado").toBe(1);
+    await funciona(m, prefs, "contexto novo");
+    pronto(m, "contexto novo");
+    const c2 = atual();
+    await tocar();
+    expect(atual(), "o 2º toque trocou de novo").toBe(c2);
+    expect(gravados, "gravou preferência").toEqual([]);
+  });
+
+  it("Android: o sistema tira o áudio com a página à vista e devolve — a música volta, e o 1º toque troca o contexto", async () => {
+    const m = motor(prefs);
+    const c1 = atual();
+    c1.mudar("interrupted");
+    expect(agendadores.size, "música num relógio parado").toBe(0);
+    c1.mudar("running");
+    await passar();
+    expect(agendadores.size, "a música não voltou quando o sistema devolveu").toBe(1);
+    await tocar();
+    expect(atual()).not.toBe(c1);
+    await funciona(m, prefs, "depois da interrupção");
+    pronto(m);
+  });
+
+  it("grafo calado por dentro (master em ZERO absoluto com a música no ar): condenado em ~6 s; o toque troca e o som volta", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual();
+    c.saida = 0.05; // o analisador mostra som: está provado
+    await passar(10_000);
+    expect(m.estadoDoCiclo().fase).toBe("ativo");
+    c.saida = 0; // calou por dentro, relógio andando, estado "running"
+    await passar(7_000);
+    expect(m.estadoDoCiclo().fase, "o vigia não viu o master mudo").toBe("esperando-gesto");
+    expect(agendadores.size, "a música seguiu agendada num grafo mudo").toBe(0);
+    await tocar();
+    expect(atual(), "o toque não trocou o contexto calado").not.toBe(c);
+    expect(c.closes).toBe(1);
+    atual().saida = 0.05;
+    await funciona(m, prefs, "contexto novo");
+    pronto(m, "contexto novo");
+  });
+
+  it("analisador que NUNCA mostrou som (devolve sempre zero): 3 minutos tocando = nenhuma condenação, nenhuma troca", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual(); // saida = 0 desde o começo: o analisador não prova nada
+    await passar(180_000);
+    expect(atual()).toBe(c);
+    expect(m.estadoDoCiclo()).toMatchObject({ fase: "ativo", gestoArmado: false });
+    await funciona(m, prefs, "analisador mudo de nascença");
+  }, 30_000);
+
+  it("silêncio LEGÍTIMO não condena: volume da música em 0, ou música desligada", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual();
+    c.saida = 0.05;
+    await passar(10_000);
+    m.set({ musicVol: 0 });
+    c.saida = 0;
+    await passar(20_000);
+    expect(m.estadoDoCiclo().fase, "volume 0 condenou").toBe("ativo");
+    m.set({ musicVol: 0.5, music: false });
+    await passar(20_000);
+    expect(m.estadoDoCiclo().fase, "música desligada condenou").toBe("ativo");
+    expect(ContextoFalso.todos.length).toBe(1);
+    expect(m.invariantesVioladas()).toEqual([]);
+  });
+
+  it("logo depois de a música (re)começar, o zero não conta (o 1º compasso ainda nem soou)", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual();
+    c.saida = 0.05;
+    await passar(10_000);
+    m.set({ music: false });
+    c.saida = 0;
+    m.set({ music: true }); // recomeça agora
+    await passar(3_000); // um exame cai dentro da janela de 4 s
+    expect(m.estadoDoCiclo().fase).toBe("ativo");
+  });
+
+  it("🔊 reativa: sem contexto, cria; com contexto, troca por um novo DENTRO do toque; toque duplo não troca de novo", async () => {
+    const m = motor(prefs, false);
+    ContextoFalso.dentroDoGesto = true;
+    m.reativar();
+    ContextoFalso.dentroDoGesto = false;
+    expect(ContextoFalso.todos.length, "o 1º 🔊 não criou o contexto").toBe(1);
+    await passar();
+    const c1 = atual();
+    ContextoFalso.dentroDoGesto = true;
+    m.reativar();
+    m.reativar(); // toque duplo
+    ContextoFalso.dentroDoGesto = false;
+    expect(ContextoFalso.todos.length, "o 🔊 não trocou, ou trocou duas vezes").toBe(2);
+    expect(c1.closes).toBe(0); // o velho sai depois, sem ninguém esperar por ele
+    await passar();
+    expect(c1.closes, "o velho não foi fechado").toBe(1);
+    await funciona(m, prefs, "depois do 🔊");
+    pronto(m, "depois do 🔊");
+    expect(gravados, "o 🔊 gravou preferência").toEqual([]);
+  });
+
+  it("🔊 com o jogo escondido não cria nem troca nada", async () => {
+    const m = motor(prefs);
+    esconder();
+    await passar();
+    m.reativar();
+    expect(ContextoFalso.todos.length).toBe(1);
+    expect(m.estadoDoCiclo()).toMatchObject({ fase: "fundo", gestoArmado: false });
+  });
+
+  it("🔊 resolve o mudo que ninguém vê: relógio andando, master com som, e mesmo assim troca (o alto-falante é que calou)", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual();
+    c.saida = 0.05; // para o JS, tudo perfeito
+    await passar(30_000);
+    expect(m.estadoDoCiclo().fase).toBe("ativo");
+    ContextoFalso.dentroDoGesto = true;
+    m.reativar();
+    ContextoFalso.dentroDoGesto = false;
+    expect(atual()).not.toBe(c);
+    await passar();
+    await funciona(m, prefs, "depois do 🔊");
+    pronto(m);
+  });
+});
+
+describe("27b. o 🔊 depois da revisão independente (03/11)", () => {
+  const prefs = { music: true, sfx: true };
+
+  for (const plat of ["ios", "desktop"] as const) {
+    it(`${plat === "ios" ? "iPhone" : "Chrome no computador"}: o 🔊 NÃO troca um contexto saudável (lá o som funciona; só retoma)`, async () => {
+      ambiente({ ios: plat === "ios", desktop: plat === "desktop" });
+      const m = motor(prefs);
+      const c = atual();
+      await passar();
+      ContextoFalso.dentroDoGesto = true;
+      m.reativar();
+      ContextoFalso.dentroDoGesto = false;
+      await passar();
+      expect(atual(), "o 🔊 trocou fora do Android").toBe(c);
+      await funciona(m, prefs, plat);
+      pronto(m, plat);
+    });
+  }
+
+  it("Android: troca que acabou de falhar no toque não é repetida pelo 🔊 do MESMO toque (uma tentativa por toque)", async () => {
+    const m = motor(prefs);
+    await passar();
+    ContextoFalso.falharAoCriar = true;
+    ContextoFalso.dentroDoGesto = true;
+    m.reativar(); // 1ª tentativa: o aparelho não dá outro contexto
+    const tentativas = ContextoFalso.todos.length;
+    m.reativar(); // o click que segue o touchend
+    ContextoFalso.dentroDoGesto = false;
+    expect(ContextoFalso.todos.length).toBe(tentativas);
+    ContextoFalso.falharAoCriar = false;
+    await passar(2_000);
+    ContextoFalso.dentroDoGesto = true;
+    m.reativar(); // um toque NOVO, depois: tenta de novo
+    ContextoFalso.dentroDoGesto = false;
+    expect(ContextoFalso.todos.length).toBe(tentativas + 1);
+    await passar();
+    await funciona(m, prefs, "depois da 2ª tentativa");
+    expect(m.invariantesVioladas()).toEqual([]);
+  });
+
+  it("relógio parado com o master em zero: condena como ZUMBI (absolvível), não como mudo", async () => {
+    ambiente({ tique: true });
+    const m = motor(prefs);
+    const c = atual();
+    c.saida = 0.05;
+    await passar(10_000);
+    c.saida = 0;
+    c.congelar();
+    await passar(5_000);
+    expect(m.estadoDoCiclo().fase).toBe("esperando-gesto");
+    c.descongelar(); // só demorou
+    c.saida = 0.05;
+    await passar(5_000);
+    expect(atual(), "trocou um contexto que voltou a andar").toBe(c);
+    expect(m.estadoDoCiclo().fase).toBe("ativo");
+  });
+});
+
+describe("28. diagnóstico DEBUG sem cabo (rodada 5, 04/11): a sonda lê o motor sem mexer nele", () => {
+  // O APK DEBUG ganha um painel que registra a falha NO APARELHO e exporta o relatório por ação da
+  // pessoa. Estes testes usam o motor DE VERDADE com a chave de build ligada (módulos recarregados):
+  // o retrato do toque vem antes da troca que o toque dispara, "Registrar falha" não repara nada,
+  // o som de teste não retoma nem troca, e "Tentar recuperar" é o religar de sempre.
+  const prefs = { music: true, sfx: true };
+  type Motores = typeof import("./engine.js");
+  let Motor: Motores["AudioEngine"];
+  let rel: typeof import("./relatorioDeAudio.js");
+  let dg: typeof import("./diagnostico.js");
+  const AMB = { versao: "0.1.0", build: "teste", plataforma: "Android 14", motor: "Chromium 141", webview: true, nativo: true, tela: null, online: false, nucleos: null, memoriaGb: null };
+
+  beforeEach(async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.resetModules();
+    vi.stubGlobal("__KING_DIAG_AUDIO__", true);
+    ({ AudioEngine: Motor } = await import("./engine.js"));
+    rel = await import("./relatorioDeAudio.js");
+    dg = await import("./diagnostico.js");
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  const ligado = (p: Prefs = prefs) => { const m = new Motor(); m.set(p); m.unlock(); return m; };
+  /** O dedo encosta (pointerdown) e solta (touchend + click, dentro do gesto). */
+  const dedo = async () => { win.disparar("pointerdown"); await tocar(); };
+
+  it("no build normal (sem a chave) não existe sonda nem diagnóstico", () => {
+    expect(new AudioEngine().sondaDeDiagnostico()).toBeNull();
+    expect(audio.sondaDeDiagnostico()).toBeNull();
+    expect(dg.DIAG_LIGADO, "a chave do teste ligou").toBe(true);
+  });
+
+  it("relógio congelado: o retrato do toque guarda o estado DEFEITUOSO antes da troca que o próprio toque faz", async () => {
+    ambiente({ tique: true });
+    const m = ligado();
+    const s = m.sondaDeDiagnostico()!;
+    await passar(10_000);
+    const morto = atual();
+    morto.congelar();
+    await passar(5_000);
+    expect(m.estadoDoCiclo().fase).toBe("esperando-gesto");
+    const geracaoMorta = s.retrato().geracao;
+    await dedo();
+    expect(atual(), "o toque não trocou").not.toBe(morto);
+    const antes = s.antesDoToque().at(-1)!;
+    expect(antes.r).toMatchObject({ fase: "esperando-gesto", contexto: "running", zumbi: true, geracao: geracaoMorta, musicaAgendada: false });
+    expect(Number(s.retrato().geracao)).toBeGreaterThan(Number(geracaoMorta));
+    // a troca registrada: antes (zumbi) → logo depois → ~1 s depois
+    await passar(1_500);
+    const t = s.trocas().at(-1)!;
+    expect(t.antes.r).toMatchObject({ zumbi: true, geracao: geracaoMorta });
+    expect(t.falhou).toBe(false);
+    expect(t.depois?.r.geracao).not.toBe(geracaoMorta);
+    expect(t.umSegundoDepois?.r.contexto).toBe("running");
+    const c = dg.diagAudio.contagens();
+    expect(c["contexto-novo"]).toBe(2);
+    expect(c["reconstruir-ok"]).toBe(1);
+    expect(c["contexto-fechado"], "o velho fechado entra na conta").toBe(1);
+  });
+
+  it("Registrar falha não repara nada: nenhum contexto novo, nenhum resume, a fase continua a defeituosa", async () => {
+    ambiente({ tique: true });
+    const m = ligado();
+    await passar(10_000);
+    const morto = atual();
+    morto.congelar();
+    await passar(5_000);
+    const sess = rel.criarSessaoDeDiagnostico({ diag: dg.diagAudio, sonda: () => m.sondaDeDiagnostico() });
+    const contextos = ContextoFalso.todos.length;
+    const resumes = morto.resumes;
+    const o = sess.registrarFalha();
+    expect(ContextoFalso.todos.length).toBe(contextos);
+    expect(morto.resumes).toBe(resumes);
+    expect(m.estadoDoCiclo().fase).toBe("esperando-gesto");
+    expect(o.noRegistro).toMatchObject({ zumbi: true, contexto: "running" });
+  });
+
+  it("o 🔊 no Android: A1 é o motor ANTES do reparo do 🔊 (reativar troca o contexto logo depois)", async () => {
+    const m = ligado();
+    const c1 = atual();
+    await passar(3_000); // o 🔊 não troca contexto que acabou de nascer
+    const s = m.sondaDeDiagnostico()!;
+    const g1 = s.retrato().geracao;
+    const sess = rel.criarSessaoDeDiagnostico({ diag: dg.diagAudio, sonda: () => s });
+    win.disparar("pointerdown");
+    ContextoFalso.dentroDoGesto = true;
+    try { sess.aoAbrirPainelDeSom(); m.reativar(); } finally { ContextoFalso.dentroDoGesto = false; }
+    expect(atual(), "o 🔊 não trocou o contexto").not.toBe(c1);
+    await passar(2_000);
+    const o = sess.registrarFalha();
+    expect(o.abertura?.r.geracao).toBe(g1);
+    expect(o.depoisDoPainel?.r.geracao).not.toBe(g1);
+    expect(dg.diagAudio.contagens()["painel-de-som-aberto"]).toBe(1);
+  });
+
+  it("Testar música/efeito: toca pelos barramentos do contexto atual — sem resume, sem troca; o resultado mede o grafo", async () => {
+    const m = ligado({ music: false, sfx: true });
+    const c = atual();
+    const s = m.sondaDeDiagnostico()!;
+    c.saida = 0.03;
+    const osc = c.osciladores;
+    const resumes = c.resumes;
+    const p = s.tocarTeste("musica");
+    await passar(400);
+    const r = await p;
+    expect(r).toMatchObject({ qual: "musica", tocou: true });
+    expect(r.durante).toMatchObject({ rms: 0.03, contexto: "running", prefMusica: false, ganhoMusica: 0 });
+    expect(c.osciladores - osc).toBe(3);
+    expect(c.resumes).toBe(resumes);
+    expect(ContextoFalso.todos).toHaveLength(1);
+  });
+
+  it("sem contexto (antes do 1º toque): o teste não cria contexto", async () => {
+    const m = new Motor();
+    const r = await m.sondaDeDiagnostico()!.tocarTeste("efeito");
+    expect(r).toMatchObject({ tocou: false, motivo: "sem-contexto" });
+    expect(ContextoFalso.todos).toHaveLength(0);
+  });
+
+  it("Tentar recuperar (C) = o religar de sempre, dentro do toque: antes defeituoso, depois contexto novo", async () => {
+    ambiente({ tique: true });
+    const m = ligado();
+    await passar(10_000);
+    const morto = atual();
+    morto.mudarCalado("suspended");
+    ContextoFalso.soComGesto = true;
+    await passar(3_000);
+    const sess = rel.criarSessaoDeDiagnostico({ diag: dg.diagAudio, sonda: () => m.sondaDeDiagnostico() });
+    sess.registrarFalha();
+    ContextoFalso.dentroDoGesto = true;
+    let p: Promise<void>;
+    try { p = sess.recuperar(); } finally { ContextoFalso.dentroDoGesto = false; }
+    await passar(2_000);
+    await p!;
+    const o = sess.ocorrencias()[0]!;
+    expect(o.recuperacao?.antes.contexto).toBe("suspended");
+    expect(o.recuperacao?.depois?.contexto).toBe("running");
+    expect(atual()).not.toBe(morto);
+    const txt = sess.relatorio(AMB);
+    expect(txt).toMatch(/H1 AudioContext suspenso\/interrompido: SIM/);
+  });
+
+  it("relatório com o motor de verdade: A, B, C, H1–H8, contagens — e nenhuma rede", async () => {
+    const rede = vi.fn(() => { throw new Error("rede"); });
+    vi.stubGlobal("fetch", rede);
+    vi.stubGlobal("XMLHttpRequest", rede);
+    ambiente({ tique: true });
+    const m = ligado();
+    await passar(12_000);
+    const sess = rel.criarSessaoDeDiagnostico({ diag: dg.diagAudio, sonda: () => m.sondaDeDiagnostico() });
+    sess.registrarFalha();
+    const t = sess.testar("efeito");
+    await passar(400);
+    sess.responder(await t, false);
+    const txt = sess.relatorio(AMB);
+    for (const trecho of ["A. ESTADO CAPTURADO", "B. SONS DE TESTE", "C. DEPOIS", "== CONTAGENS", "== PULSOS", "== HISTÓRICO", "OUVIU: NÃO"]) {
+      expect(txt, trecho).toContain(trecho);
+    }
+    for (const h of ["H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8"]) expect(txt, h).toContain(`  ${h} `);
+    expect(rede).not.toHaveBeenCalled();
+  });
+});
+
+describe("29. rodada 6 (04/11): A′ = tom direto no destino do contexto do jogo, sem mexer no motor", () => {
+  type Motores = typeof import("./engine.js");
+  let Motor: Motores["AudioEngine"];
+  beforeEach(async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.resetModules();
+    vi.stubGlobal("__KING_DIAG_AUDIO__", true);
+    ({ AudioEngine: Motor } = await import("./engine.js"));
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("Oscillator → Gain → destination no contexto ATUAL: sem resume, sem contexto novo, sem barramento", async () => {
+    const m = new Motor();
+    m.set({ music: false, sfx: true });
+    m.unlock();
+    const c = atual();
+    const proto = Object.getPrototypeOf(c.createGain()) as { connect: (d: unknown) => void };
+    const ligou = vi.spyOn(proto, "connect");
+    const osc = c.osciladores;
+    const resumes = c.resumes;
+    const p = m.sondaDeDiagnostico()!.tomDireto();
+    await passar(400);
+    const r = await p;
+    expect(r).toMatchObject({ qual: "direto", tocou: true, motivo: null });
+    expect(c.osciladores - osc).toBe(1);
+    expect(ligou.mock.calls.filter(([d]) => d === c.destination), "o tom não foi direto ao destination").toHaveLength(1);
+    expect(ligou).toHaveBeenCalledTimes(2);
+    expect(c.resumes).toBe(resumes);
+    expect(ContextoFalso.todos).toHaveLength(1);
+  });
+
+  it("sem contexto (antes do 1º toque): não cria contexto", async () => {
+    const r = await new Motor().sondaDeDiagnostico()!.tomDireto();
+    expect(r).toMatchObject({ tocou: false, motivo: "sem-contexto" });
+    expect(ContextoFalso.todos).toHaveLength(0);
+  });
+});
+
+describe("30. rodada 7 (04/11): isolar o grafo do KING e restaurar — sem perder nada, sem duplicar a música", () => {
+  type Motores = typeof import("./engine.js");
+  let Motor: Motores["AudioEngine"];
+  beforeEach(async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.resetModules();
+    vi.stubGlobal("__KING_DIAG_AUDIO__", true);
+    ({ AudioEngine: Motor } = await import("./engine.js"));
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("parar música não mexe nas preferências; isolar tira as 2 ligações do master; restaurar religa as 2 e a música volta UMA vez", async () => {
+    const m = new Motor();
+    m.set({ music: true, sfx: true });
+    m.unlock();
+    await passar(2_500);
+    const c = atual();
+    const s = m.sondaDeDiagnostico()!;
+    expect(agendadores.size).toBe(1);
+    expect(s.pararMusica()).toBe(true);
+    expect(agendadores.size).toBe(0);
+    expect(m.get().music, "parar a música do teste não grava preferência").toBe(true);
+    const antes = c.ligacoes;
+    const proto = Object.getPrototypeOf(c.createGain()) as { connect: (d: unknown) => void; disconnect: (d?: unknown) => void };
+    const liga = vi.spyOn(proto, "connect");
+    const desliga = vi.spyOn(proto, "disconnect");
+    expect(s.isolarGrafo()).toBe(true);
+    expect(desliga.mock.calls, "o master sai de TUDO (destination e analisador, que puxa o grafo sozinho)").toEqual([[]]);
+    const master = desliga.mock.instances[0];
+    expect(c.ligacoes, "master → destination e master → analisador").toBe(antes - 2);
+    expect(s.isolarGrafo(), "isolar duas vezes não mexe de novo").toBe(false);
+    liga.mockClear();
+    expect(s.restaurar()).toEqual({ religou: true, musica: true });
+    const doMaster = liga.mock.calls.filter((_, i) => liga.mock.instances[i] === master).map(([d]) => d);
+    expect(doMaster, "religou o master na saída e no analisador").toHaveLength(2);
+    expect(doMaster[0]).toBe(c.destination);
+    expect((doMaster[1] as { fftSize?: number }).fftSize, "a 2ª ligação é o analisador").toBeDefined();
+    expect(agendadores.size, "a música voltou uma vez só").toBe(1);
+    const depois = c.ligacoes;
+    expect(s.restaurar(), "restaurar de novo não religa nada").toEqual({ religou: false, musica: true });
+    expect(c.ligacoes).toBe(depois);
+    expect(agendadores.size).toBe(1);
+    expect(ContextoFalso.todos).toHaveLength(1);
+  });
+
+  it("trocou de contexto com o grafo isolado: restaurar NÃO mexe no contexto novo (nem liga nó de outro contexto)", async () => {
+    const m = new Motor();
+    m.set({ music: false, sfx: true });
+    m.unlock();
+    await passar(3_000);
+    const s = m.sondaDeDiagnostico()!;
+    expect(s.isolarGrafo()).toBe(true);
+    ContextoFalso.dentroDoGesto = true;
+    try { m.religar(); } finally { ContextoFalso.dentroDoGesto = false; }
+    const novo = atual();
+    const lig = novo.ligacoes;
+    expect(() => s.restaurar()).not.toThrow();
+    expect(novo.ligacoes).toBe(lig);
+    expect(s.contextoParaMedir()).toBe(novo);
+  });
+
+  it("no build normal a sonda não existe (nada disto chega ao jogador)", () => {
+    expect(new AudioEngine().sondaDeDiagnostico()).toBeNull();
+  });
+});
+
+// RODADA 8 (04/11/2026) — o grafo do KING não cabia no tempo real do Android (r7: contexto do KING 0,47 do
+// tempo real com 1.040 underruns em 60 s; a escada caiu no reverb estéreo de 2,4 s e piorou com a música).
+// Correção SÓ no Android (perfil "leve-24k"): reverb mono com o começo (1,2 s) do MESMO envelope, molhado
+// compensado, envios ao reverb compartilhados (mesma soma, menos nós) e contexto a 24 kHz (metade do
+// processamento; acima de 12 kHz o som do KING tem −55 dB da energia). iPhone e computador: o grafo de sempre.
+describe("31. rodada 8: perfil leve do grafo no Android — e o de sempre no iPhone e no computador", () => {
+  type Etiqueta = { canais: number; len: number; getChannelData: () => Float32Array };
+  /** Grava o que o motor cria: buffers (canais × amostras), ganhos, convolvers e com que opção o contexto nasce. */
+  function espionar() {
+    const buffers: Etiqueta[] = [];
+    const ganhos: NoFalso[] = [];
+    const convolvers: NoFalso[] = [];
+    const opcoes: unknown[][] = [];
+    const proto = ContextoFalso.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
+    vi.spyOn(proto, "createBuffer").mockImplementation(function (this: ContextoFalso, ...a: unknown[]) {
+      const [canais, len] = a as [number, number];
+      const b: Etiqueta = { canais, len, getChannelData: () => new Float32Array(Math.max(0, len | 0)) };
+      buffers.push(b);
+      return b;
+    });
+    const criarGanho = proto.createGain;
+    vi.spyOn(proto, "createGain").mockImplementation(function (this: ContextoFalso) {
+      const g = criarGanho.call(this) as NoFalso;
+      ganhos.push(g);
+      return g;
+    });
+    const criarConv = proto.createConvolver;
+    vi.spyOn(proto, "createConvolver").mockImplementation(function (this: ContextoFalso) {
+      const c = criarConv.call(this) as NoFalso;
+      convolvers.push(c);
+      return c;
+    });
+    win.AudioContext = class extends ContextoFalso {
+      constructor(...a: unknown[]) { super(); opcoes.push(a); }
+    };
+    return { buffers, ganhos, convolvers, opcoes };
+  }
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  for (const plat of ["android", "ios", "desktop"] as const) {
+    it(`${plat}: o reverb ${plat === "android" ? "LEVE (mono, 1,2 s do mesmo envelope, molhado compensado) num contexto a 24 kHz" : "de SEMPRE (estéreo, 2,4 s, molhado 0,9) e o contexto sem opção nenhuma"}`, () => {
+      ambiente(plat === "ios" ? { ios: true } : plat === "desktop" ? { desktop: true } : {});
+      const e = espionar();
+      motor({ music: false, sfx: true });
+      const c = atual();
+      expect(e.opcoes, plat === "android" ? "Android: 24 kHz" : "new AudioContext() sem argumento nenhum, como sempre").toEqual(plat === "android" ? [[{ sampleRate: 24000 }]] : [[]]);
+      expect(e.convolvers).toHaveLength(1);
+      const imp = e.convolvers[0]!.buffer as Etiqueta;
+      const molhado = e.ganhos.map((g) => g.gain.value);
+      if (plat === "android") {
+        expect([imp.canais, imp.len], "impulso mono de 1,2 s").toEqual([1, Math.floor(c.sampleRate * 1.2)]);
+        expect(molhado.some((v) => Math.abs(v - 0.9 * compensacaoDoReverbLeve(c.sampleRate)) < 1e-9), "molhado compensado").toBe(true);
+        expect(molhado.filter((v) => v === 0.9), "0,9 só no master (o molhado é o compensado)").toHaveLength(1);
+      } else {
+        expect([imp.canais, imp.len], "impulso estéreo de 2,4 s, como sempre").toEqual([2, Math.floor(c.sampleRate * 2.4)]);
+        expect(molhado.filter((v) => v === 0.9), "master 0,9 e molhado 0,9, como sempre").toHaveLength(2);
+      }
+    });
+  }
+
+  it("android: os envios ao reverb são COMPARTILHADOS — 1 nó por quantidade, sem timer de 3 s, e nada sobra ligado depois das notas", async () => {
+    ambiente();
+    const e = espionar();
+    const m = motor({ music: false, sfx: true });
+    const c = atual();
+    await passar(100);
+    const ganhosAntes = e.ganhos.length;
+    const timersAntes = vi.getTimerCount();
+    const ligAntes = c.ligacoes;
+    for (let i = 0; i < 10; i++) m.tone({ freq: 440 + i, dur: 0.1 });
+    expect(e.ganhos.length - ganhosAntes, "10 vozes + 1 envio de 0,18 (e não 10 vozes + 10 envios)").toBe(11);
+    expect(vi.getTimerCount() - timersAntes, "só o fim de cada nota (nenhum desliga-envio de 3 s)").toBe(10);
+    await passar(1_000);
+    expect(c.ligacoes - ligAntes, "acabadas as notas, só o envio compartilhado → reverb fica de pé").toBe(1);
+    for (let i = 0; i < 5; i++) m.tone({ freq: 500, dur: 0.1, space: 0.18 });
+    expect(e.ganhos.length - ganhosAntes, "a mesma quantidade reaproveita o mesmo envio").toBe(16);
+  });
+
+  it("iPhone: um envio por nota, desligado 3 s depois — como sempre (nada muda onde o som foi validado)", async () => {
+    ambiente({ ios: true });
+    const e = espionar();
+    const m = motor({ music: false, sfx: true });
+    const c = atual();
+    await passar(100);
+    const ganhosAntes = e.ganhos.length;
+    const ligAntes = c.ligacoes;
+    for (let i = 0; i < 10; i++) m.tone({ freq: 440 + i, dur: 0.1 });
+    expect(e.ganhos.length - ganhosAntes).toBe(20);
+    await passar(4_000);
+    expect(c.ligacoes - ligAntes, "depois dos 3 s, nada ligado").toBe(0);
+  });
+
+  it("android: o aparelho RECUSA a taxa de 24 kHz → o contexto nasce como sempre (sem opção) e o som funciona", async () => {
+    ambiente();
+    const tentativas: unknown[][] = [];
+    win.AudioContext = class extends ContextoFalso {
+      constructor(...a: unknown[]) {
+        tentativas.push(a);
+        if (a.length) throw new Error("NotSupportedError: taxa não suportada");
+        super();
+      }
+    };
+    const m = motor({ music: true, sfx: true });
+    expect(tentativas, "tentou 24 kHz e caiu no de sempre").toEqual([[{ sampleRate: 24000 }], []]);
+    expect(ContextoFalso.todos).toHaveLength(1);
+    await funciona(m, { music: true, sfx: true }, "taxa recusada");
+  });
+
+  it("a música do Android é a MESMA: 22 osciladores e 8 ganzás no 1º compasso, como no iPhone", () => {
+    for (const o of [{}, { ios: true }]) {
+      ambiente(o);
+      motor({ music: true, sfx: true });
+      const c = atual();
+      expect([c.osciladores, c.fontes], JSON.stringify(o)).toEqual([22, 8]);
+    }
+  });
+});
+
+describe("32. rodada 8 (APK DEBUG): variantes A–E trocam o contexto pelo caminho de sempre, um de cada vez", () => {
+  type Motores = typeof import("./engine.js");
+  let Motor: Motores["AudioEngine"];
+  beforeEach(async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.resetModules();
+    vi.stubGlobal("__KING_DIAG_AUDIO__", true);
+    ({ AudioEngine: Motor } = await import("./engine.js"));
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const dentroDoToque = <T>(f: () => T): T => {
+    ContextoFalso.dentroDoGesto = true;
+    try { return f(); } finally { ContextoFalso.dentroDoGesto = false; }
+  };
+
+  it("A → B → C → D → E → automático: cada troca = 1 contexto novo (o velho fechado), a música nunca duplica, e cada um com o seu peso", async () => {
+    ambiente();
+    const opcoes: unknown[][] = [];
+    const convPorCtx = new Map<ContextoFalso, number>();
+    const proto = ContextoFalso.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
+    const criarConv = proto.createConvolver;
+    vi.spyOn(proto, "createConvolver").mockImplementation(function (this: ContextoFalso) {
+      convPorCtx.set(this, (convPorCtx.get(this) ?? 0) + 1);
+      return criarConv.call(this);
+    });
+    win.AudioContext = class extends ContextoFalso { constructor(...a: unknown[]) { super(); opcoes.push(a); } };
+    const m = new Motor();
+    m.set({ music: true, sfx: true });
+    m.unlock();
+    await passar(2_500);
+    const s = m.sondaDeDiagnostico()!;
+    expect(s.perfil()).toEqual({ nome: "leve-24k", forcado: false });
+    const esperado: [Parameters<typeof s.usarPerfil>[0], string, number, number, number][] = [
+      // perfil, nome, convolvers, osciladores no 1º compasso, ganzás
+      ["original", "original", 1, 22, 8],
+      ["sem-reverb", "sem-reverb", 0, 22, 8],
+      ["leve", "leve", 1, 22, 8],
+      ["leve-polifonia", "leve-polifonia", 1, 17, 4],
+      ["leve-24k", "leve-24k", 1, 22, 8],
+      [null, "leve-24k", 1, 22, 8],
+    ];
+    for (const [pedido, nome, conv, osc, ganza] of esperado) {
+      const antes = ContextoFalso.todos.length;
+      const velho = atual();
+      expect(dentroDoToque(() => s.usarPerfil(pedido)), String(pedido)).toBe(true);
+      const novo = atual();
+      expect(ContextoFalso.todos.length - antes, `${pedido}: um contexto novo`).toBe(1);
+      expect(s.perfil(), String(pedido)).toEqual({ nome, forcado: pedido !== null });
+      expect(convPorCtx.get(novo) ?? 0, `${pedido}: convolvers`).toBe(conv);
+      expect([novo.osciladores, novo.fontes], `${pedido}: vozes do 1º compasso`).toEqual([osc, ganza]);
+      expect(agendadores.size, `${pedido}: um agendador de música só`).toBe(1);
+      await passar(1_000);
+      expect(velho.state, `${pedido}: o velho foi fechado`).toBe("closed");
+      expect(ContextoFalso.todos.filter((c) => c.state !== "closed"), "um contexto vivo de cada vez").toHaveLength(1);
+    }
+    expect(opcoes[opcoes.length - 2], "a variante E pede 24 kHz").toEqual([{ sampleRate: 24000 }]);
+    expect(opcoes.map((o) => (o.length ? "24k" : "-")), "24 kHz: o padrão do Android (início e volta ao automático) e a E").toEqual(["24k", "-", "-", "-", "-", "24k", "24k"]);
+  });
+
+  it("variante B (sem reverb): nenhum convolver E nenhum envio — ganho zero não bastaria", async () => {
+    ambiente();
+    const m = new Motor();
+    m.set({ music: false, sfx: true });
+    m.unlock();
+    await passar(500);
+    const s = m.sondaDeDiagnostico()!;
+    dentroDoToque(() => s.usarPerfil("sem-reverb"));
+    const criados = vi.spyOn(ContextoFalso.prototype, "createGain");
+    for (let i = 0; i < 5; i++) m.tone({ freq: 440, dur: 0.1 });
+    expect(criados, "só a voz de cada nota").toHaveBeenCalledTimes(5);
+  });
+
+  it("escondido (fundo) ou sem contexto: não troca nada — só guarda o pedido", async () => {
+    ambiente();
+    const m = new Motor();
+    const s = m.sondaDeDiagnostico()!;
+    expect(s.usarPerfil("original"), "sem contexto").toBe(false);
+    expect(ContextoFalso.todos).toHaveLength(0);
+    m.set({ music: true, sfx: true });
+    m.unlock();
+    await passar(2_500);
+    expect(s.perfil(), "o pedido guardado vale no próximo contexto").toEqual({ nome: "original", forcado: true });
+    esconder();
+    await passar(500);
+    const n = ContextoFalso.todos.length;
+    expect(dentroDoToque(() => s.usarPerfil("leve"))).toBe(false);
+    expect(ContextoFalso.todos.length).toBe(n);
+  });
+
+  it("o monitor contínuo nasce com o 1º contexto e segue o contexto atual (janela da troca descartada)", async () => {
+    ambiente();
+    const m = new Motor();
+    m.set({ music: false, sfx: true });
+    m.unlock();
+    const s = m.sondaDeDiagnostico()!;
+    const mon = s.monitor()!;
+    expect(mon).not.toBeNull();
+    await passar(10_500);
+    const j1 = mon.janelas();
+    expect(j1.length).toBe(2);
+    expect(j1.every((j) => j.perfil === "leve-24k" && j.razao !== null && j.razao > 0.9 && !j.contextoNovo)).toBe(true);
+    dentroDoToque(() => s.usarPerfil("original"));
+    await passar(10_000);
+    const j2 = mon.janelas().slice(2);
+    expect(j2[0]!.contextoNovo, "a janela da troca não vale").toBe(true);
+    expect(j2[0]!.razao).toBeNull();
+    expect(j2[1]!.perfil).toBe("original");
+    expect(j2[1]!.razao).not.toBeNull();
   });
 });

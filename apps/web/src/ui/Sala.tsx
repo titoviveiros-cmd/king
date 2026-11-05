@@ -1,12 +1,11 @@
 // SALA PRIVADA — a antessala do multiplayer.
 //
 // A mesa tem sempre QUATRO assentos, mas não exige quatro pessoas. As composições oficiais são
-// 4 humanos, 3+1, 2+2 e — desde 03/11/2026 — 1 humano + 3 bots, que joga normalmente mas NÃO vale
-// XP (o rodapé avisa). O piso vem do SERVIDOR (boas-vindas): um servidor anterior não o anuncia e
-// continua exigindo 2, e o lobby diz isso em vez de prometer uma partida que não começaria.
+// 4 humanos, 3 humanos + 1 bot e 2 humanos + 2 bots. Um humano só não inicia: sala privada com
+// uma pessoa é o modo local com passos a mais, e esse já existe sem servidor nenhum.
 //
-// A regra de início: **4 assentos ocupados + o piso de humanos do servidor + todos os humanos
-// prontos**. O anfitrião NÃO inicia a partida — ele só monta a composição. Por isso
+// A regra de início (Fase 5, atualizada): **4 assentos ocupados + pelo menos 2 humanos + todos
+// os humanos prontos**. O anfitrião NÃO inicia a partida — ele só monta a composição. Por isso
 // não existe botão "Iniciar" para ninguém.
 //
 // Os botões de bot aparecem só para o anfitrião, mas isso é APRESENTAÇÃO: quem autoriza é o
@@ -39,20 +38,18 @@ const MESAS = [
 
 const LUGARES: Seat[] = [0, 1, 2, 3];
 
-/** Piso de humanos quando ninguém informa: a regra dos servidores anteriores a 03/11/2026. */
-const PISO_SEM_ANUNCIO = 2;
+/** Piso oficial de humanos numa mesa multiplayer privada. Espelha `MIN_HUMANOS` do servidor. */
+const MIN_HUMANOS = 2;
 
 export function Sala({
   sala, conexao, erro, eu, souAnfitriao, onPronto, onEscolherMesa, onEscolherAvatar, recusa,
-  onAdicionarBot, onRemoverBot, onSair, onOpenAudio, minHumanos = PISO_SEM_ANUNCIO,
+  onAdicionarBot, onRemoverBot, onSair, onOpenAudio,
 }: {
   sala: EstadoDaSalaLido | null;
   conexao: EstadoDaConexao;
   erro: string | null;
   eu: Seat | null;
   souAnfitriao: boolean;
-  /** Piso de humanos anunciado pelo servidor (ausente = servidor anterior = 2). */
-  minHumanos?: number;
   onPronto: (pronto: boolean) => void;
   /** Cosmético da sala. Só o anfitrião; o servidor recusa de qualquer outro. */
   onEscolherMesa: (tema: string) => void;
@@ -84,6 +81,8 @@ export function Sala({
   const codigo = sala?.roomCode ?? "";
   const podeMexer = souAnfitriao && conexao === "conectado";
   const temaAtual = sala?.tableTheme ?? "imperial";
+  /** Sem sala ainda (conectando), não há composição a explicar. */
+  const situacao = sala ? situacaoDaSala(ocupados, humanos, souAnfitriao, pronto) : null;
 
   /**
    * Os bichos que os OUTROS lugares já ocupam.
@@ -179,11 +178,14 @@ export function Sala({
         <div className="sl-codigo"><span className="sl-lb">{rotuloDaConexao(conexao)}</span></div>
       )}
 
+      <div className="sl-miolo">
       <div className="sl-lugares">
         {LUGARES.map((i) => {
           const a = assentos[i];
           const vazio = !a || a.playerId === "";
           const bot = !!a?.bot;
+          /** Vago, e um bot nele tiraria o lugar do 2º humano (a regra está em `situacaoDaSala`). */
+          const reservado = vazio && !!situacao && !situacao.podeAdicionarBot;
           return (
             <div
               key={i}
@@ -212,7 +214,7 @@ export function Sala({
                 <Insignia vazio={vazio} bot={bot} avatar={a?.avatar} />
               )}
               <span className="sl-nome">
-                {vazio ? "Aguardando…" : a.nick}
+                {vazio ? (reservado ? "Lugar do 2º jogador…" : "Aguardando…") : a.nick}
                 {/* O bot ganhou nome próprio; a etiqueta é o que impede alguém de achar que é gente. */}
                 {bot && <i> · bot</i>}
                 {i === eu && <i> (você)</i>}
@@ -220,9 +222,11 @@ export function Sala({
               </span>
 
               {/* Composição: só o anfitrião, e só antes de a partida começar. */}
-              {vazio && podeMexer && (
+              {vazio && podeMexer && !reservado && (
                 <button className="sl-bot add" onClick={() => onAdicionarBot(i)}>+ Bot</button>
               )}
+              {/* O lugar de que o 2º humano precisa: sem "+ Bot" (um bot aqui fecharia a porta). */}
+              {reservado && <span className="sl-estado">para convidado</span>}
               {bot && podeMexer && (
                 <button className="sl-bot rem" onClick={() => onRemoverBot(i)}>Remover</button>
               )}
@@ -249,6 +253,19 @@ export function Sala({
               onEscolher={(id) => { sfxTap(); onEscolherAvatar(id); setAbrindoAvatar(false); }}
             />
           </>
+        )}
+      </div>
+
+        {/* A REGRA DOS DOIS HUMANOS, enquanto não cumprida. Fica aqui (e não no rodapé, que some em
+            paisagem no celular), junto dos lugares e acima do "Estou pronto": quem toca nele lê,
+            antes, por que a partida ainda não vai começar. `status`, e não `alert`: é estado.
+            Em paisagem baixa ele vai para o LADO da lista (theme.css, `.sl-miolo`): embaixo,
+            custava ~38px e derrubava o 4º lugar para fora da tela a 667x375 e 852x300. */}
+        {situacao?.aviso && (
+          <div className="sl-regra" role="status">
+            <b>{situacao.aviso.regra}</b>
+            <span>{situacao.aviso.detalhe}</span>
+          </div>
         )}
       </div>
 
@@ -305,14 +322,14 @@ export function Sala({
           disabled={!meu || pendente || conexao === "erro" || conexao === "encerrada"}
           onClick={() => onPronto(!pronto)}
         >
-          {pendente ? "Escolha um avatar" : pronto ? "✓ Pronto — cancelar" : "Estou pronto"}
+          {pendente ? "Escolha um avatar" : situacao?.prontoEsperando ?? (pronto ? "✓ Pronto — cancelar" : "Estou pronto")}
         </button>
         <button className="btn ghost" onClick={onSair}>Sair</button>
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
       </div>
 
-      <div className="foot">{rodape(ocupados, humanos, souAnfitriao, minHumanos)}</div>
+      <div className="foot">{situacao?.rodape ?? ""}</div>
     </div>
   );
 }
@@ -389,22 +406,74 @@ function Insignia({ vazio, bot, avatar }: { vazio: boolean; bot: boolean; avatar
   return <span className="sl-av" aria-label={d.rotulo}>{d.glifo}</span>;
 }
 
+/** O que a sala diz e permite AGORA — a regra inteira numa função pura, testável sem renderizar. */
+export interface SituacaoDaSala {
+  /**
+   * A REGRA DOS DOIS HUMANOS, à vista enquanto ela não estiver cumprida. Mora num aviso próprio, e
+   * não no rodapé: o rodapé SOME em paisagem no celular (`max-height: 360px`, theme.css) — e foi
+   * exatamente aí, no 2º QA físico do Android (03/11/2026), que a sala com 1 humano + 3 bots ficou
+   * parada sem dizer por quê. `null` = regra cumprida, nada a avisar.
+   */
+  aviso: { regra: string; detalhe: string } | null;
+  /**
+   * O que falta para começar, em uma linha — a diferença entre "travou" e "falta o Vitor marcar
+   * pronto". Pode não aparecer em tela baixa: nada essencial mora só aqui.
+   */
+  rodape: string;
+  /** O anfitrião ainda pode pôr um bot num lugar vago sem tirar o lugar do 2º humano? */
+  podeAdicionarBot: boolean;
+  /** O botão de pronto, já marcado, diz o que falta (em vez de parecer travado). */
+  prontoEsperando: string | null;
+}
+
+export const REGRA_DOS_DOIS =
+  `Esta sala precisa de pelo menos ${MIN_HUMANOS} jogadores humanos para começar.`;
+
 /**
- * Diz em uma linha o que falta para começar. É o que evita o jogador olhar uma tela parada sem
- * entender por quê — a diferença entre "travou" e "falta o Vitor marcar pronto".
+ * A regra da SALA MULTIPLAYER, que é a do servidor (`MIN_HUMANOS` da KingRoom, 2): quatro lugares
+ * ocupados, pelo menos dois humanos, todos os humanos prontos. Bots completam a mesa, mas não
+ * substituem o segundo humano — jogar só contra bots é o "Jogar agora", fora daqui.
+ *
+ * O BECO SEM SAÍDA QUE ISTO FECHA: o servidor dá a cada humano um assento VAGO (`primeiroAssentoLivre`);
+ * com o anfitrião sozinho e três bots, a mesa fica cheia, a 2ª pessoa recebe "a sala já tem quatro
+ * jogadores" e a partida nunca começa. E o rodapé antigo, com 1 humano + 2 bots, ainda dizia "ou
+ * complete com bots" — ensinava o caminho do beco. Agora o lugar de que um humano precisa fica
+ * RESERVADO: sem "+ Bot" nele. É apresentação (o servidor ainda aceitaria o bot de um cliente
+ * antigo); por isso, se a mesa já estiver cheia assim, o aviso manda remover um bot.
  */
-export function rodape(ocupados: number, humanos: number, anfitriao: boolean, minHumanos = PISO_SEM_ANUNCIO): string {
-  if (ocupados < 4) {
-    const faltam = 4 - ocupados;
+export function situacaoDaSala(ocupados: number, humanos: number, anfitriao: boolean, pronto: boolean): SituacaoDaSala {
+  const vagos = Math.max(0, 4 - ocupados);
+  const faltamHumanos = Math.max(0, MIN_HUMANOS - humanos);
+  const podeAdicionarBot = vagos > faltamHumanos;
+
+  if (faltamHumanos > 0) {
+    const detalhe = vagos === 0
+      ? (anfitriao
+        ? "A mesa está cheia de bots: remova um bot para o 2º jogador poder entrar."
+        : "A mesa está cheia de bots: o anfitrião precisa remover um para o 2º jogador entrar.")
+      : "Bots completam a mesa, mas não substituem o 2º jogador. Convide alguém pelo código.";
+    return {
+      aviso: { regra: REGRA_DOS_DOIS, detalhe },
+      rodape: "Para jogar só você contra bots, use “Jogar agora” na tela inicial.",
+      podeAdicionarBot,
+      prontoEsperando: pronto ? "✓ Pronto · falta o 2º jogador" : null,
+    };
+  }
+  if (vagos > 0) {
     const dica = anfitriao ? " — ou complete com bots" : "";
-    return `${ocupados} de 4 lugares ocupados · faltam ${faltam}${dica}`;
+    return {
+      aviso: null,
+      rodape: `${ocupados} de 4 lugares ocupados · faltam ${vagos}${dica}`,
+      podeAdicionarBot,
+      prontoEsperando: null,
+    };
   }
-  if (humanos < minHumanos) {
-    return `A mesa precisa de pelo menos ${minHumanos} pessoas — troque um bot por alguém para começar`;
-  }
-  // 1 + 3 bots: joga normalmente, mas o XP continua exigindo duas pessoas — dito ANTES de começar
-  if (humanos === 1) return "Você e 3 bots · começa quando você estiver pronto · sem XP com 1 pessoa";
-  return "Quatro na mesa · a partida começa quando todos os humanos estiverem prontos";
+  return {
+    aviso: null,
+    rodape: "Quatro na mesa · a partida começa quando todos os humanos estiverem prontos",
+    podeAdicionarBot: false,
+    prontoEsperando: null,
+  };
 }
 
 function rotuloDaConexao(c: EstadoDaConexao): string {

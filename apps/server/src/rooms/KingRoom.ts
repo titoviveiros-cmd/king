@@ -51,15 +51,11 @@ export const ASSENTOS = 4;
 /**
  * Mínimo de HUMANOS numa mesa multiplayer privada.
  *
- * A mesa tem sempre 4 assentos, mas não exige 4 pessoas: bots completam. O piso é UM (decisão de
- * produto de 03/11/2026, depois do 2º QA físico do Android): quem cria a sala pode completar a mesa
- * com três bots e jogar. Composições: 1+3, 2+2, 3+1 e 4 humanos.
- *
- * O XP NÃO muda com isto: `resultadoParaCredito` (progresso/resultado.ts) e o banco continuam
- * exigindo dois humanos — uma partida 1+3 é jogável e termina normalmente, mas não credita nada
- * (nem ao humano, nem a bot). Sem isso, um jogador só contra três bots seria uma fábrica de XP.
+ * A mesa tem sempre 4 assentos, mas não exige 4 pessoas: bots completam. O piso é DOIS — com um
+ * humano só, a sala privada não seria multiplayer, seria o modo local com passos extras. Quem
+ * quer jogar sozinho contra bots usa "Jogar agora", que não passa por servidor nenhum.
  */
-export const MIN_HUMANOS = 1;
+export const MIN_HUMANOS = 2;
 
 /** Prefixo do identificador sintético de um assento de bot. Nunca colide com `generateId()`. */
 const PREFIXO_BOT = "bot:";
@@ -516,7 +512,7 @@ export class KingRoom extends Room<{
    * Início automático. A regra oficial da mesa:
    *
    *   • os QUATRO assentos ocupados (por humano ou bot);
-   *   • pelo menos UM humano (`MIN_HUMANOS`) — uma mesa só de bots nunca começa;
+   *   • pelo menos DOIS humanos;
    *   • todos os HUMANOS prontos — bots não marcam nada, já nascem prontos.
    *
    * Idempotente por construção: `autoridade.iniciar` recusa a segunda chamada, e o `status`
@@ -1058,7 +1054,6 @@ export class KingRoom extends Room<{
       protocolVersion: PROTOCOL_VERSION,
       roomCode: this.state.roomCode,
       roomId: this.roomId,
-      minHumanos: MIN_HUMANOS,
       you: {
         playerId: dados.playerId,
         sessionToken: dados.sessionToken,
@@ -1165,7 +1160,6 @@ export class KingRoom extends Room<{
       protocolVersion: PROTOCOL_VERSION,
       roomCode: this.state.roomCode,
       roomId: this.roomId,
-      minHumanos: MIN_HUMANOS,
       you: { ...dados, recoveryToken: this.#credencial(client) },
     });
     // estado ATUAL, nunca o de antes da queda

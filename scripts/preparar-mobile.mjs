@@ -237,6 +237,46 @@ ajustar(
 // copiada por cima do que o `cap add` criou — o "X" azul do Capacitor nunca chega a uma loja.
 copiarArvore("recursos-nativos/res-android/", "android/app/src/main/res/", "Android: ícone (adaptativo, legado, redondo) e splash do KING");
 
+// DIAGNÓSTICO DE ÁUDIO NATIVO (rodada 6, 04/11/2026) — SÓ NO APK DEBUG. O plugin mora no source set
+// `debug` do Gradle: o build release (o AAB da Play) nem compila a classe. A MainActivity tenta
+// registrá-lo por nome; no release a classe não existe no pacote e nada acontece. Só leitura do
+// AudioManager + um tom de teste por AudioTrack, por botão do painel; sem microfone, sem rede.
+copiarArvore("recursos-nativos/android-debug/", "android/app/src/debug/", "Android DEBUG: diagnóstico de áudio nativo (fora do release)");
+escrever(
+  "android/app/src/main/java/br/com/playkingcards/king/MainActivity.java",
+  "Android: MainActivity registra o diagnóstico de áudio só se a classe existir (APK debug)",
+  `package br.com.playkingcards.king;
+
+// Gerado por scripts/preparar-mobile.mjs. Não editar à mão.
+
+import android.os.Bundle;
+
+import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.Plugin;
+
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        registrarDiagnosticoDeAudio();
+        super.onCreate(savedInstanceState);
+    }
+
+    /**
+     * O plugin DiagAudioNativo só existe no APK DEBUG (source set debug). No release (AAB da Play) a
+     * classe não está no pacote: ClassNotFoundException, e o app segue igual.
+     */
+    @SuppressWarnings("unchecked")
+    private void registrarDiagnosticoDeAudio() {
+        try {
+            registerPlugin((Class<? extends Plugin>) Class.forName("br.com.playkingcards.king.DiagAudioNativoPlugin"));
+        } catch (ClassNotFoundException ignorado) {
+            // release: sem diagnóstico
+        }
+    }
+}
+`,
+);
+
 // SPLASH DO ANDROID 7–11: o fundo da janela era um PNG de tela inteira (`splash.png`), que o Android
 // ESTICA para a tela — num celular 20:9 o emblema saía achatado. O fundo passa a ser a `layer-list`
 // `king_splash` (cor sólida + emblema centralizado, sem escala), e os `splash.png` do `cap add` saem

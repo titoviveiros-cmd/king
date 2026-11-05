@@ -222,36 +222,70 @@ test("Android: servidor que não responde → mensagem e volta ao painel no praz
   }
 });
 
-test("Android: 1 humano + 3 bots — o anfitrião completa a mesa, marca pronto e a partida começa (sem XP, avisado)", async ({ browser }) => {
-  // Regra de 03/11/2026 (2º QA físico: "1 humano + 3 bots não inicia"). Exige o servidor deste
-  // commit: o piso vem nas boas-vindas, e um servidor anterior seguiria pedindo a 2ª pessoa.
-  const a = await aparelho(browser, "44444444-4444-4444-8444-444444444444");
+test("Android: anfitrião sozinho — a regra dos 2 humanos à vista (mesmo em tela baixa), o lugar da 2ª pessoa reservado e, com ela, a partida começa", async ({ browser }) => {
+  // 2º QA físico (03/11/2026): sozinho, o anfitrião pôs 3 bots, marcou pronto e nada aconteceu, sem
+  // explicação — o rodapé que explicaria some em paisagem, e com a mesa cheia a 2ª pessoa não entra.
+  const a = await aparelho(browser, "33333333-3333-4333-8333-333333333333");
+  const b = await aparelho(browser, "44444444-4444-4444-8444-444444444444");
   try {
     await abrirPainel(a.page);
     await a.page.locator(".hm-online input").first().fill("Tito");
     await a.page.getByRole("button", { name: "Criar uma sala" }).click();
     await escolherAvatar(a.page, "Sapo");
-    await expect(a.page.locator(".sl-lugar.voce")).toContainText("anfitrião", { timeout: 15_000 });
+    const cod = a.page.locator(".sl-cod");
+    await expect(cod).toBeVisible({ timeout: 15_000 });
+    const codigo = /(\d{4})/.exec((await cod.textContent()) ?? "")?.[1];
+    expect(codigo, "código de 4 dígitos").toBeTruthy();
 
-    for (let n = 1; n <= 3; n++) {
-      await a.page.locator(".sl-bot.add").first().click();
-      await expect(a.page.locator(".sl-lugar.robo")).toHaveCount(n, { timeout: 15_000 });
-    }
-    // o rodapé diz que começa com você e que não vale XP
-    await expect(a.page.locator(".foot")).toHaveText(/começa quando você estiver pronto.*sem XP/);
+    const regra = a.page.locator(".sl-regra");
+    await expect(regra).toContainText("Esta sala precisa de pelo menos 2 jogadores humanos para começar.");
 
+    // bots só enquanto sobra lugar para a 2ª pessoa: dois — o 3º lugar fica reservado
+    await a.page.locator(".sl-bot.add").first().click();
+    await expect(a.page.locator(".sl-lugar.robo")).toHaveCount(1, { timeout: 15_000 });
+    await a.page.locator(".sl-bot.add").first().click();
+    await expect(a.page.locator(".sl-lugar.robo")).toHaveCount(2, { timeout: 15_000 });
+    await expect(a.page.locator(".sl-bot.add"), "'+ Bot' no lugar da 2ª pessoa").toHaveCount(0);
+    await expect(a.page.locator(".sl-lugar.vago")).toContainText("Lugar do 2º jogador");
+    await expect(regra).toContainText("não substituem o 2º jogador");
+
+    // pronto sozinho: o botão diz o que falta, e nada começa
     await a.page.getByRole("button", { name: /Estou pronto/ }).click();
-    await expect(a.page.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+    await expect(a.page.getByRole("button", { name: "✓ Pronto · falta o 2º jogador" })).toBeVisible({ timeout: 15_000 });
+    await a.page.waitForTimeout(1_000);
+    await expect(a.page.locator(".mesa")).toHaveCount(0);
 
-    // queda e volta com um humano só: a mesa continua a dele
-    await a.ctx.setOffline(true);
-    await a.page.waitForTimeout(1_500);
-    await a.ctx.setOffline(false);
-    await expect(a.page.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+    // tela baixa (paisagem com barra do sistema): o rodapé some; o aviso e o botão, não
+    await a.page.setViewportSize({ width: 740, height: 340 });
+    await expect(a.page.locator(".foot")).toBeHidden();
+    await expect(regra).toBeInViewport({ ratio: 1 });
+    await expect(a.page.getByRole("button", { name: /falta o 2º jogador/ })).toBeInViewport({ ratio: 1 });
+    await a.page.screenshot({ path: "test-results/sala-sozinho-740x340.png" });
 
-    expect(a.fora, "requisição para fora da máquina").toEqual([]);
-    expect(a.erros, "erro de página").toEqual([]);
+    // a 2ª pessoa entra no lugar reservado; o aviso some; com ela pronta, a partida começa (2+2)
+    await abrirPainel(b.page);
+    const campos = b.page.locator(".hm-online input");
+    await campos.first().fill("Raiza");
+    await campos.last().fill(codigo!);
+    await b.page.getByRole("button", { name: "Entrar na sala" }).click();
+    await escolherAvatar(b.page, "Panda");
+    await expect(b.page.locator(".sl-lugar.voce")).toBeVisible({ timeout: 15_000 });
+    await expect(a.page.locator(".sl-regra")).toHaveCount(0, { timeout: 15_000 });
+    // bicho já usado por um bot deixa a 2ª pessoa pendente: escolhe outro, como faria no aparelho
+    await b.page.waitForTimeout(500);
+    if (await b.page.locator(".sl-pendente").count()) {
+      await b.page.locator(".sl-avop:not([disabled])").first().click();
+      await expect(b.page.locator(".sl-pendente")).toHaveCount(0, { timeout: 10_000 });
+    }
+    await b.page.getByRole("button", { name: /Estou pronto/ }).click();
+    await expect(a.page.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+    await expect(b.page.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+
+    expect([...a.fora, ...b.fora], "requisição para fora da máquina").toEqual([]);
+    expect(a.erros, "erro de página no anfitrião").toEqual([]);
+    expect(b.erros, "erro de página no convidado").toEqual([]);
   } finally {
     await a.ctx.close();
+    await b.ctx.close();
   }
 });
