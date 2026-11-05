@@ -541,21 +541,37 @@ test("convite por link: link malformado, sala que enche no caminho e sala encerr
   expect(doJogo).toEqual([]);
 
   // A SALA ENCHE entre abrir o link e tocar: a recusa volta para o painel, com o motivo, o apelido
-  // e o código mantidos — e nada girando.
+  // e o código mantidos — e nada girando. A mesa cheia é a OFICIAL: 2 humanos + 2 bots (a sala
+  // multiplayer exige 2 humanos; com o anfitrião sozinho, o lugar da 2ª pessoa fica reservado e não
+  // aceita bot). Raiza abre o convite e é a TERCEIRA humana a tentar.
   const codigo = await criarSala(a, "Tito", "Sapo");
   await b.goto(`${NOSSA_ORIGEM}/?sala=${codigo}`);
   await expect(b.locator(".hm-online input").last()).toHaveValue(codigo);
-  for (let i = 1; i <= 3; i++) {
+  // a 2ª humana, num contexto ISOLADO (outro aparelho: outra sessão, outro armazenamento)
+  const { ctx: ctxC } = await novoContexto(browser);
+  const c = await ctxC.newPage();
+  await entrarNaSala(c, codigo, "Bia", "Coruja");
+  await expect(a.locator(".sl-lugar:not(.vago)")).toHaveCount(2, { timeout: 20_000 });
+  // os 2 lugares restantes, com bots
+  for (let i = 1; i <= 2; i++) {
     await a.locator(".sl-bot.add").first().click();
     await expect(a.locator(".sl-lugar.robo")).toHaveCount(i, { timeout: 20_000 });
   }
+  await expect(a.locator(".sl-lugar:not(.vago)"), "4 assentos ocupados: 2 humanos + 2 bots").toHaveCount(4);
+  await expect(a.locator(".sl-lugar.vago")).toHaveCount(0);
+  await expect(a.locator(".sl-lugar.robo")).toHaveCount(2);
+  await expect(b.locator(".hm-online input").last(), "o convite segue intocado enquanto a sala enche").toHaveValue(codigo);
   await entrarComAvatar(b, "Raiza");
   await expect(b.locator(".hm-aviso-convite")).toHaveText("Essa sala já tem quatro jogadores.", { timeout: 20_000 });
   await expect(b.locator(".hm-online input").first()).toHaveValue("Raiza");
   await expect(b.locator(".hm-online input").last()).toHaveValue(codigo);
   await expect(b.getByRole("button", { name: "Entrar na sala" })).toBeEnabled();
+  await expect(a.locator(".sl-lugar:not(.vago)"), "a recusa não mexeu na mesa").toHaveCount(4);
 
-  // ENCERRADA: o anfitrião sai e a sala acaba; tentar de novo diz que ela não existe.
+  // ENCERRADA: as duas pessoas saem e a sala acaba; tentar de novo diz que ela não existe.
+  await c.getByRole("button", { name: "Sair" }).click();
+  await expect(c.getByRole("button", { name: "Jogar com amigos" })).toBeVisible({ timeout: 15_000 });
+  await ctxC.close();
   await a.getByRole("button", { name: "Sair" }).click();
   await expect(a.getByRole("button", { name: "Jogar com amigos" })).toBeVisible({ timeout: 15_000 });
   await a.waitForTimeout(1000);
@@ -565,6 +581,89 @@ test("convite por link: link malformado, sala que enche no caminho e sala encerr
   await expect(b.locator(".hm-online input").first()).toHaveValue("Raiza");
   await ctxA.close();
   await ctxB.close();
+});
+
+test("regra dos 2 humanos: 1 humano + 3 bots não se monta, 2 + 2 começa, a 5ª pessoa é recusada — e o código não vaza", async ({ browser }) => {
+  const { ctx: ctxA, rede: redeA } = await novoContexto(browser);
+  const { ctx: ctxB, rede: redeB } = await novoContexto(browser);
+  const { ctx: ctxC, rede: redeC } = await novoContexto(browser);
+  const a = await ctxA.newPage();
+  const b = await ctxB.newPage();
+  const c = await ctxC.newPage();
+
+  // 1 HUMANO + 3 BOTS NÃO SE MONTA: sozinho, o anfitrião põe no máximo 2 bots; o 4º lugar é da
+  // 2ª pessoa (sem "+ Bot"), o aviso explica, e "pronto" sozinho não começa nada.
+  const codigo = await criarSala(a, "Tito", "Sapo");
+  await expect(a.locator(".sl-regra")).toContainText("Esta sala precisa de pelo menos 2 jogadores humanos para começar.");
+  // "+ Bot" em cada lugar vago enquanto sobra lugar para a 2ª pessoa (3 vagos → 3); some no 2º bot.
+  await expect(a.locator(".sl-bot.add")).toHaveCount(3, { timeout: 20_000 });
+  await a.locator(".sl-bot.add").first().click();
+  await expect(a.locator(".sl-lugar.robo")).toHaveCount(1, { timeout: 20_000 });
+  await expect(a.locator(".sl-bot.add")).toHaveCount(2, { timeout: 20_000 });
+  await a.locator(".sl-bot.add").first().click();
+  await expect(a.locator(".sl-lugar.robo")).toHaveCount(2, { timeout: 20_000 });
+  await expect(a.locator(".sl-bot.add"), "nenhum '+ Bot' para o 3º bot").toHaveCount(0);
+  await expect(a.locator(".sl-lugar.vago")).toHaveCount(1);
+  await expect(a.locator(".sl-lugar.vago")).toContainText("Lugar do 2º jogador");
+  await a.getByRole("button", { name: /Estou pronto/ }).click();
+  await expect(a.getByRole("button", { name: "✓ Pronto · falta o 2º jogador" })).toBeVisible({ timeout: 15_000 });
+  await a.waitForTimeout(1000);
+  await expect(a.locator(".mesa"), "1 humano + 2 bots não começa").toHaveCount(0);
+  expect(contar(redeA, "match_started")).toBe(0);
+
+  // 2 HUMANOS + 2 BOTS: a 2ª pessoa entra pelo convite, no lugar reservado → mesa cheia.
+  await b.goto(`${NOSSA_ORIGEM}/?sala=${codigo}`);
+  await expect(b.locator(".hm-online input").last()).toHaveValue(codigo);
+  await b.locator(".hm-online input").first().fill("Raiza");
+  await b.getByRole("button", { name: "Entrar na sala" }).click();
+  await b.locator('.hm-avdialogo .hm-av[aria-label="Panda"]').click();
+  await expect(b.locator(".sl-lugares")).toBeVisible({ timeout: 20_000 });
+  await expect(a.locator(".sl-lugar:not(.vago)"), "4 assentos ocupados: 2 humanos + 2 bots").toHaveCount(4, { timeout: 20_000 });
+  await expect(a.locator(".sl-regra")).toHaveCount(0, { timeout: 15_000 });
+  // bicho já usado por um bot deixa a pessoa pendente: escolhe outro, como faria no aparelho
+  await b.waitForTimeout(500);
+  if (await b.locator(".sl-pendente").count()) {
+    await b.locator(".sl-avop:not([disabled])").first().click();
+    await expect(b.locator(".sl-pendente")).toHaveCount(0, { timeout: 10_000 });
+  }
+
+  // A 5ª PESSOA é recusada com o motivo; nada muda na mesa.
+  await c.goto("/");
+  await c.getByRole("button", { name: "Jogar com amigos" }).click();
+  await c.locator(".hm-online input").first().fill("Bia");
+  await c.locator(".hm-online input").last().fill(codigo);
+  await c.getByRole("button", { name: "Entrar na sala" }).click();
+  await c.locator('.hm-avdialogo .hm-av[aria-label="Coruja"]').click();
+  await expect(c.locator(".hm-aviso-convite")).toHaveText("Essa sala já tem quatro jogadores.", { timeout: 20_000 });
+  await expect(c.locator(".hm-online input").first()).toHaveValue("Bia");
+  await expect(c.getByRole("button", { name: "Entrar na sala" })).toBeEnabled();
+  await expect(a.locator(".sl-lugar:not(.vago)")).toHaveCount(4);
+
+  // 2 + 2 COMEÇA quando as duas pessoas estão prontas.
+  await b.getByRole("button", { name: /Estou pronto/ }).click();
+  await expect(a.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+  await expect(b.locator(".mesa")).toBeVisible({ timeout: 30_000 });
+  for (const rede of [redeA, redeB]) {
+    await expect.poll(() => contar(rede, "match_started"), { timeout: 15_000 }).toBe(1);
+    expect(ultimo(rede, "match_started")!.properties).toMatchObject({ modo: "online", humanos: 2, bots: 2 });
+  }
+  expect(contar(redeC, "room_joined"), "a recusada não conta como entrada").toBe(0);
+  expect(contar(redeC, "match_started")).toBe(0);
+
+  // O CÓDIGO DO CONVITE continua protegido: nenhum evento, nenhuma barra, nada guardado pelo analytics.
+  for (const rede of [redeA, redeB, redeC]) {
+    conferirTudoQueSaiu(rede, ["Tito", "Raiza", "Bia", "sala="]);
+    expect(vazamentosDoCodigo(rede.eventos, codigo), "o código da sala apareceu num evento").toEqual([]);
+  }
+  for (const pagina of [a, b, c]) {
+    expect(pagina.url()).not.toContain(codigo);
+    for (const [chave, valor] of await guardadoPeloAnalytics(pagina)) {
+      expect(vazamentosDoCodigo(valor, codigo), `${chave} guardou o código`).toEqual([]);
+    }
+  }
+  await ctxA.close();
+  await ctxB.close();
+  await ctxC.close();
 });
 
 test("convite por link: recarregar, voltar e duas abas nunca entram sozinhos", async ({ browser }) => {

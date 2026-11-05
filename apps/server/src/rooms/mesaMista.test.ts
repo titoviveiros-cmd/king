@@ -258,6 +258,35 @@ describe("2 · composições oficiais da mesa", () => {
     expect(dono.view).toBeNull();
   });
 
+  it("1 humano + 3 bots: a 2ª pessoa NÃO consegue entrar (mesa cheia) — o beco que o lobby agora evita; remover um bot reabre a porta", async () => {
+    // 2º QA físico do Android (03/11/2026): o anfitrião sozinho completou a mesa com 3 bots e a
+    // partida não começou. Este teste fixa o PORQUÊ no servidor (nada aqui mudou): a 2ª pessoa
+    // recebe "sala cheia". O lobby novo reserva o último lugar de que um humano precisa.
+    const { dono, codigo } = await criarSala("Tito");
+    await addBot(dono, 1);
+    await addBot(dono, 2);
+    await addBot(dono, 3);
+    // a recusa chega como fechamento 4002 (SALA_CHEIA); o prazo só impede o teste de pendurar
+    const barrada = await Promise.race([
+      colyseus.sdk.joinById(codigo, opcoes("Raiza")).then(() => "entrou", (e: unknown) => `recusada: ${String((e as { code?: number })?.code ?? e)}`),
+      new Promise<string>((ok) => setTimeout(() => ok("sem resposta"), 4000)),
+    ]);
+    expect(barrada).not.toBe("entrou");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(humanos(dono)).toBe(1);
+    expect(sala(dono).status).toBe("lobby");
+
+    dono.sdk.send("CLIENT_REMOVE_BOT", { seat: 3 });
+    await ate(() => bots(dono) === 2, 8000, "bot removido");
+    // um bicho livre: o padrão pode estar com um bot, e quem entra com bicho em uso fica pendente
+    const livre = AVATARES.find((av) => !assentosDe(dono).some((a) => a.avatar === av));
+    const raiza = await entrar(codigo, "Raiza", livre);
+    await ate(() => ocupados(dono) === 4, 8000, "quatro assentos");
+    dono.sdk.send("CLIENT_SET_READY", { ready: true });
+    raiza.sdk.send("CLIENT_SET_READY", { ready: true });
+    await ate(() => sala(dono).status === "playing", 10_000, "iniciou com 2+2");
+  }, 30_000);
+
   it("o segundo humano chegando destrava a partida travada por composição", async () => {
     const { dono, codigo } = await criarSala("Tito");
     await addBot(dono, 2);

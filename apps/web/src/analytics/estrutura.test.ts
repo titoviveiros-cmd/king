@@ -92,8 +92,12 @@ describe("cada ponto de captura no lugar certo", () => {
 
   it("sala criada/entrada só DEPOIS de abrir de verdade (falha não conta)", () => {
     const f = ler("game/useKingOnline.ts");
-    const abrir = f.indexOf("const s = await abrir(pedido);");
-    expect(abrir).toBeGreaterThan(-1);
+    // Abriu de verdade, NO PRAZO, e a tentativa ainda vale (hotfix vc1): sessão que chega tarde ou
+    // depois de "Sair" é fechada antes de contar.
+    const aberta = f.indexOf("const s = await abrirComPrazo(abrir, pedido);");
+    expect(aberta).toBeGreaterThan(-1);
+    const abrir = f.indexOf("if (minha !== tentativa.current) { s.sair(); return; }", aberta);
+    expect(abrir, "a tentativa vencida é descartada antes de medir").toBeGreaterThan(aberta);
     for (const e of ["room_created", "room_joined"]) {
       const i = f.indexOf(`analytics.track("${e}"`);
       expect(i, e).toBeGreaterThan(abrir);

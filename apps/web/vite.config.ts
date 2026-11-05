@@ -1,6 +1,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+
+// A VERSÃO DO KING tem UMA fonte: o package.json da RAIZ. É o mesmo arquivo de onde
+// `scripts/preparar-mobile.mjs` tira o `versionName` do Android (e `validar-mobile.mjs` confere),
+// então a Home, o AAB e a loja não divergem. Nada de número escrito à mão em componente.
+const VERSAO = (JSON.parse(
+  readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8"),
+) as { version: string }).version;
 
 export default defineConfig({
   plugins: [react()],
@@ -10,6 +18,14 @@ export default defineConfig({
   // e o analytics trata vazio como "development" (ver `src/analytics/contexto.ts`).
   define: {
     __KING_VERCEL_ENV__: JSON.stringify(process.env.VERCEL_ENV ?? ""),
+    __KING_VERSAO__: JSON.stringify(VERSAO),
+    // DIAGNÓSTICO DO ÁUDIO (src/audio/diagnostico.ts): SÓ no APK DEBUG de QA, ligado por
+    // `KING_DIAG_AUDIO=1` no ambiente do build. Não é `VITE_*` de propósito: nenhum arquivo .env
+    // liga isto por acidente. Desligado, o ramo some do pacote.
+    __KING_DIAG_AUDIO__: JSON.stringify(process.env.KING_DIAG_AUDIO === "1"),
+    // Identificador do build DEBUG no relatório do diagnóstico (`KING_DIAG_BUILD`, texto livre curto).
+    // Só é lido pelo painel de diagnóstico; no build normal ninguém o usa.
+    __KING_DIAG_BUILD__: JSON.stringify(process.env.KING_DIAG_AUDIO === "1" ? (process.env.KING_DIAG_BUILD ?? "") : ""),
   },
   resolve: {
     alias: {

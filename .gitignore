@@ -3,11 +3,14 @@ dist/
 dist-e2e-progresso/
 dist-e2e-analytics/
 dist-e2e-sequencia/
+dist-e2e-nativo/
 build/
 *.log
 .DS_Store
 .env
 .env.local
+# Variáveis por modo (ex.: .env.production.local, do build de loja): nunca versionadas.
+.env.*.local
 coverage/
 # Playwright (relatórios e artefatos de diagnóstico)
 playwright-report/

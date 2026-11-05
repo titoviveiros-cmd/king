@@ -33,7 +33,10 @@ import { sfxSocial, sfxTap, sfxTrump } from "../audio/sounds.js";
 import { analytics } from "../analytics/analytics.js";
 import { anunciarInicioDePartida, contarAssentos } from "../analytics/partida.js";
 import { provedorConfigurado } from "../auth/identidade.js";
-import { abridorColyseus, type AbridorDeSessao, type EstadoDaSalaLido, type SessaoKing } from "../net/clienteKing.js";
+import {
+  abridorColyseus, abrirComPrazo, PrazoDaEntradaEsgotado,
+  type AbridorDeSessao, type EstadoDaSalaLido, type SessaoKing,
+} from "../net/clienteKing.js";
 import { servidorConfigurado } from "../net/servidor.js";
 import { esquecerRecuperacao, guardarRecuperacao, lerRecuperacao } from "../net/recuperacao.js";
 import type { AcaoAutomatica, AtualizacaoDeEstado, RelogioDaDecisao } from "../net/protocolo.js";
@@ -315,7 +318,17 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
 
   // ─────────────────────────── abertura e encerramento da sessão ───────────────────────────
 
+  /**
+   * A tentativa de entrar EM CURSO. Sobe a cada entrada nova e a cada limpeza: uma sessão que
+   * chegar de uma tentativa que já não vale (a pessoa saiu durante o "Conectando…") é fechada em
+   * vez de virar uma sala aberta atrás da Home.
+   */
+  const tentativa = useRef(0);
+  const entrando = useRef(false);
+
   const limparSessao = useCallback(() => {
+    tentativa.current++;
+    entrando.current = false;
     sessao.current?.sair();
     sessao.current = null;
     partida.current = null;
@@ -336,12 +349,19 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       setConexao("erro");
       return;
     }
+    // Uma entrada por vez: um segundo toque durante o "Conectando…" abriria uma segunda sala.
+    if (entrando.current) return;
+    entrando.current = true;
+    const minha = ++tentativa.current;
     audio.unlock(); // gesto real do usuário: é aqui que o iOS libera o áudio
     setErro(null);
     setConexao("conectando");
     setScreen("sala");
     try {
-      const s = await abrir(pedido);
+      // COM PRAZO: sem ele, uma etapa muda deixava "Conectando…" para sempre (AAB vc1, Android).
+      const s = await abrirComPrazo(abrir, pedido);
+      if (minha !== tentativa.current) { s.sair(); return; }
+      entrando.current = false;
       sessao.current = s;
       assinar(s);
       // A sala só conta quando EXISTE: criar ou entrar que falhou (código errado, sala cheia,
@@ -352,8 +372,11 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
       setConexao("conectado");
       bump();
     } catch (e) {
-      // Um retorno recusado quase sempre significa sala encerrada: a credencial já não vale.
-      if (pedido.tipo === "voltar") esquecerRecuperacao();
+      if (minha !== tentativa.current) return; // a pessoa já saiu: a falha não é mais dela
+      entrando.current = false;
+      // Um retorno RECUSADO quase sempre significa sala encerrada: a credencial já não vale. Prazo
+      // esgotado não é recusa — a sala pode estar viva, e o "Voltar" tem de continuar possível.
+      if (pedido.tipo === "voltar" && !(e instanceof PrazoDaEntradaEsgotado)) esquecerRecuperacao();
       setErro(mensagemDeFalha(e));
       setConexao("erro");
       setScreen("home");
@@ -417,8 +440,9 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
     setScreen("home");
   }, [limparSessao]);
 
-  // A sala morre com o componente: sem isto, sair da aba deixaria o assento preso até o TTL.
-  useEffect(() => () => { sessao.current?.sair(); }, []);
+  // A sala morre com o componente: sem isto, sair da aba deixaria o assento preso até o TTL. A
+  // tentativa sobe junto, para que uma entrada ainda em curso feche a sessão quando chegar.
+  useEffect(() => () => { tentativa.current++; sessao.current?.sair(); }, []);
 
   // ─────────────────────────── ações da Mesa ───────────────────────────
 
@@ -505,6 +529,11 @@ export function useKingOnline(abridor?: AbridorDeSessao) {
  * parte da falha que ele vê, e uma frase errada é um defeito tão real quanto um estado errado.
  */
 export function mensagemDeFalha(e: unknown): string {
+  // Nenhuma etapa respondeu no prazo (cofre, sessão, servidor ou rede). Não se afirma a causa — o
+  // cliente não sabe qual foi — e o gesto que costuma resolver é tentar de novo.
+  if (e instanceof PrazoDaEntradaEsgotado) {
+    return "O servidor demorou a responder. Confira sua internet e tente de novo.";
+  }
   // O CÓDIGO NUMÉRICO ENTRA NO TEXTO COMPARADO. O erro do Colyseus traz a mensagem do servidor
   // (em português, sem o número) e o código à parte, em `code`: "A sala já tem quatro jogadores"
   // com `code: 4002` caía no genérico "Não foi possível conectar". Visto no e2e do convite por

@@ -12,6 +12,9 @@ name: CI
 #              · matriz i/6      as specs de layout, funcionais e multiplayer nos 13 viewports
 #              · aparelho j/3    androidReal (@aparelho-real): geometria fixa por teste, provas longas
 #              · progresso + analytics   as duas suítes de build próprio
+#              · android simulado   o bundle do app com a ponte nativa do Capacitor simulada
+#                                   (tests-nativo/): Supabase FICTÍCIO interceptado, servidor local,
+#                                   nenhuma requisição sai da máquina e nenhum segredo é lido
 #   portão   o check que responde "está tudo verde": rápido verde E todo e2e verde.
 #
 # Mudança SÓ de documentação não roda o Playwright; o rápido roda sempre, e em `main` roda tudo.
@@ -114,6 +117,7 @@ jobs:
           - { nome: "aparelho real 2/3", playwright: "--grep @aparelho-real --shard=2/3" }
           - { nome: "aparelho real 3/3", playwright: "--grep @aparelho-real --shard=3/3" }
           - { nome: "progresso + analytics", extras: true }
+          - { nome: "android simulado", nativo: true }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -137,7 +141,7 @@ jobs:
       # O bundle é construído aqui, do código deste commit: nenhum shard testa um build herdado.
       # Antes, a seleção precisa ter teste: com `--shard`, uma seleção vazia sairia VERDE.
       - name: Playwright — ${{ matrix.nome }}
-        if: ${{ !matrix.extras }}
+        if: ${{ !matrix.extras && !matrix.nativo }}
         working-directory: apps/web
         run: |
           total=$(npx playwright test --list ${{ matrix.playwright }} | sed -nE 's/^Total: ([0-9]+) tests? in .*/\1/p')
@@ -150,6 +154,15 @@ jobs:
         if: ${{ matrix.extras }}
         working-directory: apps/web
         run: npm run test:e2e:progresso && npm run test:e2e:analytics
+
+      # O defeito do AAB 0.1.0 vc1 ("Criar sala" em "Conectando…" para sempre) só existia no cruzamento
+      # identidade + servidor + ponte nativa, que nenhuma outra suíte monta. O build lê SÓ o
+      # .env.e2e-nativo versionado (Supabase fictício, servidor em localhost — provado por
+      # src/nativo/ambienteE2eNativo.test.ts no rápido); este passo não recebe segredo nenhum.
+      - name: Playwright — android simulado
+        if: ${{ matrix.nativo }}
+        working-directory: apps/web
+        run: npm run test:e2e:nativo
 
       # Só quando algo falha: sobe relatório + screenshots como artefato de diagnóstico.
       - name: Artefatos de diagnóstico (só em falha)

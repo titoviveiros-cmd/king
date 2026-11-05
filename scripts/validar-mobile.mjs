@@ -170,6 +170,55 @@ if (pedido === "android" && !TEM_ANDROID) {
   if (!/^socialLogin\.facebook\.include=false$/m.test(propsDoLogin)) {
     falhar("SDK do Facebook NÃO desligado no plugin de login (socialLogin.facebook.include) — rode `cap sync`");
   } else ok("plugin de login sem SDK do Facebook (Android)");
+
+  // ÍCONE E SPLASH: byte a byte iguais à arte aprovada já versionada. Qualquer diferença é o
+  // placeholder do Capacitor (ou uma arte que ninguém aprovou) prestes a ir para a loja.
+  const RECURSOS = "apps/web/recursos-nativos/res-android/";
+  const diferentes = [];
+  let conferidos = 0;
+  const conferir = (rel) => {
+    for (const e of readdirSync(caminho(RECURSOS + rel), { withFileTypes: true })) {
+      const r = rel + e.name;
+      if (e.isDirectory()) { conferir(r + "/"); continue; }
+      conferidos += 1;
+      const alvo = `apps/web/android/app/src/main/res/${r}`;
+      if (!existsSync(caminho(alvo)) || !readFileSync(caminho(alvo)).equals(readFileSync(caminho(RECURSOS + r)))) diferentes.push(r);
+    }
+  };
+  if (existsSync(caminho(RECURSOS))) conferir("");
+  if (conferidos === 0) falhar("recursos-nativos/res-android/ vazio — rode scripts/gerar-recursos-android.mjs");
+  else if (diferentes.length > 0) falhar(`ícone/splash diferentes da arte aprovada (${diferentes.length}: ${diferentes.slice(0, 3).join(", ")}…) — rode mobile:preparar`);
+  else ok(`ícone (adaptativo, legado, redondo) e splash = arte aprovada (${conferidos} arquivos)`);
+
+  const estilos = ler("apps/web/android/app/src/main/res/values/styles.xml");
+  if (!/name="windowSplashScreenBackground">@color\/king_splash_fundo</.test(estilos)) {
+    falhar("splash do Android 12+ sem o fundo do KING (windowSplashScreenBackground) — rode mobile:preparar");
+  } else ok("splash do Android 12+: fundo do app e ícone do KING");
+
+  // SPLASH DO ANDROID 7–11: a layer-list (cor + emblema centralizado), nunca um bitmap de tela
+  // inteira — esse o Android estica, e o emblema sai achatado num celular 20:9.
+  const esticaveis = readdirSync(caminho("apps/web/android/app/src/main/res/"))
+    .filter((pasta) => pasta.startsWith("drawable") && existsSync(caminho(`apps/web/android/app/src/main/res/${pasta}/splash.png`)));
+  if (!/<item name="android:background">@drawable\/king_splash<\/item>/.test(estilos)) {
+    falhar("splash do Android 7–11 não usa a layer-list king_splash — rode mobile:preparar");
+  } else if (esticaveis.length > 0) {
+    falhar(`splash.png de tela inteira ainda no projeto (${esticaveis.join(", ")}) — rode mobile:preparar`);
+  } else ok("splash do Android 7–11: cor do app + emblema centralizado, sem esticar");
+
+  // O ícone-modelo do Capacitor (o "X" azul, em vetor) não pode viajar no pacote, nem sem uso.
+  const modelo = ["drawable-v24/ic_launcher_foreground.xml", "drawable/ic_launcher_background.xml"]
+    .filter((p) => existsSync(caminho(`apps/web/android/app/src/main/res/${p}`)));
+  if (modelo.length > 0) falhar(`ícone-modelo do Capacitor ainda no projeto (${modelo.join(", ")}) — rode mobile:preparar`);
+  else ok("sem o ícone-modelo do Capacitor no projeto");
+
+  // ASSINATURA: ligada no build.gradle, lida do ambiente — e nenhuma senha escrita em arquivo.
+  const assinatura = existsSync(caminho("apps/web/android/app/assinatura-king.gradle")) ? ler("apps/web/android/app/assinatura-king.gradle") : "";
+  const senhaEscrita = /store(Password|File)\s*["']|keyPassword\s*["']/;
+  if (!/apply from: 'assinatura-king\.gradle'/.test(gradle) || !assinatura) {
+    falhar("assinatura de release não ligada (assinatura-king.gradle) — rode mobile:preparar");
+  } else if (senhaEscrita.test(gradle) || senhaEscrita.test(assinatura) || !/System\.getenv\("KING_UPLOAD_STORE_PASSWORD"\)/.test(assinatura)) {
+    falhar("assinatura com valor ESCRITO em arquivo — senha e keystore só podem vir do ambiente");
+  } else ok("assinatura de release: keystore fora do repo, senhas só do ambiente, release sem assinatura recusado");
 }
 
 // ───────────────────────── iOS ─────────────────────────

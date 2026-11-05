@@ -47,6 +47,40 @@ describe("token(): renovação que falhou NÃO vira convidado novo", () => {
   });
 });
 
+describe("token() depois do PRAZO da credencial (hotfix vc1): um convidado só", () => {
+  // O prazo de 8 s (`credencialPara`) solta a ESPERA, não a criação: o `signInAnonymously` lento
+  // continua em voo. Sem isto, tocar "Criar sala" de novo chamava `token()` outra vez, o
+  // `getSession()` ainda vazio respondia "sem sessão" e nascia um SEGUNDO convidado por cima.
+  it("criação de convidado ainda em voo: a nova chamada espera a mesma, e ninguém mais é criado", async () => {
+    const chamadas: string[] = [];
+    let liberar!: () => void;
+    const lenta = new Promise<void>((ok) => { liberar = ok; });
+    estado.porta = {
+      async getSession() { chamadas.push("getSession"); return { data: { session: null }, error: null }; },
+      async signInAnonymously() {
+        chamadas.push("signInAnonymously");
+        await lenta;
+        return { data: { session: { access_token: "jwt-do-unico-convidado" } } };
+      },
+    };
+    const primeira = identidadeSupabase(cfg).token(); // a que o prazo abandonou
+    await vi.waitFor(() => expect(chamadas).toContain("signInAnonymously"));
+    const segunda = identidadeSupabase(cfg).token(); // o novo toque em "Criar sala"
+    await new Promise((ok) => setTimeout(ok, 0));
+    liberar();
+    expect(await primeira).toBe("jwt-do-unico-convidado");
+    expect(await segunda).toBe("jwt-do-unico-convidado");
+    expect(chamadas.filter((c) => c === "signInAnonymously"), "convidado duplicado").toHaveLength(1);
+  });
+
+  it("terminada a chamada, a próxima consulta a sessão de novo (nada fica guardado)", async () => {
+    const chamadas = porta({ session: { access_token: "jwt-1", user: { id: "u1" } } });
+    expect(await identidadeSupabase(cfg).token()).toBe("jwt-1");
+    expect(await identidadeSupabase(cfg).token()).toBe("jwt-1");
+    expect(chamadas.filter((c) => c === "getSession")).toHaveLength(2);
+  });
+});
+
 describe("a conta na Home dentro do app", () => {
   const ligar = () => {
     vi.stubEnv("VITE_SUPABASE_URL", "https://exemplo.supabase.co");

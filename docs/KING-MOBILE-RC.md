@@ -65,8 +65,9 @@ para QA de identidade. O build de QA tem de usar a mesma configuração pública
 | Backup / transferência entre aparelhos | `app_webview/` (onde mora a sessão do convidado) **excluído** do backup na nuvem e da transferência (`dataExtractionRules` + `fullBackupContent`), validado no portão — restaurar a sessão noutro aparelho CLONARIA a identidade e o Supabase derrubaria as duas (red team) | ✅ (decisão A, congelada) |
 | Orientação | `sensorLandscape`; **o Android 16 ignora a trava em tela grande (tablet)** — o `RotateGate` (aviso de girar) cobre o retrato | P1 |
 | Margens edge-to-edge | o Capacitor 8 tirou `adjustMarginsForEdgeToEdge`; o KING usa `env(safe-area-inset-*)` — **conferir em aparelho com recorte** | gate de QA |
-| Assinatura de release | **não existe** (upload key + Play App Signing) | **P0** (ação do Tito) |
-| Ícone adaptativo / splash | **padrão do Capacitor** | **P0** (depende da arte) |
+| Assinatura de release | **preparada** (02/11): `preparar-mobile.mjs` gera `android/app/assinatura-king.gradle` — keystore fora do repo (`~/king-release-privado/king-upload.jks`, alias `king-upload`), senhas só do ambiente (`KING_UPLOAD_STORE_PASSWORD`); release sem assinatura é **recusado** pelo Gradle. Falta: Play App Signing na Play Console | P0 (ação do Tito) |
+| Ícone adaptativo / splash | **arte aprovada integrada** (02/11): `scripts/gerar-recursos-android.mjs` gera de `apps/web/recursos-nativos/arte/king-icone-aprovado-512.png` (hash fixado); `mobile:preparar` copia, `mobile:validar` confere byte a byte. Splash 7–11 = `layer-list` (cor + emblema 128 dp centralizado, não estica); 12+ = splash do sistema. A v2 de sangria total segue **pendente** e não é usada; o ícone da ficha da Play está **pendente de decisão** | ✅ |
+| Login Google no Android | **pendente** (lançamento público): sem `VITE_KING_GOOGLE_WEB_CLIENT_ID`, o app não oferece o Google (`provedoresNativos` → `[]`) e joga como convidado. Falta: clientes OAuth Web + Android (SHA-1 da Play App Signing) e o provedor no Supabase | P1 |
 | App Links | sem `intent-filter` (seção 9) | P1 |
 | `versionCode` | `1` fixo; precisa crescer a cada envio (`KING_BUILD_NUMBER` no CI) | P1 |
 | Prova de compilação em CI | `.github/workflows/mobile.yml` existe só no commit local `d3e1ffb`: o token do git não tem escopo `workflow` | P1 |

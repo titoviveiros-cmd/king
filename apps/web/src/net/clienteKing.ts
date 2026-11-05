@@ -147,7 +147,27 @@ function vazio(): EstadoDaSalaLido {
 }
 
 /**
- * A CREDENCIAL, SE HOUVER — e nunca uma exceção.
+ * OS PRAZOS DA ENTRADA (hotfix do AAB 0.1.0 vc1). No Android, "Criar sala" ficou em "Conectando…"
+ * para sempre: a credencial esperava um cofre que nunca ficava pronto, e nada ali tinha prazo.
+ * Corrigida a causa, o prazo continua — qualquer etapa muda (cofre, Supabase, matchmaking, socket)
+ * repetiria o mesmo sintoma.
+ *
+ * A credencial tem a menor parte: esgotada, a entrada segue SEM token e quem responde é o servidor
+ * (com identidade obrigatória, a frase do 4005). Nunca se cria convidado por causa de um prazo.
+ */
+export const PRAZO_DA_CREDENCIAL_MS = 8_000;
+export const PRAZO_DA_ENTRADA_MS = 20_000;
+
+/** A entrada não terminou no prazo. Tem frase própria em `mensagemDeFalha`. */
+export class PrazoDaEntradaEsgotado extends Error {
+  constructor() {
+    super("prazo da entrada esgotado");
+    this.name = "PrazoDaEntradaEsgotado";
+  }
+}
+
+/**
+ * A CREDENCIAL, SE HOUVER — e nunca uma exceção, nem uma espera sem fim.
  *
  * O adaptador do provedor já engole os próprios erros, mas a garantia não pode depender de quem
  * implementa a porta: `ProvedorDeIdentidade` é uma interface, e um provedor futuro pode lançar.
@@ -156,12 +176,47 @@ function vazio(): EstadoDaSalaLido {
  */
 export async function credencialPara(
   identidade?: ProvedorDeIdentidade | null,
+  prazoMs = PRAZO_DA_CREDENCIAL_MS,
 ): Promise<string | undefined> {
+  if (!identidade) return undefined;
+  let id: ReturnType<typeof setTimeout> | undefined;
   try {
-    return (await identidade?.token()) || undefined;
+    const token = await Promise.race([
+      identidade.token(),
+      new Promise<undefined>((ok) => { id = setTimeout(() => ok(undefined), prazoMs); }),
+    ]);
+    return token || undefined;
   } catch {
     return undefined;
+  } finally {
+    clearTimeout(id);
   }
+}
+
+/**
+ * ABRE COM PRAZO. Sem resposta no prazo, falha com `PrazoDaEntradaEsgotado`; a sessão que ainda
+ * chegar depois é FECHADA na hora — a pessoa já viu a falha, e uma sala aberta que ninguém vê
+ * ficaria presa no servidor (e com o assento dela) até o TTL.
+ */
+export function abrirComPrazo(
+  abrir: AbridorDeSessao, pedido: Pedido, prazoMs = PRAZO_DA_ENTRADA_MS,
+): Promise<SessaoKing> {
+  return new Promise((ok, falha) => {
+    let esgotou = false;
+    const id = setTimeout(() => { esgotou = true; falha(new PrazoDaEntradaEsgotado()); }, prazoMs);
+    abrir(pedido).then(
+      (s) => {
+        if (esgotou) { s.sair(); return; }
+        clearTimeout(id);
+        ok(s);
+      },
+      (e: unknown) => {
+        if (esgotou) return;
+        clearTimeout(id);
+        falha(e);
+      },
+    );
+  });
 }
 
 /**
