@@ -33,15 +33,25 @@ function meta(chave: string): string {
 
 /**
  * Cada versão da imagem e o seu conteúdo (sha256). NUNCA editar uma linha que já existe: os apps
- * guardam a prévia pelo endereço, então imagem nova = nome novo (v4) = linha nova aqui.
+ * guardam a prévia pelo endereço, então imagem nova = nome novo (v5) = linha nova aqui. (A linha da
+ * v4 mudou UMA vez antes de qualquer commit ou publicação: o convite escrito saiu da imagem.)
  */
 const VERSOES_DA_IMAGEM: Record<string, string> = {
   // nunca publicada: o 10♠ da arte tinha 7 espadas
   "king-social-v2-1200x630.jpg": "4ad602096f69bee815aa021b7d4719bfa0c83ab5432df39be02b3af37575df2b",
   // a primeira publicada: K♥ uma vez só, na mão do rei; A♠, Q♦, J♣ e 10♠ únicos; 10♠ com 10 espadas
   "king-social-v3-1200x630.jpg": "8e897e7808b134519a277207c47190eaa167fbdf03c7772b6ddbbf73362abb26",
+  // o emblema aprovado (o mesmo ícone do app Android e da Google Play), no centro, sobre a noite do
+  // app, SEM texto (o convite fica nas metatags); gerada por scripts/gerar-imagem-social.mjs
+  "king-social-v4-1200x630.jpg": "81ba39d84a55ad6ee8190d746da6036a498efcc1c0e16941a6843be6c602e74a",
 };
+/**
+ * Versões que JÁ FORAM PUBLICADAS e ficam em public/ só para as prévias já compartilhadas (o app
+ * guardou o endereço delas). Nenhuma pode voltar a ser a apontada pelo HTML.
+ */
+const HISTORICAS = ["king-social-v3-1200x630.jpg"];
 const RAIZ = join(WEB, "../../");
+const versaoDoNome = (nome: string) => Number(nome.match(/^king-social-v(\d+)-1200x630\.jpg$/)![1]);
 
 /** O arquivo de `public/` que a URL absoluta da imagem serve. */
 const arquivoDaImagem = () => join(WEB, "public", meta("og:image").slice(SITE.length));
@@ -81,8 +91,12 @@ describe("as metatags estão no HTML fixo, uma vez cada", () => {
   it("o nome curto do app continua KING (o <title> longo é só da aba e da prévia)", () => {
     expect(meta("application-name")).toBe("KING");
     expect(meta("apple-mobile-web-app-title")).toBe("KING");
-    // Sem manifest hoje. Se um chegar, name/short_name precisam dizer KING — e este teste, conferir.
-    expect(HEAD, "manifest novo: conferir name/short_name = KING aqui").not.toMatch(/rel="manifest"/);
+    // O manifest (atalho do Android) também diz KING, no nome e no nome curto.
+    const manifestos = [...HEAD.matchAll(/<link\b[^>]*\brel="manifest"[^>]*>/gi)];
+    expect(manifestos).toHaveLength(1);
+    const manifest = JSON.parse(readFileSync(join(WEB, "public", atributos(manifestos[0][0]).href), "utf8"));
+    expect(manifest.name).toBe("KING");
+    expect(manifest.short_name).toBe("KING");
   });
 
   it("o charset vem antes de qualquer texto com acento", () => {
@@ -114,9 +128,26 @@ describe("o que o cartão mostra", () => {
     expect(meta("og:locale")).toBe("pt_BR");
   });
 
-  it("o texto alternativo descreve a arte certa: o rei com o K de copas", () => {
-    expect(meta("og:image:alt")).toMatch(/K de copas/);
-    expect(meta("twitter:image:alt")).toBe(meta("og:image:alt"));
+  it("o texto alternativo descreve a arte certa: o emblema aprovado, e nada que não esteja nela", () => {
+    const alt = meta("og:image:alt");
+    expect(alt).toBe("O emblema do KING: coroa dourada entre os quatro naipes e a palavra KING sobre feltro verde");
+    // a imagem não tem texto desenhado: o alternativo não pode prometer convite escrito
+    expect(alt).not.toMatch(/convite|Jogue/i);
+    // nada da arte anterior (o rei personagem segurando o K de copas)
+    expect(alt).not.toMatch(/rei do KING|K de copas|sorridente/);
+    expect(meta("twitter:image:alt")).toBe(alt);
+  });
+
+  it("nenhum texto na imagem (nada para o recorte cortar) e o emblema dentro do quadrado central", () => {
+    const script = readFileSync(join(RAIZ, "scripts/gerar-imagem-social.mjs"), "utf8");
+    // o gerador não escreve letra nenhuma: o convite vive no título e na descrição
+    expect(script).not.toMatch(/fillText|strokeText|FontFace|\.font\s*=/);
+    expect(script).toMatch(/arteAprovada\(\)/);
+    // o emblema, centralizado, cabe no recorte quadrado de 630×630 com folga de 60 px por lado
+    const lado = Number(script.match(/const LADO = (\d+);/)![1]);
+    expect(lado, "emblema grande o bastante para ser a estrela da prévia").toBeGreaterThanOrEqual(420);
+    expect((630 - lado) / 2, "folga no recorte quadrado").toBeGreaterThanOrEqual(60);
+    expect(script).toMatch(/cx = largura \/ 2, cy = altura \/ 2/);
   });
 });
 
@@ -154,13 +185,34 @@ describe("a imagem existe e é o que as metatags dizem", () => {
     expect(createHash("sha256").update(readFileSync(arquivoDaImagem())).digest("hex")).toBe(VERSOES_DA_IMAGEM[nome]);
   });
 
-  it("uma imagem social só, a apontada — e nenhuma versão antiga citada no HTML, no script ou na documentação", () => {
+  it("a apontada é a versão mais nova; em public/ só ela e as históricas — e nenhuma antiga citada no HTML, no script ou na documentação", () => {
     const nome = meta("og:image").slice(SITE.length);
-    expect(readdirSync(join(WEB, "public")).filter((f) => f.startsWith("king-social-"))).toEqual([nome]);
+    expect(HISTORICAS, "a apontada não pode ser histórica").not.toContain(nome);
+    expect(readdirSync(join(WEB, "public")).filter((f) => f.startsWith("king-social-")).sort())
+      .toEqual([nome, ...HISTORICAS].sort());
+    for (const h of HISTORICAS) expect(versaoDoNome(nome), `${nome} mais nova que ${h}`).toBeGreaterThan(versaoDoNome(h));
     for (const f of ["apps/web/index.html", "docs/KING-PUBLICACAO.md", "scripts/gerar-imagem-social.mjs"]) {
       const citadas = [...readFileSync(join(RAIZ, f), "utf8").matchAll(/king-social-v\d+-1200x630\.jpg/g)].map((m) => m[0]);
       expect(citadas.filter((c) => c !== nome), f).toEqual([]);
     }
+  });
+
+  it("cada histórica continua servível: JPEG baseline 1200×630, até 250 kB, conteúdo intacto (sha)", () => {
+    expect(HISTORICAS.length).toBeGreaterThan(0);
+    for (const h of HISTORICAS) {
+      const arquivo = join(WEB, "public", h);
+      expect(existsSync(arquivo), `${h} em public/ (senão a prévia antiga vira HTML)`).toBe(true);
+      const b = readFileSync(arquivo);
+      const q = quadroDoJpeg(b);
+      expect([q.marcador, q.largura, q.altura], h).toEqual([0xc0, 1200, 630]);
+      expect(b.length, h).toBeLessThanOrEqual(250 * 1024);
+      expect(VERSOES_DA_IMAGEM[h], `${h} registrada`).toBeDefined();
+      expect(createHash("sha256").update(b).digest("hex"), h).toBe(VERSOES_DA_IMAGEM[h]);
+    }
+  });
+
+  it("nenhuma histórica é referenciada pelo HTML inteiro (nem fora do <head>, nem em comentário)", () => {
+    for (const h of HISTORICAS) expect(HTML, h).not.toContain(h);
   });
 });
 

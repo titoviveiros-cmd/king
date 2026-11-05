@@ -1,38 +1,45 @@
-// A IMAGEM DA PRÉVIA DO LINK (WhatsApp, Facebook, Telegram, X), feita a partir da arte final.
+// A IMAGEM DA PRÉVIA DO LINK (WhatsApp, Facebook, Telegram, X, iMessage), feita a partir da arte
+// APROVADA — a mesma do ícone do app Android e da ficha da Google Play.
 //
-// Entrada: docs/arte/king-compartilhamento-arte-v3.png — a arte como veio (1730×909): o rei segura
-//          o K de copas, que aparece UMA vez; as outras cartas (A♠, Q♦, J♣, 10♠) também são únicas,
-//          e o 10♠ tem as 10 espadas de uma carta real (4 + 2 + 4). A proporção dela (1,903) já é
-//          a do Open Graph (1200×630 = 1,905): redimensiona inteira, sem corte (0,08% na altura).
-// Saída:   apps/web/public/king-social-v3-1200x630.jpg — JPEG baseline 1200×630, qualidade 85.
-//          O WhatsApp descarta na prática og:image acima de ~300 kB; o script recusa passar de
-//          250 kB, para sobrar folga.
+//   node scripts/gerar-imagem-social.mjs              gera a imagem em apps/web/public/
+//   node scripts/gerar-imagem-social.mjs --conferir   refaz em memória e compara byte a byte
 //
-// REPRODUTÍVEL: quem redimensiona e codifica é o Chromium do Playwright fixado no package-lock, em
-// modo software (--disable-gpu). Na MESMA plataforma, a mesma arte com o mesmo Playwright dá o mesmo
-// arquivo, byte a byte (provado em Windows x64, Chromium 151.0.7922.34) — `--conferir` refaz a
-// imagem em memória e compara com a versionada. Em outra plataforma o codificador pode variar sem
-// defeito: a referência é a imagem versionada, com o sha256 travado em
-// apps/web/src/ui/previaDoLink.test.ts.
+// Entrada: apps/web/recursos-nativos/arte/king-icone-aprovado-512.png (hash conferido em
+//          scripts/lib/identidade-web.mjs). Nada de personagem nem logotipo novo: o emblema
+//          aprovado, inteiro e sem retoque, sobre as cores do próprio app (a noite do theme.css).
+// Saída:   apps/web/public/king-social-v4-1200x630.jpg — JPEG baseline 1200×630, qualidade 85.
 //
-// ARTE NOVA = ARQUIVO NOVO: trocar a entrada, subir a versão no nome da saída (v3 → v4: os apps
-// guardam a prévia pelo endereço), rodar `node scripts/gerar-imagem-social.mjs`, atualizar
-// og:image e twitter:image em apps/web/index.html e registrar o sha novo no teste.
-import { createRequire } from "node:module";
-import { createHash } from "node:crypto";
+// SEM TEXTO NA IMAGEM: o convite fica no título e na descrição das metatags, que o app mostra
+// embaixo da imagem. Assim nenhuma letra é cortada quando o app recorta a prévia.
+// O emblema fica no CENTRO e cabe, com folga, no QUADRADO central de 630×630 (o recorte que o
+// WhatsApp faz na prévia pequena): de 1200 de largura sobra o miolo de x = 285 a 915, e o emblema
+// ocupa x = 360 a 840 (75 px de folga de cada lado). O fundo é da própria imagem, então ela é a
+// mesma nos temas claro e escuro dos apps.
+//
+// O WhatsApp descarta na prática og:image acima de ~300 kB; o script recusa passar de 250 kB.
+//
+// REPRODUTÍVEL: quem desenha e codifica é o Chromium do Playwright fixado no package-lock, em
+// modo software (--disable-gpu). Na MESMA plataforma sai o mesmo arquivo, byte a byte (provado em
+// Windows x64, Chromium 151.0.7922.34). Em outra plataforma o codificador pode variar sem defeito:
+// a referência é a imagem versionada, com o sha256 travado em apps/web/src/ui/previaDoLink.test.ts.
+//
+// ARTE NOVA = ARQUIVO NOVO: subir a versão no nome da saída (v4 → v5: os apps guardam a prévia
+// pelo endereço), rodar o script, registrar a anterior como HISTÓRICA no teste (ela fica em
+// public/ para as prévias já compartilhadas), atualizar og:image e twitter:image em
+// apps/web/index.html e registrar o sha novo no teste.
 import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { PREPARAR_EMBLEMA, abrirNavegador, arteAprovada, raiz, sha } from "./lib/identidade-web.mjs";
 
-const raiz = (rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
-const ENTRADA = "docs/arte/king-compartilhamento-arte-v3.png";
-const SAIDA = "apps/web/public/king-social-v3-1200x630.jpg";
+const SAIDA = "apps/web/public/king-social-v4-1200x630.jpg";
 const LARGURA = 1200;
 const ALTURA = 630;
+/** Lado do emblema: cabe no quadrado central de 630 com 75 px de folga em cada lado. */
+const LADO = 480;
 const QUALIDADE = 0.85;
 const TETO = 250 * 1024;
 const conferir = process.argv.includes("--conferir");
 
-const sha = (b) => createHash("sha256").update(b).digest("hex");
+if (LADO > ALTURA - 2 * 60) throw new Error(`emblema de ${LADO} px não deixa folga no quadrado central de ${ALTURA}`);
 
 /** Largura e altura do quadro do JPEG (SOF), e se ele é baseline (SOF0). */
 function quadroDoJpeg(b) {
@@ -49,31 +56,45 @@ function quadroDoJpeg(b) {
   throw new Error("JPEG sem quadro (SOF)");
 }
 
-const original = readFileSync(raiz(ENTRADA));
-if (original.readUInt32BE(12) !== 0x49484452) throw new Error(`${ENTRADA} não é PNG`);
-const [w, h] = [original.readUInt32BE(16), original.readUInt32BE(20)];
-if (Math.abs(w / h / (LARGURA / ALTURA) - 1) > 0.01) {
-  throw new Error(`a arte tem ${w}×${h}: a proporção foge mais de 1% da de ${LARGURA}×${ALTURA} — recortar antes`);
-}
-
-const { chromium } = createRequire(raiz("apps/web/package.json"))("playwright");
-const navegador = await chromium.launch({ args: ["--disable-gpu"] });
+const bruto = arteAprovada();
+const navegador = await abrirNavegador();
 const versao = navegador.version();
 let jpeg;
 try {
   const pagina = await navegador.newPage();
-  const base64 = await pagina.evaluate(async ({ png, largura, altura, qualidade }) => {
-    const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
-    const arte = await createImageBitmap(new Blob([bytes], { type: "image/png" }), {
-      resizeWidth: largura, resizeHeight: altura, resizeQuality: "high",
-    });
-    const tela = new OffscreenCanvas(largura, altura);
-    tela.getContext("2d").drawImage(arte, 0, 0);
-    const saida = new Uint8Array(await (await tela.convertToBlob({ type: "image/jpeg", quality: qualidade })).arrayBuffer());
+  await pagina.evaluate(PREPARAR_EMBLEMA, bruto.toString("base64"));
+  const base64 = await pagina.evaluate(async ({ largura, altura, lado, qualidade }) => {
+    const { emblema, reduzir } = window.__emblema;
+    const tela = document.createElement("canvas");
+    tela.width = largura;
+    tela.height = altura;
+    const g = tela.getContext("2d");
+    const cx = largura / 2, cy = altura / 2;
+    // O fundo: a noite do app (--night #140a24 nas bordas, --surface2 #2d1a56 no centro).
+    const fundo = g.createRadialGradient(cx, cy, 40, cx, cy, largura * 0.62);
+    fundo.addColorStop(0, "#2d1a56");
+    fundo.addColorStop(1, "#140a24");
+    g.fillStyle = fundo;
+    g.fillRect(0, 0, largura, altura);
+    // O brilho dourado atrás do emblema (o dourado da coroa).
+    const brilho = g.createRadialGradient(cx, cy, lado * 0.3, cx, cy, lado * 0.82);
+    brilho.addColorStop(0, "rgba(255, 196, 64, 0.38)");
+    brilho.addColorStop(1, "rgba(255, 196, 64, 0)");
+    g.fillStyle = brilho;
+    g.fillRect(0, 0, largura, altura);
+    // O emblema aprovado, inteiro, com sombra.
+    g.shadowColor = "rgba(0, 0, 0, 0.55)";
+    g.shadowBlur = 28;
+    g.shadowOffsetY = 10;
+    g.imageSmoothingQuality = "high";
+    g.drawImage(reduzir(emblema, lado), Math.round(cx - lado / 2), Math.round(cy - lado / 2));
+
+    const blob = await new Promise((ok) => tela.toBlob(ok, "image/jpeg", qualidade));
+    const saida = new Uint8Array(await blob.arrayBuffer());
     let s = "";
     for (let i = 0; i < saida.length; i += 0x8000) s += String.fromCharCode(...saida.subarray(i, i + 0x8000));
     return btoa(s);
-  }, { png: original.toString("base64"), largura: LARGURA, altura: ALTURA, qualidade: QUALIDADE });
+  }, { largura: LARGURA, altura: ALTURA, lado: LADO, qualidade: QUALIDADE });
   jpeg = Buffer.from(base64, "base64");
 } finally {
   await navegador.close();
@@ -85,7 +106,7 @@ if (quadro.largura !== LARGURA || quadro.altura !== ALTURA || !quadro.baseline) 
 }
 if (jpeg.length > TETO) throw new Error(`saída com ${jpeg.length} bytes: acima do teto de ${TETO}`);
 console.log(`chromium ${versao}`);
-console.log(`arte    ${ENTRADA}  ${w}×${h}  sha256 ${sha(original)}`);
+console.log(`arte    sha256 ${sha(bruto).slice(0, 16)}… (aprovada) · emblema ${LADO}×${LADO} no centro`);
 if (conferir) {
   const versionada = readFileSync(raiz(SAIDA));
   const igual = versionada.equals(jpeg);

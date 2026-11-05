@@ -273,39 +273,66 @@ Colar `https://playkingcards.com.br` numa conversa monta um cartão com imagem, 
   Graph (`og:*`) e o cartão do X (`twitter:*`). Os robôs de prévia leem o HTML cru e **não rodam
   JavaScript**, por isso nada disso pode vir do React. Endereços **absolutos** do domínio público.
   Mesmo padrão do Titoko (DEC-222).
-- **Imagem:** `apps/web/public/king-social-v3-1200x630.jpg`, JPEG baseline **1200×630** (o 1,91:1 do
-  Open Graph), 165.378 bytes (o WhatsApp descarta, na prática, `og:image` acima de ~300 kB). Sai da
-  arte final, guardada como veio em `docs/arte/king-compartilhamento-arte-v3.png` (1730×909, sha256
-  `4f9723a03c735b4a…`): o rei segura o **K de copas**, que aparece uma vez só; as outras cartas
-  (A♠, Q♦, J♣, 10♠) também são únicas, e o 10♠ tem as **10 espadas** de uma carta real (4 + 2 + 4,
-  com os índices nos cantos). A versão anterior nunca foi publicada: o 10♠ dela tinha 7 espadas.
+- **Imagem:** `apps/web/public/king-social-v4-1200x630.jpg`, JPEG baseline **1200×630** (o 1,91:1 do
+  Open Graph), 70.086 bytes (o WhatsApp descarta, na prática, `og:image` acima de ~300 kB). Sai da
+  **arte aprovada**, a mesma do ícone do app Android e da ficha da Google Play
+  (`apps/web/recursos-nativos/arte/king-icone-aprovado-512.png`, sha256 `66854c2564df33ed…`): o
+  emblema inteiro, sem retoque, 480×480 no centro, sobre a noite do app (`#140a24` → `#2d1a56`).
+  **Sem texto na imagem:** o convite fica no título e na descrição, que o app mostra embaixo; assim
+  nada é cortado. O emblema cabe no quadrado central de 630×630 (o recorte da prévia pequena do
+  WhatsApp) com 75 px de folga de cada lado, e o fundo é da própria imagem (igual nos temas claro e
+  escuro). Nenhum personagem nem logotipo novo.
+  *Histórico:* a v3 (publicada até esta troca) era a arte do rei personagem segurando o K de copas
+  (`docs/arte/king-compartilhamento-arte-v3.png`). O JPEG dela **continua em `public/`** como
+  recurso histórico, para as prévias já compartilhadas não virarem HTML; o HTML não a referencia
+  mais. A v2 nunca foi publicada.
 - **Reprodutível:** `node scripts/gerar-imagem-social.mjs` gera a imagem com o Chromium do
   Playwright fixado no package-lock, em modo software; `--conferir` refaz em memória e compara byte a
   byte com a versionada. Na mesma plataforma sai igual (provado em Windows x64); em outra, o
   codificador pode variar sem defeito, e a referência é a imagem versionada (sha travado no teste).
+- **Ícones do site** (`node scripts/gerar-icones-web.mjs`, mesma arte, mesmo `--conferir`):
+  `apple-touch-icon.png` (180×180, RGB sem alfa: tela de início do iPhone/iPad, o iOS arredonda;
+  os cantos de fora do emblema viram o feltro `#00290C`, o mesmo fundo do ícone adaptativo do
+  Android), `favicon.ico` (16/32/48), `icon-192.png` e `icon-512.png` (cantos transparentes) e
+  `icon-maskable-512.png` (feltro + emblema na proporção 68/108 do adaptativo do Android). Antes
+  deles, o `<head>` não declarava ícone nenhum: o iPhone pedia `/apple-touch-icon.png` à raiz, a
+  Vercel devolvia o `index.html` com 200 e o iOS usava uma foto da página.
 - **Nome curto:** `application-name` e `apple-mobile-web-app-title` = `KING`. O `<title>` longo
   ("KING: Jogue cartas com amigos") fica para a aba e para a prévia; o "Adicionar à tela inicial"
-  usa o nome curto. Não há manifest (não é PWA).
+  usa o nome curto. O `manifest.webmanifest` (atalho do Android) diz `KING` no nome e no nome curto,
+  abre `/` em `standalone` com as cores do app e **não** fixa orientação. Sem Service Worker e sem
+  cache offline (não é PWA offline).
 - **Travas:** `apps/web/src/ui/previaDoLink.test.ts`: cada metatag uma vez, URLs absolutas, nome
-  curto KING, a imagem existe em `public/`, é JPEG 1200×630 de verdade, tem até 250 kB, o conteúdo
-  (sha256) é o da versão do nome, só existe uma imagem social em `public/`, e nenhum código mexe no
-  head.
+  curto KING (também no manifest), a imagem existe em `public/`, é JPEG 1200×630 de verdade, tem até
+  250 kB, o conteúdo (sha256) é o da versão do nome, o texto alternativo descreve só o emblema, o
+  gerador não desenha texto e o emblema cabe no quadrado central, a apontada é a versão mais nova,
+  em `public/` só existem ela e as históricas registradas (cada histórica JPEG 1200×630 válido, com
+  sha conferido, e nunca citada pelo HTML), e nenhum código mexe no head.
+  `apps/web/src/ui/identidadeWeb.test.ts`: cada link de ícone uma vez e apontando para arquivo que
+  existe, PNG/ICO lidos dos bytes com o tamanho declarado, apple-touch-icon sem alfa e com cantos de
+  feltro, maskable dentro do círculo de 80%, hashes de cada ícone, o mesmo hash da arte no gerador da
+  web e no do Android, e nenhum Service Worker.
 - **Regra: arte nova = arquivo novo.** Os apps guardam a prévia pelo endereço da imagem e da página.
-  Para trocar a arte: substituir a arte final, subir a versão no nome da saída (`v3` → `v4`), rodar
-  o script, apagar a imagem anterior de `public/`, atualizar `og:image` e `twitter:image` e
-  registrar o sha novo no teste.
+  Para trocar a arte: subir a versão no nome da saída (`v4` → `v5`), rodar o script, **manter** a
+  imagem anterior em `public/` e registrá-la como histórica no teste, atualizar `og:image` e
+  `twitter:image` e registrar o sha novo no teste.
 - **Validar depois de publicar, nesta ordem:**
-  1. `https://playkingcards.com.br/king-social-v3-1200x630.jpg` responde `200` com
-     `content-type: image/jpeg` e mostra a arte. O rewrite `/(.*)` da Vercel devolve o `index.html`
-     com 200 para arquivo que não existe, e aí a prévia sai sem imagem, sem erro nenhum.
-  2. O HTML de Production traz as metatags (um GET simples, sem JavaScript).
-  3. Só então, no WhatsApp: colar `https://playkingcards.com.br/?v=3` e esperar a prévia aparecer
+  1. `https://playkingcards.com.br/king-social-v4-1200x630.jpg` responde `200` com
+     `content-type: image/jpeg` e mostra a arte; `/apple-touch-icon.png`, `/icon-192.png`,
+     `/icon-512.png` e `/icon-maskable-512.png` com `image/png`; `/favicon.ico` com um tipo de
+     imagem; `/manifest.webmanifest` com JSON. O rewrite `/(.*)` da Vercel devolve o `index.html`
+     com 200 para arquivo que não existe (`text/html`), e aí a prévia ou o ícone saem errados sem
+     erro nenhum.
+  2. O HTML de Production traz as metatags e os links (um GET simples, sem JavaScript).
+  3. Só então, no WhatsApp: colar `https://playkingcards.com.br/?v=k4` e esperar a prévia aparecer
      **antes** de enviar. O app ignora `v`; **não** usar `?trafego=`, que marca o navegador como
      teste. Colar antes do passo 1 grava no aparelho uma prévia vazia para aquele endereço; aí é
-     preciso outro número (`?v=4`).
+     preciso outro valor (`?v=k5`).
   4. Depois, o link canônico `https://playkingcards.com.br/`, que pode mostrar por um tempo a prévia
      antiga, guardada pelos apps. Mensagens já enviadas não ganham prévia (ela é montada no
      aparelho de quem envia).
+  5. iPhone: um atalho já salvo na tela de início **não** troca de ícone sozinho; é preciso
+     removê-lo e adicionar de novo pelo Safari (Compartilhar → Adicionar à Tela de Início).
 - **O Preview da Vercel não serve para testar** a prévia: tem SSO (o robô recebe a tela de login) e o
   `og:image` aponta para Production.
 
