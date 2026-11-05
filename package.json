@@ -1,7 +1,7 @@
 {
   "name": "king",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "KING — jogo de cartas multiplayer (web + app). Monorepo. Família Verbete.",
   "workspaces": [
     "packages/*",
