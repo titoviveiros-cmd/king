@@ -3,7 +3,7 @@ import type { Card } from "@king/engine";
 import { SUIT_SYMBOL, isRed, isKingOfHearts } from "@king/engine";
 
 export function CardView({
-  card, faceDown, state, selected, style, onClick, cw,
+  card, faceDown, state, selected, style, onClick, cw, capturado,
 }: {
   card?: Card;
   faceDown?: boolean;
@@ -14,12 +14,14 @@ export function CardView({
   onClick?: () => void;
   /** Largura fixa em px. Omitido = o CSS decide (responsivo). */
   cw?: number;
+  /** K de Copas na vaza que acabou de custar −160. Só pintura: ver `.card.kcaptura` no theme.css. */
+  capturado?: boolean;
 }) {
   const s: CSSProperties = { ...(cw ? { ["--cw" as string]: cw + "px" } : {}), ...style };
   if (faceDown || !card) return <div className="card back" style={s} aria-hidden />;
   const sym = SUIT_SYMBOL[card.suit];
   const king = isKingOfHearts(card);
-  const cls = `card ${isRed(card.suit) ? "red" : "black"} ${state ?? ""} ${king ? "king" : ""} ${selected ? "sel" : ""}`;
+  const cls = `card ${isRed(card.suit) ? "red" : "black"} ${state ?? ""} ${king ? "king" : ""} ${selected ? "sel" : ""}${capturado && king ? " kcaptura" : ""}`;
   return (
     <div className={cls} style={s} onClick={onClick} role={onClick ? "button" : undefined}
       aria-label={`${card.rank} de ${card.suit}`}>

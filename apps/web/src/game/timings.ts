@@ -39,6 +39,20 @@ export const TEMPOS = {
   shakeKing: 520,
 
   /**
+   * DISTRIBUIÇÃO DO LEQUE: as 13 cartas aparecem uma a uma quando a mão é dada. Só opacidade —
+   * nenhuma carta sai do lugar, então o leque mede o mesmo do primeiro ao último quadro.
+   * Par no theme.css: `.hand.distribuindo .card` (35ms por carta, 280ms cada) = 12×35 + 280.
+   */
+  distribuicaoDoLeque: 700,
+  /**
+   * K DE COPAS CAPTURADO: o destaque da vaza que levou o K♥ na mão 5 dura 1100ms e cabe com
+   * folga dentro da pausa do King (`leituraDaVazaKing`). Só existe enquanto o selo do castigo
+   * está na tela — quem decide quem pegou é o motor, via `anunciarVaza`.
+   * Par no theme.css: `.trick .slot .card.kcaptura`, `.trick.kcaptura::before` e `.kpenalizado`.
+   */
+  kCopasCaptura: 1100,
+
+  /**
    * Placar Final — marcos da encenação. Teto aprovado: **4300ms**.
    * As micro-pausas entre etapas são deliberadas e devem permanecer perceptíveis:
    *   contagem termina em 900+1150 = 2050 → 300ms de respiro → ranking em 2350

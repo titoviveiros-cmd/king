@@ -21,6 +21,7 @@ import { DezMaos } from "./DezMaos.js";
 import { PerfilJogador } from "./PerfilJogador.js";
 import { UltimaVaza } from "./UltimaVaza.js";
 import { UltimaMao } from "./UltimaMao.js";
+import { useDistribuicaoDaMao } from "./distribuicao.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
 
@@ -137,6 +138,9 @@ export function Mesa({
   // O leque da mão 10 só é DISTRIBUÍDO quando o anúncio sai: as treze cartas entram depois dele,
   // não por baixo dele. Enquanto isso a Mesa mostra a moldura — HUD, cards, placar — e mais nada.
   const hand = anunciandoUltimaMao ? [] : sortDisplay(game.view().yourHand);
+  // Cosmético (ver distribuicao.ts): o leque aparece carta a carta quando a mão é dada. Pintura
+  // só — não toca em turno nem em jogada. Receber o K de Copas não ganha efeito nenhum.
+  const distribuindo = useDistribuicaoDaMao(hand);
 
   const coarse = useCoarsePointer();
   // Consulta às 10 mãos. Estado de LEITURA e nada mais: não pausa, não cancela, não avança.
@@ -327,6 +331,12 @@ export function Mesa({
     ? []
     : cur.length > 0 ? cur : (reviewing && last ? last.cards : []);
   const winnerSeat = cur.length === 0 && reviewing && last ? last.winner : null;
+  // K DE COPAS CAPTURADO (mão 5): o azar é PEGAR a vaza com o K♥, não recebê-lo. Quem decide é o
+  // motor — `castigo.king` só existe no anúncio da vaza que o levou, e `castigo.seat` é o vencedor
+  // dela. Vale enquanto o selo está na tela (mesma condição dele), sobre a vaza já revelada e
+  // pública. Som, tremor e −160 são os do selo: nada aqui toca, vibra ou recalcula.
+  const kCapturado = !!castigo?.king && reviewing && winnerSeat !== null && winnerSeat === castigo.seat;
+  const penalizado = kCapturado ? castigo!.seat : null;
 
   const oppSeats: Seat[] = adversariosDe(eu);
   const oppName = (s: Seat) => players[s];
@@ -449,7 +459,7 @@ export function Mesa({
           <button
             type="button"
             key={s}
-            className={`opp ${pos === "l" ? "left" : pos === "t" ? "top" : "right"}${turn === s && phase === "play" ? " active" : ""}${assento && !assento.connected ? " ausente" : ""}`}
+            className={`opp ${pos === "l" ? "left" : pos === "t" ? "top" : "right"}${turn === s && phase === "play" ? " active" : ""}${assento && !assento.connected ? " ausente" : ""}${penalizado === s ? " kpenalizado" : ""}`}
             onClick={() => { sfxTap(); setVendoPerfil(s); }}
             aria-label={`Ver o perfil de ${oppName(s)}`}
           >
@@ -473,10 +483,10 @@ export function Mesa({
       })}
 
       {/* vaza central */}
-      <div className="trick">
+      <div className={`trick${kCapturado ? " kcaptura" : ""}`}>
         {shownTrick.map((pc) => (
           <div key={pc.seat} className={`slot ${slotDe(pc.seat, eu)} ${winnerSeat === pc.seat ? "win" : ""}`}>
-            <CardView card={pc.card} />
+            <CardView card={pc.card} capturado={kCapturado} />
           </div>
         ))}
       </div>
@@ -486,7 +496,7 @@ export function Mesa({
           a arquitetura de perfil para "eu" e para "os outros" criaria duas verdades para manter. */}
       <button
         type="button"
-        className={`youtag ${humanTurn ? "active" : ""}`}
+        className={`youtag ${humanTurn ? "active" : ""}${penalizado === eu ? " kpenalizado" : ""}`}
         onClick={() => { sfxTap(); setVendoPerfil(eu); }}
         aria-label={`Ver o seu perfil, ${players[eu]}`}
       >
@@ -535,7 +545,7 @@ export function Mesa({
 
       {/* leque — largura, passo e ângulo são calculados no CSS a partir de --n, --i e --ymax */}
       <div
-        className="hand"
+        className={`hand${distribuindo ? " distribuindo" : ""}`}
         style={{
           ["--n" as string]: hand.length || 1,
           ["--ymax" as string]: arc((hand.length - 1) / 2),

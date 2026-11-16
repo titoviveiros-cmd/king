@@ -637,6 +637,50 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .hand .card.sel{transform:rotate(0deg) translateY(calc(var(--handcw)*-.5)) scale(1.14);z-index:60;
   box-shadow:0 10px 22px rgba(0,0,0,.55),0 0 0 2px var(--gold),0 0 26px rgba(244,197,66,.5);}
 
+/* ── COSMÉTICOS DA MESA (ui/distribuicao.ts e o selo do castigo na Mesa) ─────────────────────
+   SÓ PINTURA. Nenhuma regra daqui move, escala ou gira carta do leque nem carta da vaza já
+   pousada: os testes de layout medem o leque no instante em que as 13 cartas aparecem e o selo
+   do castigo contra as cartas da vaza, e os dois precisam medir o mesmo em todo quadro. */
+
+/* Distribuição: as cartas acendem uma a uma, no ritmo do som de distribuir.
+   Par de TEMPOS.distribuicaoDoLeque: 12 × 35ms + 280ms. */
+.hand.distribuindo .card{animation:lequeAcende .28s ease-out both;animation-delay:calc(var(--i) * 35ms);}
+@keyframes lequeAcende{from{opacity:0;}to{opacity:1;}}
+
+/* A carta POUSA na vaza: chega um pouco maior e assenta. Só na entrada (180ms). */
+.trick .slot .card{animation:pousaNaVaza .18s cubic-bezier(.2,.8,.3,1) both;}
+@keyframes pousaNaVaza{from{opacity:.45;scale:1.08;}to{opacity:1;scale:1;}}
+
+/* K DE COPAS CAPTURADO (mão 5). Só existe junto do selo do castigo, sobre a vaza já revelada:
+   o K♥ ganha uma aura vinho que pulsa duas vezes, a vaza ganha um halo vinho POR TRÁS das
+   cartas (z-index −1 dentro da própria vaza: nunca cobre carta, selo, placar ou controle) e o
+   card de quem pegou ganha um anel vinho. Nada se move. Toca uma vez: a classe entra com o selo
+   e sai com ele. Par de TEMPOS.kCopasCaptura (1.1s). Som e tremor são os do selo. */
+.trick .slot .card.kcaptura{animation:pousaNaVaza .18s cubic-bezier(.2,.8,.3,1) both,
+  kCaptura 1.1s ease-in-out both;}
+@keyframes kCaptura{
+  22%,64%{box-shadow:0 0 0 2px #ff5c8a,0 0 calc(var(--trickcw)*.32) rgba(216,31,87,.95),
+    0 0 calc(var(--trickcw)*.7) rgba(122,15,46,.7);}
+  43%{box-shadow:0 0 0 2px #ff5c8a,0 0 calc(var(--trickcw)*.18) rgba(216,31,87,.6);}
+}
+.trick.kcaptura::before{content:"";position:absolute;inset:-14%;z-index:-1;pointer-events:none;
+  border-radius:50%;background:radial-gradient(closest-side,rgba(216,31,87,.42),rgba(122,15,46,.22) 55%,transparent);
+  animation:kHalo 1.1s ease-in-out both;}
+@keyframes kHalo{0%{opacity:0;}24%,70%{opacity:1;}100%{opacity:0;}}
+.opp.kpenalizado,.youtag.kpenalizado{animation:kPenalizado 1.1s ease-in-out both;}
+@keyframes kPenalizado{
+  22%,70%{box-shadow:0 0 0 2px #ff5c8a,0 0 24px rgba(216,31,87,.75);}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .hand.distribuindo .card,.trick .slot .card{animation:none;}
+  /* Sem pulsar: a aura acende e apaga uma vez, que é onde a informação mora. */
+  .trick .slot .card.kcaptura{animation:kCapturaCalmo 1.1s ease-in-out both;}
+  .trick.kcaptura::before{animation:kHalo 1.1s ease-in-out both;}
+  .opp.kpenalizado,.youtag.kpenalizado{animation:kPenalizado 1.1s ease-in-out both;}
+}
+@keyframes kCapturaCalmo{20%,80%{box-shadow:0 0 0 2px #ff5c8a,0 0 calc(var(--trickcw)*.32) rgba(216,31,87,.85);}}
+
 /* O card do jogador TEM TETO. Sem ele a largura é do texto: um apelido de 14 caracteres
    empurra o card para dentro do corredor lateral — o mesmo corredor que o leque e a faixa do
    tutorial contam como reservado. Com teto, o corredor é uma promessa que se cumpre sozinha. */
