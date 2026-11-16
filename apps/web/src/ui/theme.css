@@ -636,48 +636,116 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   box-shadow:0 10px 22px rgba(0,0,0,.55),0 0 0 2px var(--gold),0 0 26px rgba(244,197,66,.5);}
 
 /* ── COSMÉTICOS DA MESA (ui/distribuicao.ts e o selo do castigo na Mesa) ─────────────────────
-   SÓ PINTURA. Nenhuma regra daqui move, escala ou gira carta do leque nem carta da vaza já
-   pousada: os testes de layout medem o leque no instante em que as 13 cartas aparecem e o selo
-   do castigo contra as cartas da vaza, e os dois precisam medir o mesmo em todo quadro. */
+   Movimento só pelas propriedades INDIVIDUAIS `translate`/`scale` (e opacidade/sombra): elas se
+   compõem com o `transform` de cada carta (o arco do leque, a rotação do slot da vaza) sem
+   substituí-lo. Toda animação daqui termina na identidade (translate 0, scale 1), então a
+   geometria FINAL do leque e da vaza é a mesma de antes — os testes de layout medem essa. */
 
-/* Distribuição: as cartas acendem uma a uma, no ritmo do som de distribuir.
-   Par de TEMPOS.distribuicaoDoLeque: 12 × 35ms + 280ms. */
-.hand.distribuindo .card{animation:lequeAcende .28s ease-out both;animation-delay:calc(var(--i) * 35ms);}
-@keyframes lequeAcende{from{opacity:0;}to{opacity:1;}}
+/* Distribuição: as 13 cartas saem do meio da mesa, uma a uma, e assentam no leque com um
+   pequeno passo além do ponto (o "assentamento"). `backwards`: antes da vez dela a carta está
+   no ponto de partida, invisível; depois de chegar, nenhuma regra fica presa nela.
+   Par de TEMPOS.distribuicaoDoLeque: 12 × 55ms + 360ms = 1020ms. */
+.hand.distribuindo .card{animation:lequeEntra .36s cubic-bezier(.2,.9,.25,1.12) backwards;
+  animation-delay:calc(var(--i) * 55ms);}
+@keyframes lequeEntra{
+  0%{opacity:0;scale:.82;
+    translate:calc(((var(--n) - 1) / 2 - var(--i)) * var(--step) * .45) calc(var(--handcw) * -.95);}
+  35%{opacity:1;}
+  100%{opacity:1;scale:1;translate:0 0;}
+}
 
-/* A carta POUSA na vaza: chega um pouco maior e assenta. Só na entrada (180ms). */
-.trick .slot .card{animation:pousaNaVaza .18s cubic-bezier(.2,.8,.3,1) both;}
-@keyframes pousaNaVaza{from{opacity:.45;scale:1.08;}to{opacity:1;scale:1;}}
+/* A carta POUSA na vaza: vem do lado de quem jogou, chega um pouco maior e no alto (sombra longa
+   e suave), bate na mesa (encolhe um fio, sombra curta e escura) e assenta. 260ms, só na entrada:
+   o slot tem `key` estável, então fechar a vaza não remonta a carta e o pouso não se repete.
+   A carta do TOPO não desce do alto: ela cai no lugar com origem no topo — assim nenhum quadro
+   do pouso sobe na direção do selo do castigo, que fica logo acima da vaza.
+   Par de TEMPOS.pousoNaVaza. */
+.trick .slot.b{--entra:0 calc(var(--trickcw) * .62);}
+.trick .slot.l{--entra:calc(var(--trickcw) * -.62) 0;}
+.trick .slot.r{--entra:calc(var(--trickcw) * .62) 0;}
+.trick .slot.t{--entra:0 0;}
+.trick .slot.t .card{transform-origin:50% 0;}
+.trick .slot .card{animation:pousaNaVaza .26s cubic-bezier(.2,.75,.25,1) backwards;}
+@keyframes pousaNaVaza{
+  0%{opacity:.2;translate:var(--entra,0 0);scale:1.18;
+    box-shadow:0 calc(var(--trickcw) * .34) calc(var(--trickcw) * .5) rgba(0,0,0,.32);}
+  62%{opacity:1;translate:0 0;scale:.965;box-shadow:0 1px 2px rgba(0,0,0,.75);}
+  100%{opacity:1;translate:0 0;scale:1;}
+}
 
-/* K DE COPAS CAPTURADO (mão 5). Só existe junto do selo do castigo, sobre a vaza já revelada:
-   o K♥ ganha uma aura vinho que pulsa duas vezes, a vaza ganha um halo vinho POR TRÁS das
-   cartas (z-index −1 dentro da própria vaza: nunca cobre carta, selo, placar ou controle) e o
-   card de quem pegou ganha um anel vinho. Nada se move. Toca uma vez: a classe entra com o selo
-   e sai com ele. Par de TEMPOS.kCopasCaptura (1.1s). Som e tremor são os do selo. */
-.trick .slot .card.kcaptura{animation:pousaNaVaza .18s cubic-bezier(.2,.8,.3,1) both,
-  kCaptura 1.1s ease-in-out both;}
+/* K DE COPAS CAPTURADO (mão 5). Só existe junto do selo do castigo, sobre a vaza já revelada,
+   e conta em TRÊS TEMPOS (1350ms, Par de TEMPOS.kCopasCaptura):
+     1 · impacto (0–30%): o K♥ salta, treme na horizontal e acende; uma onda vinho sai dele;
+     2 · destaque (30–60%): aura vinho pulsando, halo atrás da vaza, card do penalizado aceso,
+         −160 do selo no mesmo vinho;
+     3 · dissipação (60–100%): tudo volta ao repouso.
+   Nada aqui cobre informação: halo e onda ficam ATRÁS das cartas (z-index −1 dentro da vaza,
+   que é um contexto de empilhamento), abaixo do placar, do leque e dos cards; o tremor é só
+   horizontal e o K do topo cresce para baixo — nenhum quadro invade o selo. Toca uma vez: a
+   classe entra com o selo e sai com ele. Som e tremor da tela são os do selo. */
+.trick .slot .card.kcaptura{animation:pousaNaVaza .26s cubic-bezier(.2,.75,.25,1) backwards,
+  kCaptura 1.35s ease-out both;}
 @keyframes kCaptura{
-  22%,64%{box-shadow:0 0 0 2px #ff5c8a,0 0 calc(var(--trickcw)*.32) rgba(216,31,87,.95),
-    0 0 calc(var(--trickcw)*.7) rgba(122,15,46,.7);}
-  43%{box-shadow:0 0 0 2px #ff5c8a,0 0 calc(var(--trickcw)*.18) rgba(216,31,87,.6);}
+  0%{scale:1;translate:0 0;animation-timing-function:cubic-bezier(.2,.9,.3,1.3);}
+  10%{scale:1.17;translate:0 0;box-shadow:0 0 0 3px #ff5c8a,0 0 calc(var(--trickcw) * .55) rgba(255,40,96,1),
+    0 0 calc(var(--trickcw) * 1.1) rgba(160,12,52,.85);}
+  14%{translate:calc(var(--trickcw) * -.05) 0;}
+  18%{translate:calc(var(--trickcw) * .045) 0;}
+  22%{translate:calc(var(--trickcw) * -.03) 0;}
+  26%{translate:calc(var(--trickcw) * .015) 0;}
+  30%{translate:0 0;scale:1.12;box-shadow:0 0 0 3px #ff5c8a,0 0 calc(var(--trickcw) * .45) rgba(255,40,96,.95),
+    0 0 calc(var(--trickcw) * .9) rgba(160,12,52,.75);}
+  44%{scale:1.1;box-shadow:0 0 0 2px #ff5c8a,0 0 calc(var(--trickcw) * .26) rgba(216,31,87,.7),
+    0 0 calc(var(--trickcw) * .5) rgba(122,15,46,.5);}
+  58%{scale:1.12;box-shadow:0 0 0 3px #ff5c8a,0 0 calc(var(--trickcw) * .45) rgba(255,40,96,.95),
+    0 0 calc(var(--trickcw) * .9) rgba(160,12,52,.75);}
+  100%{scale:1;translate:0 0;}
 }
 .trick.kcaptura::before{content:"";position:absolute;inset:-14%;z-index:-1;pointer-events:none;
-  border-radius:50%;background:radial-gradient(closest-side,rgba(216,31,87,.42),rgba(122,15,46,.22) 55%,transparent);
-  animation:kHalo 1.1s ease-in-out both;}
-@keyframes kHalo{0%{opacity:0;}24%,70%{opacity:1;}100%{opacity:0;}}
-.opp.kpenalizado,.youtag.kpenalizado{animation:kPenalizado 1.1s ease-in-out both;}
+  border-radius:50%;background:radial-gradient(closest-side,rgba(216,31,87,.55),rgba(122,15,46,.3) 55%,transparent);
+  animation:kHalo 1.35s ease-out both;}
+@keyframes kHalo{0%{opacity:0;}10%{opacity:1;}60%{opacity:.85;}100%{opacity:0;}}
+/* a onda de impacto nasce no slot do K♥ (`k-b|l|t|r`, posto pela Mesa) */
+.trick.kcaptura.k-b{--kx:50%;--ky:66%;}
+.trick.kcaptura.k-l{--kx:22%;--ky:44%;}
+.trick.kcaptura.k-t{--kx:50%;--ky:22%;}
+.trick.kcaptura.k-r{--kx:78%;--ky:44%;}
+.trick.kcaptura::after{content:"";position:absolute;z-index:-1;pointer-events:none;
+  left:var(--kx,50%);top:var(--ky,50%);width:calc(var(--trickcw) * 1.5);height:calc(var(--trickcw) * 1.5);
+  margin:calc(var(--trickcw) * -.75) 0 0 calc(var(--trickcw) * -.75);border-radius:50%;
+  border:calc(var(--trickcw) * .06) solid rgba(255,92,138,.9);
+  box-shadow:0 0 calc(var(--trickcw) * .3) rgba(216,31,87,.8),inset 0 0 calc(var(--trickcw) * .25) rgba(216,31,87,.6);
+  animation:kOnda .7s cubic-bezier(.15,.7,.3,1) .06s both;}
+@keyframes kOnda{0%{opacity:.95;scale:.3;}100%{opacity:0;scale:2.1;}}
+.opp.kpenalizado,.youtag.kpenalizado{animation:kPenalizado 1.35s ease-out both;}
 @keyframes kPenalizado{
-  22%,70%{box-shadow:0 0 0 2px #ff5c8a,0 0 24px rgba(216,31,87,.75);}
+  10%{box-shadow:0 0 0 3px #ff5c8a,0 0 34px rgba(255,40,96,.95),inset 0 0 0 999px rgba(216,31,87,.3);}
+  30%,58%{box-shadow:0 0 0 2px #ff5c8a,0 0 26px rgba(216,31,87,.8),inset 0 0 0 999px rgba(216,31,87,.14);}
+  44%{box-shadow:0 0 0 3px #ff5c8a,0 0 32px rgba(216,31,87,.9),inset 0 0 0 999px rgba(216,31,87,.2);}
+}
+/* O selo do K♥ entra no mesmo compasso: as duas animações de sempre do `.castigo` (mesmos valores)
+   + um clarão vinho na moldura e no −160, que voltam ao ouro do selo ao dissipar. */
+.castigo.king{animation:castigoEntra .5s cubic-bezier(.16,1.5,.4,1) both,castigoPulsa 1.15s ease-in-out .5s infinite,
+  kSelo 1.35s ease-out both;}
+@keyframes kSelo{
+  10%,44%{box-shadow:0 12px 34px -10px #000,0 0 0 5px rgba(255,92,138,.6),0 0 90px rgba(216,31,87,.95);}
+}
+.castigo.king .quanto{animation:kSeloValor 1.35s ease-out both;}
+@keyframes kSeloValor{
+  10%,44%{color:#ffd6e2;text-shadow:0 0 22px rgba(255,40,96,1),0 0 6px rgba(255,92,138,.9);}
 }
 
 @media (prefers-reduced-motion:reduce){
   .hand.distribuindo .card,.trick .slot .card{animation:none;}
-  /* Sem pulsar: a aura acende e apaga uma vez, que é onde a informação mora. */
-  .trick .slot .card.kcaptura{animation:kCapturaCalmo 1.1s ease-in-out both;}
-  .trick.kcaptura::before{animation:kHalo 1.1s ease-in-out both;}
-  .opp.kpenalizado,.youtag.kpenalizado{animation:kPenalizado 1.1s ease-in-out both;}
+  /* Sem movimento: a aura, o halo, o card do penalizado e o selo acendem e apagam uma vez — é
+     onde a informação mora. A onda (que é deslocamento) não existe aqui. */
+  .trick .slot .card.kcaptura{animation:kCapturaCalmo 1.35s ease-in-out both;}
+  .trick.kcaptura::before{animation:kHalo 1.35s ease-out both;}
+  .trick.kcaptura::after{animation:none;display:none;}
+  .opp.kpenalizado,.youtag.kpenalizado{animation:kPenalizado 1.35s ease-out both;}
+  .castigo.king{animation:kSelo 1.35s ease-out both;}
 }
-@keyframes kCapturaCalmo{20%,80%{box-shadow:0 0 0 2px #ff5c8a,0 0 calc(var(--trickcw)*.32) rgba(216,31,87,.85);}}
+@keyframes kCapturaCalmo{20%,80%{box-shadow:0 0 0 3px #ff5c8a,0 0 calc(var(--trickcw) * .4) rgba(216,31,87,.9);}}
 
 /* O card do jogador TEM TETO. Sem ele a largura é do texto: um apelido de 14 caracteres
    empurra o card para dentro do corredor lateral — o mesmo corredor que o leque e a faixa do

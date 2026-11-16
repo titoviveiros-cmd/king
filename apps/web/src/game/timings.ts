@@ -39,18 +39,20 @@ export const TEMPOS = {
   shakeKing: 520,
 
   /**
-   * DISTRIBUIÇÃO DO LEQUE: as 13 cartas aparecem uma a uma quando a mão é dada. Só opacidade —
-   * nenhuma carta sai do lugar, então o leque mede o mesmo do primeiro ao último quadro.
-   * Par no theme.css: `.hand.distribuindo .card` (35ms por carta, 280ms cada) = 12×35 + 280.
+   * DISTRIBUIÇÃO DO LEQUE: as 13 cartas saem do meio da mesa, uma a uma, e assentam no leque.
+   * O movimento é só `translate`/`scale` transitórios: a posição FINAL de cada carta é a de sempre.
+   * Par no theme.css: `.hand.distribuindo .card` (55ms por carta, 360ms cada) = 12×55 + 360.
    */
-  distribuicaoDoLeque: 700,
+  distribuicaoDoLeque: 1020,
+  /** POUSO NA VAZA: a carta chega, bate e assenta. Par no theme.css: `pousaNaVaza` (.26s). */
+  pousoNaVaza: 260,
   /**
-   * K DE COPAS CAPTURADO: o destaque da vaza que levou o K♥ na mão 5 dura 1100ms e cabe com
-   * folga dentro da pausa do King (`leituraDaVazaKing`). Só existe enquanto o selo do castigo
-   * está na tela — quem decide quem pegou é o motor, via `anunciarVaza`.
-   * Par no theme.css: `.trick .slot .card.kcaptura`, `.trick.kcaptura::before` e `.kpenalizado`.
+   * K DE COPAS CAPTURADO: impacto, destaque e dissipação em 1350ms, com folga dentro da pausa do
+   * King (`leituraDaVazaKing`), que não muda. Só existe enquanto o selo do castigo está na tela —
+   * quem decide quem pegou é o motor, via `anunciarVaza`.
+   * Par no theme.css: `kCaptura`, `kHalo`, `kOnda`, `kPenalizado`, `kSelo` (1.35s).
    */
-  kCopasCaptura: 1100,
+  kCopasCaptura: 1350,
 
   /**
    * Placar Final — marcos da encenação. Teto aprovado: **4300ms**.

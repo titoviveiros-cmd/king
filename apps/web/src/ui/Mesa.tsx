@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Card, Trump, Seat } from "@king/engine";
-import { RANK_ORDER, TOTAL_HANDS, cardId } from "@king/engine";
+import { RANK_ORDER, TOTAL_HANDS, cardId, isKingOfHearts } from "@king/engine";
 import { contractTitle, penaltyText, trumpLabel } from "./contractText.js";
 import { Placar } from "./Placar.js";
 import { PlacarFinal } from "./PlacarFinal.js";
@@ -337,6 +337,9 @@ export function Mesa({
   // pública. Som, tremor e −160 são os do selo: nada aqui toca, vibra ou recalcula.
   const kCapturado = !!castigo?.king && reviewing && winnerSeat !== null && winnerSeat === castigo.seat;
   const penalizado = kCapturado ? castigo!.seat : null;
+  // Slot onde o K♥ está (a onda de impacto nasce nele). A vaza já é pública nesse instante.
+  const kNaVaza = kCapturado ? shownTrick.find((pc) => isKingOfHearts(pc.card)) : undefined;
+  const slotDoK = kNaVaza ? slotDe(kNaVaza.seat, eu) : null;
 
   const oppSeats: Seat[] = adversariosDe(eu);
   const oppName = (s: Seat) => players[s];
@@ -483,7 +486,7 @@ export function Mesa({
       })}
 
       {/* vaza central */}
-      <div className={`trick${kCapturado ? " kcaptura" : ""}`}>
+      <div className={`trick${kCapturado ? " kcaptura" : ""}${slotDoK ? ` k-${slotDoK}` : ""}`}>
         {shownTrick.map((pc) => (
           <div key={pc.seat} className={`slot ${slotDe(pc.seat, eu)} ${winnerSeat === pc.seat ? "win" : ""}`}>
             <CardView card={pc.card} capturado={kCapturado} />
