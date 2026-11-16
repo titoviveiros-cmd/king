@@ -272,3 +272,39 @@ describe("o CSS do destaque é só pintura", () => {
     expect(bloco).toMatch(/\.trick \.slot \.card\.kcaptura\{animation:kCapturaCalmo/);
   });
 });
+
+describe("aparência-base do K♥: igual à das demais cartas", () => {
+  const css = readFileSync(fileURLToPath(new URL("./theme.css", import.meta.url)), "utf8").replace(/\r\n/g, "\n");
+  // Todo seletor do CSS (as regras dentro de @media também: o `[^{}]+` recomeça após cada `{`).
+  const seletores = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{[^{}]*\}/g)]
+    .flatMap((m) => m[1].split(",").map((s) => s.trim()))
+    .filter((s) => !s.startsWith("@") && !/^\d|^from$|^to$/.test(s));
+  const classes = (html: string) => new Set(parse(html).querySelector(".card")!.classList.value);
+  const kCopas = { rank: "K", suit: "hearts" } as const;
+  const damaCopas = { rank: "Q", suit: "hearts" } as const;
+
+  it("nenhuma regra de CSS pinta o K♥ fora da captura (sem borda nem aura douradas permanentes)", () => {
+    // `.castigo.king` é o selo do castigo (outro componente), não a carta.
+    const daCarta = seletores.filter((s) => /\.king\b/.test(s) && !/\.castigo\.king/.test(s));
+    expect(daCarta).toEqual([]);
+    // o único destaque exclusivo dele é a aura vinho da captura, só na vaza
+    const exclusivos = seletores.filter((s) => /kcaptura/.test(s) && /\.card/.test(s));
+    expect(exclusivos.length).toBeGreaterThan(0);
+    for (const s of exclusivos) expect(s, s).toMatch(/^\.trick \.slot \.card\.kcaptura$/);
+  });
+
+  it("na mão, legal, ilegal e selecionado: o K♥ recebe os MESMOS estados de qualquer carta", async () => {
+    const { CardView } = await import("./CardView.js");
+    for (const props of [{ state: "legal" as const }, { state: "illegal" as const }, { state: "legal" as const, selected: true }, {}]) {
+      const k = classes(renderToStaticMarkup(<CardView card={kCopas as never} {...props} />));
+      const q = classes(renderToStaticMarkup(<CardView card={damaCopas as never} {...props} />));
+      // a única diferença é o marcador `king`, que nenhuma regra de CSS da carta usa (teste acima)
+      expect([...k].filter((c) => !q.has(c))).toEqual(["king"]);
+      expect([...q].filter((c) => !k.has(c))).toEqual([]);
+      expect(k.has("kcaptura")).toBe(false);
+    }
+    // capturado só vale para o K♥: outra carta "capturada" não ganha nada
+    expect(classes(renderToStaticMarkup(<CardView card={kCopas as never} capturado />)).has("kcaptura")).toBe(true);
+    expect(classes(renderToStaticMarkup(<CardView card={damaCopas as never} capturado />)).has("kcaptura")).toBe(false);
+  });
+});

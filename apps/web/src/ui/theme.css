@@ -75,8 +75,8 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .card.red{color:var(--red);} .card.black{color:var(--black);}
 .card.back{background:repeating-linear-gradient(45deg,#0d3b8a 0 7px,#0a2f6e 7px 14px);border:2px solid #fff;}
 .card.illegal{filter:grayscale(.66) brightness(.66);}
-.card.king{border:2px solid var(--gold);box-shadow:0 3px 10px rgba(0,0,0,.45),0 0 14px rgba(244,197,66,.4);}
-.card.king.illegal{filter:grayscale(.5) brightness(.68);border-color:rgba(244,197,66,.6);}
+/* O K♥ tem a MESMA aparência-base das demais cartas: nenhuma borda nem aura douradas permanentes
+   (recebê-lo não é o azar). O único destaque dele é a aura vinho na CAPTURA (.kcaptura, mão 5). */
 .card.legal{cursor:pointer;}
 .card.legal::after{content:"";position:absolute;left:50%;bottom:4%;transform:translateX(-50%);width:52%;
   height:calc(var(--cw)*.075);border-radius:99px;background:var(--turq);opacity:.92;
@@ -86,8 +86,6 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .hand .card.legal{box-shadow:0 calc(var(--cw)*.13) calc(var(--cw)*.3) rgba(0,0,0,.62),
   0 0 0 1.5px rgba(45,212,191,.55),0 0 calc(var(--cw)*.34) rgba(45,212,191,.32);}
 .hand .card.illegal{box-shadow:0 1px 3px rgba(0,0,0,.35);}
-.hand .card.king.legal{box-shadow:0 calc(var(--cw)*.13) calc(var(--cw)*.3) rgba(0,0,0,.62),
-  0 0 0 2px var(--gold),0 0 calc(var(--cw)*.36) rgba(244,197,66,.45);}
 .card .kb{position:absolute;top:2%;right:4%;font-size:calc(var(--cw)*.24);}
 
 /* ---- mesa ---- */
