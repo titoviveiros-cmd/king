@@ -47,8 +47,14 @@ export const TEMPOS = {
   /** POUSO NA VAZA: a carta chega, bate e assenta. Par no theme.css: `pousaNaVaza` (.26s). */
   pousoNaVaza: 260,
   /**
-   * K DE COPAS CAPTURADO: impacto, destaque e dissipação em 1350ms, com folga dentro da pausa do
-   * King (`leituraDaVazaKing`), que não muda. Só existe enquanto o selo do castigo está na tela —
+   * O REI FOI CAPTURADO — a cena central da mão 5 (`ReiCapturado.tsx`): 2000ms de presença, já
+   * contada a saída; um toque encurta. Vem ANTES do destaque da mesa (`kCopasCaptura`), nunca junto,
+   * e as duas somadas cabem na pausa do King: 2000 + 1350 = 3350 ≤ `leituraDaVazaKing` (3400).
+   */
+  cenaDoRei: 2000,
+  /**
+   * K DE COPAS CAPTURADO: impacto, destaque e dissipação em 1350ms na mesa, DEPOIS da cena
+   * (`cenaDoRei`), dentro da pausa do King (`leituraDaVazaKing`), que não muda. Só existe enquanto o selo do castigo está na tela —
    * quem decide quem pegou é o motor, via `anunciarVaza`.
    * Par no theme.css: `kCaptura`, `kHalo`, `kOnda`, `kPenalizado`, `kSelo` (1.35s).
    */

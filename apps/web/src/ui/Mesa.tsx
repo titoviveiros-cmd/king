@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import type { Card, Trump, Seat } from "@king/engine";
 import { RANK_ORDER, TOTAL_HANDS, cardId, isKingOfHearts } from "@king/engine";
 import { contractTitle, penaltyText, trumpLabel } from "./contractText.js";
@@ -21,6 +21,7 @@ import { DezMaos } from "./DezMaos.js";
 import { PerfilJogador } from "./PerfilJogador.js";
 import { UltimaVaza } from "./UltimaVaza.js";
 import { UltimaMao } from "./UltimaMao.js";
+import { ReiCapturado, cenaDoReiJaVista, marcarCenaDoReiVista } from "./ReiCapturado.js";
 import { useDistribuicaoDaMao } from "./distribuicao.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
@@ -336,9 +337,15 @@ export function Mesa({
   // dela. Vale enquanto o selo está na tela (mesma condição dele), sobre a vaza já revelada e
   // pública. Som, tremor e −160 são os do selo: nada aqui toca, vibra ou recalcula.
   const kCapturado = !!castigo?.king && reviewing && winnerSeat !== null && winnerSeat === castigo.seat;
-  const penalizado = kCapturado ? castigo!.seat : null;
+  // EM SEQUÊNCIA, NUNCA AO MESMO TEMPO: primeiro a cena central "O REI FOI CAPTURADO!" (2s, ver
+  // ReiCapturado.tsx); quando ela sai — pelo tempo ou pelo toque —, a mesa assume com o selo, a
+  // aura vinho do K♥ e o card do penalizado (1,35s). As duas cabem na pausa do King, que não muda.
+  const [, redesenhar] = useReducer((x: number) => x + 1, 0);
+  const cenaDoRei = kCapturado && !cenaDoReiJaVista(castigo!.nonce);
+  const kNaMesa = kCapturado && !cenaDoRei;
+  const penalizado = kNaMesa ? castigo!.seat : null;
   // Slot onde o K♥ está (a onda de impacto nasce nele). A vaza já é pública nesse instante.
-  const kNaVaza = kCapturado ? shownTrick.find((pc) => isKingOfHearts(pc.card)) : undefined;
+  const kNaVaza = kNaMesa ? shownTrick.find((pc) => isKingOfHearts(pc.card)) : undefined;
   const slotDoK = kNaVaza ? slotDe(kNaVaza.seat, eu) : null;
 
   const oppSeats: Seat[] = adversariosDe(eu);
@@ -401,6 +408,17 @@ export function Mesa({
       {vendoUltimaVaza && <UltimaVaza game={game} onFechar={() => setVendoUltimaVaza(false)} />}
 
       {anunciandoUltimaMao && <UltimaMao onFim={() => setDispensadaEm(TOTAL_HANDS)} />}
+
+      {/* O REI FOI CAPTURADO — só na captura confirmada pelo motor, uma vez por captura. */}
+      {cenaDoRei && castigo && (
+        <ReiCapturado
+          key={castigo.nonce}
+          quem={castigo.jogador}
+          voce={castigo.voce}
+          pontos={castigo.pontos}
+          onFim={() => { marcarCenaDoReiVista(castigo.nonce); redesenhar(); }}
+        />
+      )}
 
       {/* Slot de trunfo — só existe nas mãos positivas (Design System). Símbolo grande:
           é consultado o tempo todo durante a mão. */}
@@ -486,10 +504,10 @@ export function Mesa({
       })}
 
       {/* vaza central */}
-      <div className={`trick${kCapturado ? " kcaptura" : ""}${slotDoK ? ` k-${slotDoK}` : ""}`}>
+      <div className={`trick${kNaMesa ? " kcaptura" : ""}${slotDoK ? ` k-${slotDoK}` : ""}`}>
         {shownTrick.map((pc) => (
           <div key={pc.seat} className={`slot ${slotDe(pc.seat, eu)} ${winnerSeat === pc.seat ? "win" : ""}`}>
-            <CardView card={pc.card} capturado={kCapturado} />
+            <CardView card={pc.card} capturado={kNaMesa} />
           </div>
         ))}
       </div>
@@ -520,7 +538,7 @@ export function Mesa({
       {/* Selo do castigo: a mesa para e todos veem QUEM pegou a bucha e QUANTO custou.
           Antes a vaza penalizada era recolhida em 1,15s sem nome nem número — ninguém
           acompanhava quem tinha se dado mal, que é justamente a graça das mãos negativas. */}
-      {castigo && reviewing && (
+      {castigo && reviewing && !cenaDoRei && (
         <div
           key={castigo.nonce}
           className={`castigo s${castigo.seat}${castigo.king ? " king" : ""}${castigo.voce ? " voce" : ""}`}

@@ -22,6 +22,7 @@ import { PartidaRemota } from "../game/partidaRemota.js";
 import { anunciarVaza, type Castigo } from "../game/anuncio.js";
 import { TEMPOS } from "../game/timings.js";
 import { Mesa, type MesaMultiplayer } from "./Mesa.js";
+import { marcarCenaDoReiVista } from "./ReiCapturado.js";
 import type { EstadoDaSalaLido } from "../net/clienteKing.js";
 
 const noop = () => {};
@@ -119,6 +120,7 @@ describe("receber o K♥ NÃO é castigo", () => {
         expect(root.querySelectorAll(".kcaptura"), `semente ${seed}`).toHaveLength(0);
         expect(root.querySelectorAll(".kpenalizado"), `semente ${seed}`).toHaveLength(0);
         expect(root.querySelectorAll(".castigo")).toHaveLength(0);
+        expect(root.querySelectorAll(".rc"), "receber o K♥ não é cena").toHaveLength(0);
         // o K♥ continua no leque, normal: carta como as outras
         const k = root.querySelectorAll(".hand .card").find((n) => n.getAttribute("aria-label") === "K de hearts");
         expect(k?.getAttribute("class")).not.toMatch(/kcaptura|kalerta/);
@@ -135,14 +137,33 @@ describe("capturar o K♥ dispara o destaque — uma vez, no penalizado certo", 
     expect(anunciosDeKing).toBe(1);
   });
 
-  it("em cada um dos 4 aparelhos: o K♥ da vaza e o card do VENCEDOR real, nada mais", () => {
+  it("em cada um dos 4 aparelhos: PRIMEIRO a cena, DEPOIS a mesa — o K♥ e o VENCEDOR real", () => {
     const { m, vencedor } = cenario(5);
     for (const eu of SEATS) {
       const g = remota(m, eu);
-      const a = anunciarVaza(g, 7)!;
+      const a = anunciarVaza(g, 700 + eu)!;
       expect(a.castigo?.king).toBe(true);
       expect(a.castigo?.seat).toBe(vencedor);
+      expect(a.castigo!.pontos).toBe(-160);
+
+      // ── FASE 1 · a cena "O REI FOI CAPTURADO!", sozinha: nada da mesa anima junto ──
+      const cena = render(g, a.castigo, true, contexto(eu));
+      expect(cena.querySelectorAll(".rc")).toHaveLength(1);
+      expect(cena.querySelector(".rc-titulo")?.text).toBe("O REI FOI CAPTURADO!");
+      expect(cena.querySelector(".rc-nome")?.text).toBe(
+        vencedor === eu ? "Você pegou o K♥" : `${JOGADORES[vencedor]} pegou o K♥`,
+      );
+      expect(cena.querySelector(".rc-pontos")?.text).toBe(String(a.castigo!.pontos));
+      expect(cena.querySelectorAll(".kcaptura")).toHaveLength(0);
+      expect(cena.querySelectorAll(".kpenalizado")).toHaveLength(0);
+      expect(cena.querySelectorAll(".castigo")).toHaveLength(0);
+      // a vaza continua lá embaixo, pública, como estava
+      expect(cena.querySelectorAll(".trick .card").some((n) => n.getAttribute("aria-label") === "K de hearts")).toBe(true);
+
+      // ── FASE 2 · a cena saiu (tempo ou toque): a mesa assume, e a cena não volta ──
+      marcarCenaDoReiVista(a.castigo!.nonce);
       const root = render(g, a.castigo, true, contexto(eu));
+      expect(root.querySelectorAll(".rc")).toHaveLength(0);
 
       // o K♥ revelado na vaza, e só ele
       const destacadas = root.querySelectorAll(".kcaptura.card");
@@ -171,14 +192,28 @@ describe("capturar o K♥ dispara o destaque — uma vez, no penalizado certo", 
       const selo = root.querySelector(".castigo.king")!;
       expect(selo).toBeTruthy();
       expect(selo.querySelector(".quanto")?.text).toBe(String(a.castigo!.pontos));
-      expect(a.castigo!.pontos).toBe(-160);
     }
   });
 
-  it("quando OUTRO jogador captura, o humano não é marcado", () => {
+  it("a cena aparece UMA vez por captura: re-renderizar não a traz de volta; outra captura, sim", () => {
+    const { m } = cenario(5);
+    const g = remota(m, 0);
+    const a = anunciarVaza(g, 801)!;
+    expect(render(g, a.castigo, true, contexto(0)).querySelectorAll(".rc")).toHaveLength(1);
+    marcarCenaDoReiVista(801);
+    for (let i = 0; i < 3; i++) expect(render(g, a.castigo, true, contexto(0)).querySelectorAll(".rc")).toHaveLength(0);
+    // a marca é desta captura, não "do K♥ em geral": outra partida, outro nonce, outra cena
+    expect(render(g, anunciarVaza(g, 802)!.castigo, true, contexto(0)).querySelectorAll(".rc")).toHaveLength(1);
+  });
+
+  it("quando OUTRO jogador captura, o humano não é marcado — nem na cena, nem na mesa", () => {
     const { m, vencedor } = cenario(5, (v) => v !== 0);
     const g = remota(m, 0);
-    const root = render(g, anunciarVaza(g, 1)!.castigo, true, contexto(0));
+    const a = anunciarVaza(g, 811)!;
+    const cena = render(g, a.castigo, true, contexto(0));
+    expect(cena.querySelector(".rc-nome")?.text).toBe(`${JOGADORES[vencedor]} pegou o K♥`);
+    marcarCenaDoReiVista(811);
+    const root = render(g, a.castigo, true, contexto(0));
     expect(root.querySelectorAll(".youtag.kpenalizado")).toHaveLength(0);
     expect(root.querySelector(".opp.kpenalizado .n")?.text).toContain(JOGADORES[vencedor]);
     expect(root.querySelector(".castigo")?.text).toContain(`${JOGADORES[vencedor]} pegou`);
@@ -187,25 +222,27 @@ describe("capturar o K♥ dispara o destaque — uma vez, no penalizado certo", 
   it("só o vencedor confirmado pelo motor: um selo que não bate com a vaza revelada não acende nada", () => {
     const { m, vencedor } = cenario(5);
     const g = remota(m, 0);
-    const a = anunciarVaza(g, 1)!;
+    const a = anunciarVaza(g, 821)!;
     const outro = ((vencedor + 1) % 4) as Seat;
     const root = render(g, { ...a.castigo!, seat: outro }, true, contexto(0));
+    expect(root.querySelectorAll(".rc")).toHaveLength(0);
     expect(root.querySelectorAll(".kcaptura")).toHaveLength(0);
     expect(root.querySelectorAll('.trick[class*=" k-"]')).toHaveLength(0);
     expect(root.querySelectorAll(".kpenalizado")).toHaveLength(0);
   });
 
-  it("no recolhimento (fim da pausa) o destaque sai junto com o selo — não repete", () => {
+  it("no recolhimento (fim da pausa) cena, destaque e selo saem — não repete", () => {
     const { m } = cenario(5);
     const g = remota(m, 0);
-    const root = render(g, anunciarVaza(g, 1)!.castigo, false, contexto(0));
+    const root = render(g, anunciarVaza(g, 831)!.castigo, false, contexto(0));
+    expect(root.querySelectorAll(".rc")).toHaveLength(0);
     expect(root.querySelectorAll(".kcaptura")).toHaveLength(0);
     expect(root.querySelectorAll('.trick[class*=" k-"]')).toHaveLength(0);
     expect(root.querySelectorAll(".kpenalizado")).toHaveLength(0);
     expect(root.querySelectorAll(".castigo")).toHaveLength(0);
   });
 
-  it("modo local: o mesmo destaque, com a mesma regra", () => {
+  it("modo local: a mesma cena e o mesmo destaque, com a mesma regra", () => {
     // Uma KingGame só com bots jogando também pelo humano, até o K♥ cair numa vaza.
     for (let seed = 1; seed < 200; seed++) {
       const g = new KingGame(JOGADORES, seed, 0, 5);
@@ -214,7 +251,11 @@ describe("capturar o K♥ dispara o destaque — uma vez, no penalizado certo", 
         if (g.currentTrick().length !== 0) continue;
         const ultima = g.lastCompletedTrick()!;
         if (!ultima.cards.some((pc) => isKingOfHearts(pc.card))) continue;
-        const a = anunciarVaza(g, 1)!;
+        const a = anunciarVaza(g, 841)!;
+        const cena = render(g, a.castigo, true);
+        expect(cena.querySelectorAll(".rc")).toHaveLength(1);
+        expect(cena.querySelectorAll(".kcaptura")).toHaveLength(0);
+        marcarCenaDoReiVista(841);
         const root = render(g, a.castigo, true);
         expect(root.querySelectorAll(".trick .card.kcaptura")).toHaveLength(1);
         expect(root.querySelectorAll(".kpenalizado")).toHaveLength(1);
@@ -226,17 +267,23 @@ describe("capturar o K♥ dispara o destaque — uma vez, no penalizado certo", 
 });
 
 describe("sigilo e outros contratos", () => {
-  it("nenhuma carta oculta aparece por causa do destaque, em nenhum aparelho", () => {
+  it("nenhuma carta oculta aparece por causa da cena nem do destaque, em nenhum aparelho", () => {
     const { m } = cenario(5);
     for (const eu of SEATS) {
       const g = remota(m, eu);
-      const desenhadas = cartasDesenhadas(render(g, anunciarVaza(g, 1)!.castigo, true, contexto(eu)));
+      const a = anunciarVaza(g, 900 + eu)!;
       const permitidas = new Set([
         ...m.hand!.hands[eu].map(cardId),
         ...m.hand!.currentTrick.map((pc) => cardId(pc.card)),
         ...m.hand!.completedTricks.flatMap((t) => t.cards.map((pc) => cardId(pc.card))),
       ]);
-      for (const c of desenhadas) expect(permitidas.has(c), `carta ${c} vista pelo assento ${eu}`).toBe(true);
+      const fases = [render(g, a.castigo, true, contexto(eu))];
+      marcarCenaDoReiVista(900 + eu);
+      fases.push(render(g, a.castigo, true, contexto(eu)));
+      expect(fases[0].querySelectorAll(".rc")).toHaveLength(1);
+      for (const root of fases) {
+        for (const c of cartasDesenhadas(root)) expect(permitidas.has(c), `carta ${c} vista pelo assento ${eu}`).toBe(true);
+      }
     }
   });
 
@@ -250,6 +297,7 @@ describe("sigilo e outros contratos", () => {
     expect(root.querySelectorAll(".trick .card").some((n) => n.getAttribute("aria-label") === "K de hearts")).toBe(true);
     expect(root.querySelectorAll(".kcaptura")).toHaveLength(0);
     expect(root.querySelectorAll(".kpenalizado")).toHaveLength(0);
+    expect(root.querySelectorAll(".rc")).toHaveLength(0);
   });
 });
 
@@ -307,6 +355,10 @@ describe("o CSS do destaque é só pintura", () => {
     expect(TEMPOS.kCopasCaptura).toBeGreaterThanOrEqual(1100);
     expect(TEMPOS.kCopasCaptura).toBeLessThanOrEqual(1500);
     expect(TEMPOS.kCopasCaptura).toBeLessThan(TEMPOS.leituraDaVazaKing);
+    // a cena vem ANTES e dura 2 a 2,5s; somadas, cabem na pausa do King, que não mudou
+    expect(TEMPOS.cenaDoRei).toBeGreaterThanOrEqual(2000);
+    expect(TEMPOS.cenaDoRei).toBeLessThanOrEqual(2500);
+    expect(TEMPOS.cenaDoRei + TEMPOS.kCopasCaptura).toBeLessThanOrEqual(TEMPOS.leituraDaVazaKing);
     expect(TEMPOS.leituraDaVazaKing).toBe(3400);
   });
 
@@ -365,5 +417,35 @@ describe("aparência-base do K♥: igual à das demais cartas", () => {
     // capturado só vale para o K♥: outra carta "capturada" não ganha nada
     expect(classes(renderToStaticMarkup(<CardView card={kCopas as never} capturado />)).has("kcaptura")).toBe(true);
     expect(classes(renderToStaticMarkup(<CardView card={damaCopas as never} capturado />)).has("kcaptura")).toBe(false);
+  });
+});
+
+describe("a cena O REI FOI CAPTURADO é só apresentação", () => {
+  const css = readFileSync(fileURLToPath(new URL("./theme.css", import.meta.url)), "utf8").replace(/\r\n/g, "\n");
+  const fonte = readFileSync(fileURLToPath(new URL("./ReiCapturado.tsx", import.meta.url)), "utf8");
+  const bloco = css.slice(css.indexOf("/* ══════════════════ O REI FOI CAPTURADO"), css.indexOf("/* ══════════════════ A ÚLTIMA VAZA"));
+
+  it("não toca som, não vibra, não suspende a mesa e não fala com o servidor", () => {
+    const codigo = fonte.replace(/\/\/.*$/gm, "");
+    expect(codigo).not.toMatch(/audio|sfx|vibr|haptic|suspender|enviar|send\(|fetch\(/i);
+    // sai sozinha no tempo da cena; o toque só encurta
+    expect(codigo).toMatch(/const PERMANENCIA_MS = TEMPOS\.cenaDoRei - SAIDA_MS;/);
+    expect(codigo).toMatch(/window\.setTimeout\(\(\) => encerrar\.current\(\), PERMANENCIA_MS\)/);
+    expect(codigo).toMatch(/onClick=\{\(\) => encerrar\.current\(\)\}/);
+  });
+
+  it("cobre a mesa no andar da Última Mão, abaixo do clarão do tremor, e não repete", () => {
+    expect(bloco.length).toBeGreaterThan(500);
+    expect(bloco).toMatch(/\.rc\{position:fixed;inset:0;z-index:28;/);
+    expect([...bloco.matchAll(/@keyframes (rc\w+)\{/g)].length).toBeGreaterThan(5);
+    expect(bloco).not.toMatch(/infinite/);
+  });
+
+  it("movimento reduzido: sem faíscas e sem movimento, mesma informação", () => {
+    expect(bloco).toMatch(/\.rc\.calmo \.rc-faiscas\{display:none;\}/);
+    expect(bloco).toMatch(/\.rc\.calmo \.rc-coroa,\.rc\.calmo \.rc-carta,\.rc\.calmo \.rc-titulo,\.rc\.calmo \.rc-quem\{animation:rcVeu \.3s ease-out both;\}/);
+    const media = bloco.slice(bloco.indexOf("@media (prefers-reduced-motion:reduce){"));
+    expect(media).toMatch(/\.rc-faiscas\{display:none;\}/);
+    expect(media).toMatch(/\.rc-coroa,\.rc-carta,\.rc-titulo,\.rc-quem\{animation:rcVeu \.3s ease-out both;\}/);
   });
 });
