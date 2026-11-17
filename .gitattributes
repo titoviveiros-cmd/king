@@ -1,3 +1,9 @@
 # Scripts que rodam na VPS precisam de LF: o `git show` entrega o blob como ele foi gravado,
 # e um  no fim da linha faz o bash reclamar de comando inexistente.
 *.sh text eol=lf
+
+# Entrega B: o cabeçalho do rollout traz o sha256 da migração e a conferência (R1, --conferir) é
+# byte a byte. Um checkout com CRLF faria o arquivo divergir do que foi aprovado.
+supabase/rollout/cosmeticos-*.sql text eol=lf
+supabase/rollout/partes/cosmeticos-*.sql text eol=lf
+supabase/migrations/20261117120000_cosmeticos.sql text eol=lf
