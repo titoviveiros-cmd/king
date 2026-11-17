@@ -39,6 +39,28 @@ export const TEMPOS = {
   shakeKing: 520,
 
   /**
+   * DISTRIBUIÇÃO DO LEQUE: as 13 cartas saem do meio da mesa, uma a uma, e assentam no leque.
+   * O movimento é só `translate`/`scale` transitórios: a posição FINAL de cada carta é a de sempre.
+   * Par no theme.css: `.hand.distribuindo .card` (55ms por carta, 360ms cada) = 12×55 + 360.
+   */
+  distribuicaoDoLeque: 1020,
+  /** POUSO NA VAZA: a carta chega, bate e assenta. Par no theme.css: `pousaNaVaza` (.26s). */
+  pousoNaVaza: 260,
+  /**
+   * O REI FOI CAPTURADO — a cena central da mão 5 (`ReiCapturado.tsx`): 2000ms de presença, já
+   * contada a saída; um toque encurta. Vem ANTES do destaque da mesa (`kCopasCaptura`), nunca junto,
+   * e as duas somadas cabem na pausa do King: 2000 + 1350 = 3350 ≤ `leituraDaVazaKing` (3400).
+   */
+  cenaDoRei: 2000,
+  /**
+   * K DE COPAS CAPTURADO: impacto, destaque e dissipação em 1350ms na mesa, DEPOIS da cena
+   * (`cenaDoRei`), dentro da pausa do King (`leituraDaVazaKing`), que não muda. Só existe enquanto o selo do castigo está na tela —
+   * quem decide quem pegou é o motor, via `anunciarVaza`.
+   * Par no theme.css: `kCaptura`, `kHalo`, `kOnda`, `kPenalizado`, `kSelo` (1.35s).
+   */
+  kCopasCaptura: 1350,
+
+  /**
    * Placar Final — marcos da encenação. Teto aprovado: **4300ms**.
    * As micro-pausas entre etapas são deliberadas e devem permanecer perceptíveis:
    *   contagem termina em 900+1150 = 2050 → 300ms de respiro → ranking em 2350

@@ -75,8 +75,8 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .card.red{color:var(--red);} .card.black{color:var(--black);}
 .card.back{background:repeating-linear-gradient(45deg,#0d3b8a 0 7px,#0a2f6e 7px 14px);border:2px solid #fff;}
 .card.illegal{filter:grayscale(.66) brightness(.66);}
-.card.king{border:2px solid var(--gold);box-shadow:0 3px 10px rgba(0,0,0,.45),0 0 14px rgba(244,197,66,.4);}
-.card.king.illegal{filter:grayscale(.5) brightness(.68);border-color:rgba(244,197,66,.6);}
+/* O K♥ tem a MESMA aparência-base das demais cartas: nenhuma borda nem aura douradas permanentes
+   (recebê-lo não é o azar). O único destaque dele é a aura vinho na CAPTURA (.kcaptura, mão 5). */
 .card.legal{cursor:pointer;}
 .card.legal::after{content:"";position:absolute;left:50%;bottom:4%;transform:translateX(-50%);width:52%;
   height:calc(var(--cw)*.075);border-radius:99px;background:var(--turq);opacity:.92;
@@ -86,8 +86,6 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .hand .card.legal{box-shadow:0 calc(var(--cw)*.13) calc(var(--cw)*.3) rgba(0,0,0,.62),
   0 0 0 1.5px rgba(45,212,191,.55),0 0 calc(var(--cw)*.34) rgba(45,212,191,.32);}
 .hand .card.illegal{box-shadow:0 1px 3px rgba(0,0,0,.35);}
-.hand .card.king.legal{box-shadow:0 calc(var(--cw)*.13) calc(var(--cw)*.3) rgba(0,0,0,.62),
-  0 0 0 2px var(--gold),0 0 calc(var(--cw)*.36) rgba(244,197,66,.45);}
 .card .kb{position:absolute;top:2%;right:4%;font-size:calc(var(--cw)*.24);}
 
 /* ---- mesa ---- */
@@ -413,6 +411,86 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .um.calmo .um-selo b,.um.calmo .um-coroa{animation:none;}
 .um.calmo .um-faiscas{display:none;}
 
+/* ══════════════════ O REI FOI CAPTURADO (mão 5) ══════════════════
+   A cena da captura do K♥, no molde do anúncio da Última Mão: véu escuro, o K♥ em evidência, a
+   coroa, o título, quem pegou e o −160 do motor. Dura 2s (TEMPOS.cenaDoRei) e um toque encurta.
+   Vem ANTES do destaque da mesa (`.kcaptura`), nunca junto: as duas nunca disputam o quadro.
+
+   NÃO BLOQUEIA A PARTIDA: a captura do K♥ encerra a mão, e a cena mora dentro da pausa de
+   leitura que já existia. `pointer-events` só no próprio elemento, que some inteiro ao sair.
+   Mesmo andar da Última Mão (28): abaixo do clarão do tremor (40), que já existia. */
+.rc{position:fixed;inset:0;z-index:28;height:var(--alturaUtil);overflow:hidden;
+  display:grid;place-items:center;cursor:pointer;
+  background:radial-gradient(58% 58% at 50% 50%,rgba(74,6,34,.8),rgba(12,2,14,.92));
+  animation:rcVeu .26s ease-out both;}
+.rc.saindo{animation:rcSai .35s ease-in both;} /* par de SAIDA_MS em ReiCapturado.tsx */
+/* o pulso vinho/roxo atrás de tudo: nasce, toma a tela e assenta */
+.rc::before{content:"";position:absolute;left:50%;top:50%;pointer-events:none;
+  width:min(120vw,170vh);height:min(120vw,170vh);border-radius:50%;translate:-50% -50%;
+  background:radial-gradient(closest-side,rgba(216,31,87,.6),rgba(122,28,140,.3) 45%,transparent 70%);
+  animation:rcPulso 1.65s ease-out both;}
+.rc-cena{position:relative;z-index:1;max-width:92vw;
+  display:flex;flex-direction:column;align-items:center;gap:calc(var(--ui) * .3);text-align:center;}
+.rc-coroa{display:block;line-height:0;animation:rcCoroa .7s cubic-bezier(.2,1.4,.4,1) .12s both;}
+.rc-coroa svg{width:clamp(30px,min(7vw,10vh),64px);height:auto;
+  filter:drop-shadow(0 0 14px rgba(255,92,138,.85)) drop-shadow(0 0 30px rgba(122,28,140,.6));}
+/* O K♥ em evidência. Não é `.card`: é a mesma carta já revelada na vaza, desenhada grande. */
+.rc-carta{position:relative;display:block;width:clamp(52px,min(13vw,22vh),116px);aspect-ratio:5 / 7;
+  border-radius:9%;background:linear-gradient(160deg,#fff 0%,#fbf1f4 60%,#f1dde4 100%);color:#c8102e;
+  box-shadow:0 0 0 3px #ff5c8a,0 0 30px rgba(255,40,96,.95),0 0 70px rgba(122,28,140,.65),0 10px 24px rgba(0,0,0,.6);
+  animation:rcCarta .62s cubic-bezier(.18,1.35,.35,1) both,rcCartaPulso 1.1s ease-in-out .62s both;}
+.rc-canto{position:absolute;left:9%;top:5%;font-family:var(--disp);font-weight:800;text-align:center;
+  font-size:clamp(11px,min(2.6vw,4.2vh),22px);line-height:.92;}
+.rc-canto.rc-baixo{left:auto;top:auto;right:9%;bottom:5%;rotate:180deg;}
+.rc-naipe{position:absolute;left:50%;top:50%;translate:-50% -50%;line-height:1;
+  font-size:clamp(28px,min(7vw,12vh),62px);}
+.rc-titulo{display:block;font-family:var(--disp);font-weight:800;color:#ffd9e4;line-height:1.04;
+  font-size:clamp(1.1rem,min(6.4vw,10vh),3rem);letter-spacing:.03em;
+  text-shadow:0 0 22px rgba(255,40,96,.95),0 0 60px rgba(122,28,140,.7),0 4px 14px rgba(0,0,0,.8);
+  animation:rcTitulo .5s cubic-bezier(.2,1.3,.4,1) .22s both;}
+.rc-quem{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:.3em .6em;
+  font-family:var(--body);font-weight:700;color:var(--ink);font-size:clamp(.8rem,min(2.6vw,4.2vh),1.1rem);
+  animation:rcLinha .4s ease-out .42s both;}
+.rc-pontos{font-family:var(--disp);font-weight:800;color:#fff;padding:.08em .6em;border-radius:999px;
+  background:linear-gradient(180deg,#e0245e,#8a0f3a);box-shadow:0 0 0 2px rgba(255,92,138,.8),0 0 18px rgba(255,40,96,.8);}
+/* as faíscas: oito, vinho e roxo, saindo da carta. Somem inteiras com movimento reduzido. */
+.rc-faiscas{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;}
+.rc-faiscas i{position:absolute;width:calc(var(--ui) * .32);height:calc(var(--ui) * .32);border-radius:50%;
+  background:#ff5c8a;box-shadow:0 0 10px rgba(255,40,96,.95);
+  transform:rotate(var(--ang)) translateY(0);animation:rcFaisca .85s ease-out var(--atraso) 1 both;}
+.rc-faiscas i:nth-child(even){background:#c58cff;box-shadow:0 0 10px rgba(150,70,230,.95);}
+@keyframes rcVeu{from{opacity:0;}to{opacity:1;}}
+@keyframes rcSai{to{opacity:0;transform:scale(1.03);}}
+@keyframes rcPulso{0%{opacity:0;scale:.3;}22%{opacity:1;scale:1;}100%{opacity:.5;scale:1.12;}}
+@keyframes rcCoroa{0%{opacity:0;transform:translateY(40%) scale(.6);}100%{opacity:1;transform:none;}}
+@keyframes rcCarta{
+  0%  {opacity:0;transform:scale(1.9) rotate(-14deg);}
+  60% {opacity:1;transform:scale(.94) rotate(2deg);}
+  100%{opacity:1;transform:scale(1) rotate(0deg);}
+}
+@keyframes rcCartaPulso{
+  0%,100%{box-shadow:0 0 0 3px #ff5c8a,0 0 30px rgba(255,40,96,.95),0 0 70px rgba(122,28,140,.65),0 10px 24px rgba(0,0,0,.6);}
+  50%    {box-shadow:0 0 0 4px #ff8fb0,0 0 46px rgba(255,40,96,1),0 0 110px rgba(122,28,140,.85),0 10px 24px rgba(0,0,0,.6);}
+}
+@keyframes rcTitulo{0%{opacity:0;transform:scale(.7);}100%{opacity:1;transform:scale(1);}}
+@keyframes rcLinha{from{opacity:0;transform:translateY(35%);}to{opacity:1;transform:none;}}
+@keyframes rcFaisca{
+  0%  {opacity:0;transform:rotate(var(--ang)) translateY(0) scale(.4);}
+  25% {opacity:1;}
+  100%{opacity:0;transform:rotate(var(--ang)) translateY(calc(var(--ui) * -5.2)) scale(.9);}
+}
+/* MOVIMENTO REDUZIDO: sai todo movimento, fica o fade. A INFORMAÇÃO É A MESMA (K♥, título, quem e
+   −160 estão no texto). Pela classe (JS) e pela media query (CSS), como na Última Mão. */
+.rc.calmo .rc-coroa,.rc.calmo .rc-carta,.rc.calmo .rc-titulo,.rc.calmo .rc-quem{animation:rcVeu .3s ease-out both;}
+.rc.calmo::before{animation:none;opacity:.6;}
+.rc.calmo .rc-faiscas{display:none;}
+@media (prefers-reduced-motion:reduce){
+  .rc-coroa,.rc-carta,.rc-titulo,.rc-quem{animation:rcVeu .3s ease-out both;}
+  .rc::before{animation:none;opacity:.6;}
+  .rc-faiscas{display:none;}
+  .rc,.rc.saindo{animation-duration:.2s;}
+}
+
 /* ══════════════════ A ÚLTIMA VAZA ══════════════════
    Quatro cartas em linha, na ordem em que foram jogadas, com o nome de quem jogou cada uma. */
 .uv-scrim{position:fixed;inset:0;z-index:30;height:var(--alturaUtil);
@@ -636,6 +714,118 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 /* estado "selecionada" do Design System: endireita, eleva, anel dourado */
 .hand .card.sel{transform:rotate(0deg) translateY(calc(var(--handcw)*-.5)) scale(1.14);z-index:60;
   box-shadow:0 10px 22px rgba(0,0,0,.55),0 0 0 2px var(--gold),0 0 26px rgba(244,197,66,.5);}
+
+/* ── COSMÉTICOS DA MESA (ui/distribuicao.ts e o selo do castigo na Mesa) ─────────────────────
+   Movimento só pelas propriedades INDIVIDUAIS `translate`/`scale` (e opacidade/sombra): elas se
+   compõem com o `transform` de cada carta (o arco do leque, a rotação do slot da vaza) sem
+   substituí-lo. Toda animação daqui termina na identidade (translate 0, scale 1), então a
+   geometria FINAL do leque e da vaza é a mesma de antes — os testes de layout medem essa. */
+
+/* Distribuição: as 13 cartas saem do meio da mesa, uma a uma, e assentam no leque com um
+   pequeno passo além do ponto (o "assentamento"). `backwards`: antes da vez dela a carta está
+   no ponto de partida, invisível; depois de chegar, nenhuma regra fica presa nela.
+   Par de TEMPOS.distribuicaoDoLeque: 12 × 55ms + 360ms = 1020ms. */
+.hand.distribuindo .card{animation:lequeEntra .36s cubic-bezier(.2,.9,.25,1.12) backwards;
+  animation-delay:calc(var(--i) * 55ms);}
+@keyframes lequeEntra{
+  0%{opacity:0;scale:.82;
+    translate:calc(((var(--n) - 1) / 2 - var(--i)) * var(--step) * .45) calc(var(--handcw) * -.95);}
+  35%{opacity:1;}
+  100%{opacity:1;scale:1;translate:0 0;}
+}
+
+/* A carta POUSA na vaza: vem do lado de quem jogou, chega um pouco maior e no alto (sombra longa
+   e suave), bate na mesa (encolhe um fio, sombra curta e escura) e assenta. 260ms, só na entrada:
+   o slot tem `key` estável, então fechar a vaza não remonta a carta e o pouso não se repete.
+   A carta do TOPO não desce do alto: ela cai no lugar com origem no topo — assim nenhum quadro
+   do pouso sobe na direção do selo do castigo, que fica logo acima da vaza.
+   Par de TEMPOS.pousoNaVaza. */
+.trick .slot.b{--entra:0 calc(var(--trickcw) * .62);}
+.trick .slot.l{--entra:calc(var(--trickcw) * -.62) 0;}
+.trick .slot.r{--entra:calc(var(--trickcw) * .62) 0;}
+.trick .slot.t{--entra:0 0;}
+.trick .slot.t .card{transform-origin:50% 0;}
+.trick .slot .card{animation:pousaNaVaza .26s cubic-bezier(.2,.75,.25,1) backwards;}
+@keyframes pousaNaVaza{
+  0%{opacity:.2;translate:var(--entra,0 0);scale:1.18;
+    box-shadow:0 calc(var(--trickcw) * .34) calc(var(--trickcw) * .5) rgba(0,0,0,.32);}
+  62%{opacity:1;translate:0 0;scale:.965;box-shadow:0 1px 2px rgba(0,0,0,.75);}
+  100%{opacity:1;translate:0 0;scale:1;}
+}
+
+/* K DE COPAS CAPTURADO (mão 5). Só existe junto do selo do castigo, sobre a vaza já revelada,
+   e conta em TRÊS TEMPOS (1350ms, Par de TEMPOS.kCopasCaptura):
+     1 · impacto (0–30%): o K♥ salta, treme na horizontal e acende; uma onda vinho sai dele;
+     2 · destaque (30–60%): aura vinho pulsando, halo atrás da vaza, card do penalizado aceso,
+         −160 do selo no mesmo vinho;
+     3 · dissipação (60–100%): tudo volta ao repouso.
+   Nada aqui cobre informação: halo e onda ficam ATRÁS das cartas (z-index −1 dentro da vaza,
+   que é um contexto de empilhamento), abaixo do placar, do leque e dos cards; o tremor é só
+   horizontal e o K do topo cresce para baixo — nenhum quadro invade o selo. Toca uma vez: a
+   classe entra com o selo e sai com ele. Som e tremor da tela são os do selo. */
+.trick .slot .card.kcaptura{animation:pousaNaVaza .26s cubic-bezier(.2,.75,.25,1) backwards,
+  kCaptura 1.35s ease-out both;}
+@keyframes kCaptura{
+  0%{scale:1;translate:0 0;animation-timing-function:cubic-bezier(.2,.9,.3,1.3);}
+  10%{scale:1.17;translate:0 0;box-shadow:0 0 0 3px #ff5c8a,0 0 calc(var(--trickcw) * .55) rgba(255,40,96,1),
+    0 0 calc(var(--trickcw) * 1.1) rgba(160,12,52,.85);}
+  14%{translate:calc(var(--trickcw) * -.05) 0;}
+  18%{translate:calc(var(--trickcw) * .045) 0;}
+  22%{translate:calc(var(--trickcw) * -.03) 0;}
+  26%{translate:calc(var(--trickcw) * .015) 0;}
+  30%{translate:0 0;scale:1.12;box-shadow:0 0 0 3px #ff5c8a,0 0 calc(var(--trickcw) * .45) rgba(255,40,96,.95),
+    0 0 calc(var(--trickcw) * .9) rgba(160,12,52,.75);}
+  44%{scale:1.1;box-shadow:0 0 0 2px #ff5c8a,0 0 calc(var(--trickcw) * .26) rgba(216,31,87,.7),
+    0 0 calc(var(--trickcw) * .5) rgba(122,15,46,.5);}
+  58%{scale:1.12;box-shadow:0 0 0 3px #ff5c8a,0 0 calc(var(--trickcw) * .45) rgba(255,40,96,.95),
+    0 0 calc(var(--trickcw) * .9) rgba(160,12,52,.75);}
+  100%{scale:1;translate:0 0;}
+}
+.trick.kcaptura::before{content:"";position:absolute;inset:-14%;z-index:-1;pointer-events:none;
+  border-radius:50%;background:radial-gradient(closest-side,rgba(216,31,87,.55),rgba(122,15,46,.3) 55%,transparent);
+  animation:kHalo 1.35s ease-out both;}
+@keyframes kHalo{0%{opacity:0;}10%{opacity:1;}60%{opacity:.85;}100%{opacity:0;}}
+/* a onda de impacto nasce no slot do K♥ (`k-b|l|t|r`, posto pela Mesa) */
+.trick.kcaptura.k-b{--kx:50%;--ky:66%;}
+.trick.kcaptura.k-l{--kx:22%;--ky:44%;}
+.trick.kcaptura.k-t{--kx:50%;--ky:22%;}
+.trick.kcaptura.k-r{--kx:78%;--ky:44%;}
+.trick.kcaptura::after{content:"";position:absolute;z-index:-1;pointer-events:none;
+  left:var(--kx,50%);top:var(--ky,50%);width:calc(var(--trickcw) * 1.5);height:calc(var(--trickcw) * 1.5);
+  margin:calc(var(--trickcw) * -.75) 0 0 calc(var(--trickcw) * -.75);border-radius:50%;
+  border:calc(var(--trickcw) * .06) solid rgba(255,92,138,.9);
+  box-shadow:0 0 calc(var(--trickcw) * .3) rgba(216,31,87,.8),inset 0 0 calc(var(--trickcw) * .25) rgba(216,31,87,.6);
+  animation:kOnda .7s cubic-bezier(.15,.7,.3,1) .06s both;}
+@keyframes kOnda{0%{opacity:.95;scale:.3;}100%{opacity:0;scale:2.1;}}
+.opp.kpenalizado,.youtag.kpenalizado{animation:kPenalizado 1.35s ease-out both;}
+@keyframes kPenalizado{
+  10%{box-shadow:0 0 0 3px #ff5c8a,0 0 34px rgba(255,40,96,.95),inset 0 0 0 999px rgba(216,31,87,.3);}
+  30%,58%{box-shadow:0 0 0 2px #ff5c8a,0 0 26px rgba(216,31,87,.8),inset 0 0 0 999px rgba(216,31,87,.14);}
+  44%{box-shadow:0 0 0 3px #ff5c8a,0 0 32px rgba(216,31,87,.9),inset 0 0 0 999px rgba(216,31,87,.2);}
+}
+/* O selo do K♥ entra no mesmo compasso: as duas animações de sempre do `.castigo` (mesmos valores)
+   + um clarão vinho na moldura e no −160, que voltam ao ouro do selo ao dissipar. */
+.castigo.king{animation:castigoEntra .5s cubic-bezier(.16,1.5,.4,1) both,castigoPulsa 1.15s ease-in-out .5s infinite,
+  kSelo 1.35s ease-out both;}
+@keyframes kSelo{
+  10%,44%{box-shadow:0 12px 34px -10px #000,0 0 0 5px rgba(255,92,138,.6),0 0 90px rgba(216,31,87,.95);}
+}
+.castigo.king .quanto{animation:kSeloValor 1.35s ease-out both;}
+@keyframes kSeloValor{
+  10%,44%{color:#ffd6e2;text-shadow:0 0 22px rgba(255,40,96,1),0 0 6px rgba(255,92,138,.9);}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .hand.distribuindo .card,.trick .slot .card{animation:none;}
+  /* Sem movimento: a aura, o halo, o card do penalizado e o selo acendem e apagam uma vez — é
+     onde a informação mora. A onda (que é deslocamento) não existe aqui. */
+  .trick .slot .card.kcaptura{animation:kCapturaCalmo 1.35s ease-in-out both;}
+  .trick.kcaptura::before{animation:kHalo 1.35s ease-out both;}
+  .trick.kcaptura::after{animation:none;display:none;}
+  .opp.kpenalizado,.youtag.kpenalizado{animation:kPenalizado 1.35s ease-out both;}
+  .castigo.king{animation:kSelo 1.35s ease-out both;}
+}
+@keyframes kCapturaCalmo{20%,80%{box-shadow:0 0 0 3px #ff5c8a,0 0 calc(var(--trickcw) * .4) rgba(216,31,87,.9);}}
 
 /* O card do jogador TEM TETO. Sem ele a largura é do texto: um apelido de 14 caracteres
    empurra o card para dentro do corredor lateral — o mesmo corredor que o leque e a faixa do
