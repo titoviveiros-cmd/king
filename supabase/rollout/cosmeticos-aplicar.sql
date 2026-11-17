@@ -1,8 +1,11 @@
 -- ENTREGA B — COSMÉTICOS POR NÍVEL — COLAR ESTE ARQUIVO INTEIRO NO SQL EDITOR E RODAR UMA VEZ.
 --
 -- ARQUIVO GERADO por scripts/montar-rollout-cosmeticos.mjs — não editar à mão.
--- Migração dentro dele, texto idêntico: supabase/migrations/20261117120000_cosmeticos.sql
---   sha256 a2001a46034d5d3fa8d89413305d2e833a386200a25d1380e5e9e2f89ff8c725
+-- Migrações dentro dele, nesta ordem e com o texto idêntico ao do repositório:
+--   supabase/migrations/20261117120000_cosmeticos.sql
+--     sha256 a2001a46034d5d3fa8d89413305d2e833a386200a25d1380e5e9e2f89ff8c725
+--   supabase/migrations/20261118120000_cosmeticos_mesa.sql
+--     sha256 0856adc202127673d81d93b58f19eee1f355e07f8cdf24f45b596acdd1ff8723
 --
 -- ANTES: rodar supabase/rollout/cosmeticos-checkpoint-1-antes.sql (só leitura) e ver pronto_para_aplicar = true.
 --
@@ -15,13 +18,14 @@
 --
 -- DEPOIS: rodar supabase/rollout/cosmeticos-checkpoint-3-depois.sql (só leitura) e ver tudo_certo = true.
 --
--- O que muda: nasce a tabela das escolhas (vazia) e três funções. NADA do que existe muda: progresso,
+-- O que muda: nasce a tabela das escolhas (vazia, com a coluna da toalha) e seis funções. NADA do que existe muda: progresso,
 -- XP, ledger, crédito, lápides, jogadores e privilégios ficam como estão (as conferências provam). O
 -- servidor e a web que estão no ar hoje não usam nada disto; ativar é o passo seguinte (servidor, depois
 -- web), cada um com autorização própria.
 --
--- Rollback: supabase/rollback/20261117120000_cosmeticos_rollback.sql (apaga as escolhas gravadas, e só
--- elas). Depois dele, o checkpoint 1 volta a dizer pronto_para_aplicar = true.
+-- Rollback, NESTA ordem: supabase/rollback/20261118120000_cosmeticos_mesa_rollback.sql e depois
+-- supabase/rollback/20261117120000_cosmeticos_rollback.sql (apagam as escolhas gravadas, e só elas).
+-- Depois dos dois, o checkpoint 1 volta a dizer pronto_para_aplicar = true.
 
 begin;
 
@@ -58,7 +62,10 @@ begin
   if to_regclass('public.cosmeticos_equipados') is not null
      or to_regprocedure('public.equipar_cosmetico(text,boolean)') is not null
      or to_regprocedure('king_private.cosmeticos_da_sala(uuid[])') is not null
-     or to_regprocedure('king_private.nivel_do_cosmetico(text)') is not null then
+     or to_regprocedure('king_private.nivel_do_cosmetico(text)') is not null
+     or to_regprocedure('public.equipar_toalha(text)') is not null
+     or to_regprocedure('king_private.toalhas_do_anfitriao(uuid)') is not null
+     or to_regprocedure('king_private.nivel_da_toalha(text)') is not null then
     raise exception 'ROLLOUT COSMÉTICOS ABORTADO (parte 1): os cosméticos já existem, inteiros ou em parte, neste banco — esta execução não alterou nada. Se acabaram de ser aplicados (o arquivo colado duas vezes), confira com o checkpoint 3.';
   end if;
 end $$;
@@ -99,7 +106,8 @@ select (select count(*) from public.progresso)                       as linhas_d
        (select coalesce(array_agg(m.roleid::regrole::text order by m.roleid::regrole::text collate "C"), '{}')
           from pg_auth_members as m where m.member = 'king_server'::regrole)       as papeis_do_servidor;
 
--- ═══ PARTE 2/3 — A MIGRAÇÃO, idêntica a supabase/migrations/20261117120000_cosmeticos.sql ═══
+-- ═══ PARTE 2/3 — AS DUAS MIGRAÇÕES, idênticas aos arquivos de supabase/migrations ═══════════
+-- ─── supabase/migrations/20261117120000_cosmeticos.sql ───
 -- COSMÉTICOS DESBLOQUEÁVEIS POR NÍVEL (Entrega B) — três itens, catálogo fechado.
 --
 -- ══ O CATÁLOGO ══
@@ -265,6 +273,152 @@ comment on function public.equipar_cosmetico(text, boolean) is
 comment on function king_private.cosmeticos_da_sala(uuid[]) is
   'Para o servidor do jogo: moldura e reação EFETIVAS (equipadas e com nível) de até 4 jogadores.';
 
+-- ─── supabase/migrations/20261118120000_cosmeticos_mesa.sql ───
+-- A TOALHA DA MESA COMO COSMÉTICO (Entrega B, parte 2) — quatro temas, catálogo fechado.
+--
+-- ══ O CATÁLOGO DAS TOALHAS ══
+--
+--   nível 1  → 'imperial'   Noite Imperial — o padrão da casa, livre como sempre foi
+--   nível 1  → 'verde'      Verde Clássica — livre como sempre foi
+--   nível 8  → 'vinho'      Vinho Clássica
+--   nível 10 → 'esmeralda'  Esmeralda Real
+--
+-- As duas mesas que já existiam continuam LIVRES: ninguém perde o que tinha. Os ids são os MESMOS
+-- etiquetas que a sala já sincroniza (`tableTheme`) e que o app antigo conhece; os dois novos caem
+-- no padrão num cliente antigo, que desenha só o que conhece.
+--
+-- ══ O QUE É GUARDADO ══
+--
+-- Só a ESCOLHA: uma coluna `toalha` na mesma linha de `cosmeticos_equipados` (uma por jogador). É
+-- exclusiva — uma toalha por vez —, por isso é um valor, não um "equipado sim/não". O padrão é
+-- 'imperial', a mesa de sempre.
+--
+-- ══ QUEM VÊ ══
+--
+-- A mesa é da SALA: no online, quem escolhe é o anfitrião, e os quatro jogam na mesma toalha. O
+-- servidor do jogo pergunta ao banco quais toalhas o anfitrião liberou e recusa a escolha de uma
+-- bloqueada. Contra os bots, vale a toalha equipada na vitrine.
+--
+-- ══ AS PORTAS NOVAS ══
+--
+--   escrita           `public.equipar_toalha(toalha)` — SECURITY DEFINER. A mesma identidade do JWT
+--                     e a mesma conferência de nível no banco de `equipar_cosmetico`.
+--   leitura da sala   `king_private.toalhas_do_anfitriao(id)` — EXECUTE só do `king_server`. Devolve a
+--                     toalha EFETIVA (equipada e com nível; senão a padrão) e a lista das liberadas.
+--                     Nunca XP nem nível.
+--
+-- Nada da parte 1 muda: `equipar_cosmetico`, `cosmeticos_da_sala`, a política e os privilégios da
+-- tabela ficam como estão. A coluna nova é lida pelo `select` que o cliente já tem na PRÓPRIA linha.
+--
+-- ══ ROLLBACK ══
+--
+-- `supabase/rollback/20261118120000_cosmeticos_mesa_rollback.sql`: tira as duas funções, o catálogo e
+-- a coluna. Perde-se só a toalha escolhida; o XP e as outras escolhas ficam.
+
+grant create on schema public to king_progress_owner;
+set role king_progress_owner;
+
+-- ══ A COLUNA ════════════════════════════════════════════════════════════════════════════════
+alter table public.cosmeticos_equipados
+  add column toalha text not null default 'imperial'
+    constraint cosmeticos_toalha_do_catalogo check (toalha in ('imperial', 'verde', 'vinho', 'esmeralda'));
+
+-- ══ CATÁLOGO DAS TOALHAS — a única tabela de níveis delas, dentro do banco ══════════════════════
+-- `null` para o que não está no catálogo: quem chama recusa.
+create function king_private.nivel_da_toalha(p_toalha text) returns integer
+language sql immutable
+set search_path = ''
+as $$
+  select case p_toalha
+    when 'imperial'  then 1
+    when 'verde'     then 1
+    when 'vinho'     then 8
+    when 'esmeralda' then 10
+  end
+$$;
+
+-- ══ EQUIPAR A TOALHA — a única porta de escrita da coluna ═══════════════════════════════════════
+create function public.equipar_toalha(p_toalha text)
+returns table (toalha text)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  -- QUEM É: o `sub` do JWT, do mesmo jeito de `equipar_cosmetico` (o dono não alcança `auth.uid()`).
+  v_uid   uuid := nullif(coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''),
+                                  nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'), '')::uuid;
+  v_exige integer := king_private.nivel_da_toalha(p_toalha);
+  v_xp    integer;
+begin
+  if v_uid is null then
+    raise exception 'sem identidade' using errcode = '42501';
+  end if;
+  if v_exige is null then
+    raise exception 'toalha fora do catálogo' using errcode = '22023';
+  end if;
+  -- O NÍVEL É O DO BANCO. As livres (nível 1) não precisam de conta nenhuma.
+  if v_exige > 1 then
+    v_xp := coalesce((select g.xp_total from public.progresso as g where g.player_id = v_uid), 0);
+    if public.nivel_de(v_xp) < v_exige then
+      raise exception 'nível insuficiente' using errcode = '42501';
+    end if;
+  end if;
+
+  return query
+  insert into public.cosmeticos_equipados as c (player_id, toalha)
+  values (v_uid, p_toalha)
+  on conflict (player_id) do update set
+    toalha        = p_toalha,
+    atualizado_em = now()
+  returning c.toalha;
+end $$;
+
+-- ══ A MESA DO ANFITRIÃO — só o servidor do jogo, só o efeito ════════════════════════════════════
+-- Sempre UMA linha, mesmo para quem nunca escolheu nada (aí a toalha é a padrão). `liberadas` vem na
+-- ordem do catálogo. Efetiva = escolhida E com nível hoje (defesa em profundidade: a escrita já
+-- conferiu).
+create function king_private.toalhas_do_anfitriao(p_id uuid)
+returns table (toalha text, liberadas text[])
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  v_nivel   integer;
+  v_escolha text;
+begin
+  if p_id is null then
+    raise exception 'sem jogador' using errcode = '22023';
+  end if;
+  v_nivel := public.nivel_de(coalesce((select g.xp_total from public.progresso as g where g.player_id = p_id), 0));
+  v_escolha := coalesce((select c.toalha from public.cosmeticos_equipados as c where c.player_id = p_id), 'imperial');
+  return query
+  select case when king_private.nivel_da_toalha(v_escolha) <= v_nivel then v_escolha else 'imperial' end,
+         array(select t from unnest(array['imperial', 'verde', 'vinho', 'esmeralda']) with ordinality as x(t, ordem)
+                where king_private.nivel_da_toalha(t) <= v_nivel order by ordem);
+end $$;
+
+reset role;
+revoke create on schema public from king_progress_owner;
+
+-- ══ GRANTS — explícitos, contra os privilégios padrão permissivos do Supabase ═══════════════
+revoke all on function king_private.nivel_da_toalha(text) from public, anon, authenticated, service_role, king_server;
+revoke all on function public.equipar_toalha(text) from public, anon, authenticated, service_role, king_server;
+grant execute on function public.equipar_toalha(text) to authenticated;
+revoke all on function king_private.toalhas_do_anfitriao(uuid) from public, anon, authenticated, service_role;
+grant execute on function king_private.toalhas_do_anfitriao(uuid) to king_server;
+
+comment on column public.cosmeticos_equipados.toalha is
+  'Toalha da mesa escolhida (catálogo fechado). Escrita só por public.equipar_toalha, que confere o nível.';
+comment on function public.equipar_toalha(text) is
+  'Escolhe a toalha da mesa. As de nível acima de 1 exigem nivel_de(xp_total) >= nível da toalha.';
+comment on function king_private.toalhas_do_anfitriao(uuid) is
+  'Para o servidor do jogo: a toalha EFETIVA de um jogador e as toalhas que ele já liberou.';
+
 -- ═══ PARTE 3/3 — CONFERÊNCIAS, AINDA DENTRO DA TRANSAÇÃO ═══════════════════════════════════
 --
 -- Qualquer falha aqui levanta erro: o COMMIT abaixo não roda e NADA da migração é gravado.
@@ -276,6 +430,9 @@ declare
   equipar regprocedure := to_regprocedure('public.equipar_cosmetico(text,boolean)');
   sala    regprocedure := to_regprocedure('king_private.cosmeticos_da_sala(uuid[])');
   nivel   regprocedure := to_regprocedure('king_private.nivel_do_cosmetico(text)');
+  toalha  regprocedure := to_regprocedure('public.equipar_toalha(text)');
+  mesa    regprocedure := to_regprocedure('king_private.toalhas_do_anfitriao(uuid)');
+  nivel_t regprocedure := to_regprocedure('king_private.nivel_da_toalha(text)');
   credito regprocedure := 'king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)'::regprocedure;
   agora   text[];
   novos   text[];
@@ -301,6 +458,15 @@ begin
                      where k.conrelid = t and k.contype = 'f' and k.confrelid = 'public.players'::regclass and k.confdeltype = 'c') then
     raise exception 'CONFERÊNCIA 1 FALHOU: a tabela dos cosméticos não é a da Entrega B (dono, RLS, vazia, chave ou cascade). Nada foi gravado.';
   end if;
+  -- ...e a toalha: texto, obrigatória, padrão 'imperial' e presa ao catálogo das quatro
+  if not exists (select 1 from pg_attribute as a join pg_attrdef as d on d.adrelid = a.attrelid and d.adnum = a.attnum
+                  where a.attrelid = t and a.attname = 'toalha' and not a.attisdropped and a.attnotnull
+                    and a.atttypid = 'text'::regtype and pg_get_expr(d.adbin, d.adrelid) = '''imperial''::text')
+     or not exists (select 1 from pg_constraint as k
+                     where k.conrelid = t and k.contype = 'c' and k.conname = 'cosmeticos_toalha_do_catalogo'
+                       and pg_get_constraintdef(k.oid) = 'CHECK ((toalha = ANY (ARRAY[''imperial''::text, ''verde''::text, ''vinho''::text, ''esmeralda''::text])))') then
+    raise exception 'CONFERÊNCIA 1 FALHOU: a coluna da toalha não é a esperada (tipo, padrão ou catálogo). Nada foi gravado.';
+  end if;
 
   -- 2. a política: UMA, só de leitura, só para authenticated, só a própria linha
   if (select count(*) from pg_policy as p where p.polrelid = t) <> 1
@@ -314,7 +480,7 @@ begin
   end if;
 
   -- 3. as funções: dono dedicado, search_path vazio; as duas portas SECURITY DEFINER, o catálogo não
-  foreach f in array array[equipar, sala, nivel] loop
+  foreach f in array array[equipar, sala, nivel, toalha, mesa, nivel_t] loop
     if f is null
        or (select pg_get_userbyid(p.proowner) from pg_proc as p where p.oid = f) <> 'king_progress_owner'
        or (select p.proconfig from pg_proc as p where p.oid = f) is distinct from array['search_path=""'] then
@@ -323,7 +489,10 @@ begin
   end loop;
   if not (select p.prosecdef from pg_proc as p where p.oid = equipar)
      or not (select p.prosecdef from pg_proc as p where p.oid = sala)
-     or (select p.prosecdef from pg_proc as p where p.oid = nivel) then
+     or not (select p.prosecdef from pg_proc as p where p.oid = toalha)
+     or not (select p.prosecdef from pg_proc as p where p.oid = mesa)
+     or (select p.prosecdef from pg_proc as p where p.oid = nivel)
+     or (select p.prosecdef from pg_proc as p where p.oid = nivel_t) then
     raise exception 'CONFERÊNCIA 3 FALHOU: SECURITY DEFINER fora do previsto nas funções dos cosméticos. Nada foi gravado.';
   end if;
   -- o catálogo do banco é o mesmo do app: 2 / 4 / 6, e nada fora dele
@@ -333,6 +502,14 @@ begin
      or king_private.nivel_do_cosmetico('outro') is not null then
     raise exception 'CONFERÊNCIA 3 FALHOU: o catálogo do banco não é 2/4/6. Nada foi gravado.';
   end if;
+  -- e o das toalhas: as duas mesas de sempre livres (1), vinho 8, esmeralda 10, e nada fora dele
+  if king_private.nivel_da_toalha('imperial') is distinct from 1
+     or king_private.nivel_da_toalha('verde') is distinct from 1
+     or king_private.nivel_da_toalha('vinho') is distinct from 8
+     or king_private.nivel_da_toalha('esmeralda') is distinct from 10
+     or king_private.nivel_da_toalha('outra') is not null then
+    raise exception 'CONFERÊNCIA 3 FALHOU: o catálogo das toalhas não é 1/1/8/10. Nada foi gravado.';
+  end if;
 
   -- 4. quem pode o quê: o cliente LÊ (RLS) e EQUIPA (pela porta); só o servidor lê a sala; ninguém
   --    da API escreve na tabela nem executa o catálogo ou a porta da sala
@@ -340,26 +517,28 @@ begin
     if has_table_privilege(papel, t, 'insert, update, delete, truncate, references, trigger') then
       raise exception 'CONFERÊNCIA 4 FALHOU: % escreve na tabela dos cosméticos. Nada foi gravado.', papel;
     end if;
-    if has_function_privilege(papel, nivel, 'execute') then
+    if has_function_privilege(papel, nivel, 'execute') or has_function_privilege(papel, nivel_t, 'execute') then
       raise exception 'CONFERÊNCIA 4 FALHOU: % executa o catálogo direto. Nada foi gravado.', papel;
     end if;
   end loop;
   foreach papel in array array['public', 'anon', 'authenticated', 'service_role'] loop
-    if has_function_privilege(papel, sala, 'execute') then
+    if has_function_privilege(papel, sala, 'execute') or has_function_privilege(papel, mesa, 'execute') then
       raise exception 'CONFERÊNCIA 4 FALHOU: % executa a porta da sala. Nada foi gravado.', papel;
     end if;
   end loop;
   foreach papel in array array['public', 'anon', 'service_role', 'king_server'] loop
-    if has_function_privilege(papel, equipar, 'execute') or has_table_privilege(papel, t, 'select') then
+    if has_function_privilege(papel, equipar, 'execute') or has_function_privilege(papel, toalha, 'execute')
+       or has_table_privilege(papel, t, 'select') then
       raise exception 'CONFERÊNCIA 4 FALHOU: % lê a tabela ou equipa. Nada foi gravado.', papel;
     end if;
   end loop;
   if not has_table_privilege('authenticated', t, 'select') or not has_function_privilege('authenticated', equipar, 'execute')
+     or not has_function_privilege('authenticated', toalha, 'execute') or not has_function_privilege('king_server', mesa, 'execute')
      or not has_function_privilege('king_server', sala, 'execute') or pg_has_role('king_server', 'king_progress_owner', 'MEMBER') then
     raise exception 'CONFERÊNCIA 4 FALHOU: faltou a leitura/porta do cliente ou a do servidor, ou o servidor virou dono. Nada foi gravado.';
   end if;
 
-  -- 5. NADA mais mudou de privilégio: só entram a tabela e as três funções, cada uma com o ACL exato;
+  -- 5. NADA mais mudou de privilégio: só entram a tabela e as seis funções, cada uma com o ACL exato;
   --    nenhum objeto que existia ganhou ou perdeu acesso (nem o schema public, que a migração abre e
   --    fecha para o dono dedicado)
   select array_agg(o.obj || ' ' || o.acl) into agora from (
@@ -375,11 +554,14 @@ begin
       from pg_namespace as n where n.nspname in ('king_private', 'public')) as o;
   novos   := array(select x from unnest(agora) as x except select y from unnest(antes.privilegios) as y);
   sumidos := array(select y from unnest(antes.privilegios) as y except select x from unnest(agora) as x);
-  if cardinality(sumidos) <> 0 or cardinality(novos) <> 4
+  if cardinality(sumidos) <> 0 or cardinality(novos) <> 7
      -- (o texto do objeto vem dele mesmo: com `public` no search_path, o Postgres o escreve sem prefixo)
      or not (equipar::text || ' {king_progress_owner=X/king_progress_owner,authenticated=X/king_progress_owner}' = any (novos))
      or not (sala::text || ' {king_progress_owner=X/king_progress_owner,king_server=X/king_progress_owner}' = any (novos))
      or not (nivel::text || ' {king_progress_owner=X/king_progress_owner}' = any (novos))
+     or not (toalha::text || ' {king_progress_owner=X/king_progress_owner,authenticated=X/king_progress_owner}' = any (novos))
+     or not (mesa::text || ' {king_progress_owner=X/king_progress_owner,king_server=X/king_progress_owner}' = any (novos))
+     or not (nivel_t::text || ' {king_progress_owner=X/king_progress_owner}' = any (novos))
      or not exists (select 1 from unnest(novos) as n
                      where starts_with(n, t::text || ' {')
                        and n ~ ' \{king_progress_owner=[a-zA-Z]+/king_progress_owner,authenticated=r/king_progress_owner\}$') then
@@ -402,14 +584,15 @@ begin
     raise exception 'CONFERÊNCIA 5 FALHOU: privilégio de coluna, papel do servidor ou política de RLS fora da Entrega B. Nada foi gravado.';
   end if;
 
-  -- 6. SECURITY DEFINER: só as duas portas novas entram na lista
+  -- 6. SECURITY DEFINER: só as quatro portas novas entram na lista
   if (select array_agg(s collate "C" order by s collate "C") from (
         select n.nspname || '.' || p.proname as s
           from pg_proc as p join pg_namespace as n on n.oid = p.pronamespace
          where p.prosecdef and n.nspname in ('public', 'king_private')) as d)
      is distinct from
      (select array_agg(s collate "C" order by s collate "C")
-        from unnest(antes.security_definer || array['public.equipar_cosmetico', 'king_private.cosmeticos_da_sala']) as s) then
+        from unnest(antes.security_definer || array['public.equipar_cosmetico', 'king_private.cosmeticos_da_sala',
+                                                  'public.equipar_toalha', 'king_private.toalhas_do_anfitriao']) as s) then
     raise exception 'CONFERÊNCIA 6 FALHOU: funções SECURITY DEFINER fora da Entrega B. Nada foi gravado.';
   end if;
 
@@ -439,5 +622,7 @@ select 'COSMÉTICOS (ENTREGA B) APLICADA E CONFERIDA' as resultado,
        (select count(*) from public.cosmeticos_equipados)                                          as escolhas_gravadas,
        has_function_privilege('authenticated', 'public.equipar_cosmetico(text,boolean)', 'execute') as cliente_equipa,
        has_function_privilege('king_server', 'king_private.cosmeticos_da_sala(uuid[])', 'execute') as servidor_le_a_sala,
+       has_function_privilege('authenticated', 'public.equipar_toalha(text)', 'execute')          as cliente_escolhe_toalha,
+       has_function_privilege('king_server', 'king_private.toalhas_do_anfitriao(uuid)', 'execute') as servidor_le_a_mesa,
        (select count(*) from public.progresso)                                                     as linhas_de_progresso,
        (select coalesce(sum(xp_total), 0) from public.progresso)                                   as xp_total;

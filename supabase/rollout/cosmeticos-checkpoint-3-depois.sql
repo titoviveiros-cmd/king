@@ -5,15 +5,20 @@
 with o as (select to_regclass('public.cosmeticos_equipados')                      as t,
                   to_regprocedure('public.equipar_cosmetico(text,boolean)')         as equipar,
                   to_regprocedure('king_private.cosmeticos_da_sala(uuid[])')        as sala,
-                  to_regprocedure('king_private.nivel_do_cosmetico(text)')          as nivel),
+                  to_regprocedure('king_private.nivel_do_cosmetico(text)')          as nivel,
+                  to_regprocedure('public.equipar_toalha(text)')                    as toalha,
+                  to_regprocedure('king_private.toalhas_do_anfitriao(uuid)')        as mesa,
+                  to_regprocedure('king_private.nivel_da_toalha(text)')             as nivel_t),
      d as (
-       select o.t is not null and o.equipar is not null and o.sala is not null and o.nivel is not null as objetos,
+       select o.t is not null and o.equipar is not null and o.sala is not null and o.nivel is not null
+              and o.toalha is not null and o.mesa is not null and o.nivel_t is not null
+              and exists (select 1 from pg_attribute as a where a.attrelid = o.t and a.attname = 'toalha' and not a.attisdropped) as objetos,
               coalesce((select c.relrowsecurity and pg_get_userbyid(c.relowner) = 'king_progress_owner'
                           from pg_class as c where c.oid = o.t), false)                                    as tabela_com_rls_e_dono,
               coalesce((select count(*) = 1 from pg_policy as p where p.polrelid = o.t), false)            as uma_politica,
               coalesce((select bool_and(pg_get_userbyid(p.proowner) = 'king_progress_owner'
                                         and p.proconfig = array['search_path=""'])
-                          from pg_proc as p where p.oid in (o.equipar, o.sala, o.nivel)), false)          as funcoes_do_dono_fechadas,
+                          from pg_proc as p where p.oid in (o.equipar, o.sala, o.nivel, o.toalha, o.mesa, o.nivel_t)), false) as funcoes_do_dono_fechadas,
               coalesce(has_table_privilege('authenticated', o.t, 'select')
                        and not has_table_privilege('authenticated', o.t, 'insert, update, delete, truncate')
                        and not has_table_privilege('anon', o.t, 'select, insert, update, delete')
@@ -21,13 +26,22 @@ with o as (select to_regclass('public.cosmeticos_equipados')                    
                        and not has_table_privilege('king_server', o.t, 'select, insert, update, delete'), false) as tabela_so_leitura_do_cliente,
               coalesce(has_function_privilege('authenticated', o.equipar, 'execute')
                        and not has_function_privilege('anon', o.equipar, 'execute')
-                       and not has_function_privilege('king_server', o.equipar, 'execute'), false)     as cliente_equipa,
+                       and not has_function_privilege('king_server', o.equipar, 'execute')
+                       and has_function_privilege('authenticated', o.toalha, 'execute')
+                       and not has_function_privilege('anon', o.toalha, 'execute')
+                       and not has_function_privilege('king_server', o.toalha, 'execute'), false)      as cliente_equipa,
               coalesce(has_function_privilege('king_server', o.sala, 'execute')
                        and not has_function_privilege('authenticated', o.sala, 'execute')
                        and not has_function_privilege('anon', o.sala, 'execute')
-                       and not has_function_privilege('service_role', o.sala, 'execute'), false)       as so_o_servidor_le_a_sala,
+                       and not has_function_privilege('service_role', o.sala, 'execute')
+                       and has_function_privilege('king_server', o.mesa, 'execute')
+                       and not has_function_privilege('authenticated', o.mesa, 'execute')
+                       and not has_function_privilege('anon', o.mesa, 'execute')
+                       and not has_function_privilege('service_role', o.mesa, 'execute'), false)       as so_o_servidor_le_a_sala,
               coalesce(not has_function_privilege('authenticated', o.nivel, 'execute')
-                       and not has_function_privilege('king_server', o.nivel, 'execute'), false)       as catalogo_fechado,
+                       and not has_function_privilege('king_server', o.nivel, 'execute')
+                       and not has_function_privilege('authenticated', o.nivel_t, 'execute')
+                       and not has_function_privilege('king_server', o.nivel_t, 'execute'), false)     as catalogo_fechado,
               coalesce(not pg_has_role('king_server', 'king_progress_owner', 'MEMBER'), false)         as servidor_fora_do_dono
          from o),
      num as (

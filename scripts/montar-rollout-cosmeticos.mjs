@@ -3,10 +3,10 @@
 // de Production. NÃO foi aplicado em lugar nenhum: aplicar exige autorização própria.
 //
 //   supabase/rollout/cosmeticos-aplicar.sql =
-//     cabeçalho + BEGIN + partes/cosmeticos-1-antes.sql + A MIGRAÇÃO (texto idêntico) + partes/cosmeticos-3-conferencias.sql
+//     cabeçalho + BEGIN + partes/cosmeticos-1-antes.sql + AS DUAS MIGRAÇÕES (texto idêntico) + partes/cosmeticos-3-conferencias.sql
 //
-// A migração entra VERBATIM, e o cabeçalho traz o sha256 dela: o arquivo do rollout nunca pode divergir
-// dela. O teste R1 de `scripts/testar-cosmeticos-sql.mjs` reprova se o arquivo gravado não for exatamente
+// Cada migração entra VERBATIM, e o cabeçalho traz o sha256 de cada uma: o arquivo do rollout nunca pode
+// divergir delas. O teste R1 de `scripts/testar-cosmeticos-sql.mjs` reprova se o arquivo gravado não for exatamente
 // o que este script monta agora.
 //
 //   node scripts/montar-rollout-cosmeticos.mjs            # regrava o arquivo
@@ -17,15 +17,23 @@ import { readFileSync, writeFileSync } from "node:fs";
 const RAIZ = new URL("../", import.meta.url);
 const ler = (rel) => readFileSync(new URL(rel, RAIZ), "utf8").replace(/\r\n/g, "\n");
 export const ARQUIVO_DO_ROLLOUT = "supabase/rollout/cosmeticos-aplicar.sql";
-export const MIGRACAO = "supabase/migrations/20261117120000_cosmeticos.sql";
+/** As migrações, NA ORDEM: a parte 1 (moldura, baralho, reação) e a parte 2 (a toalha da mesa). */
+export const MIGRACOES = [
+  "supabase/migrations/20261117120000_cosmeticos.sql",
+  "supabase/migrations/20261118120000_cosmeticos_mesa.sql",
+];
+export const lerMigracoes = () => MIGRACOES.map(ler);
 
-export function montarRollout(migracao = ler(MIGRACAO)) {
-  const sha = createHash("sha256").update(migracao).digest("hex");
+export function montarRollout(migracoes = lerMigracoes()) {
+  if (migracoes.length !== MIGRACOES.length) throw new Error("montarRollout: uma entrada por migração, na ordem");
+  const shas = migracoes
+    .map((m, i) => `--   ${MIGRACOES[i]}\n--     sha256 ${createHash("sha256").update(m).digest("hex")}`)
+    .join("\n");
   const cabecalho = `-- ENTREGA B — COSMÉTICOS POR NÍVEL — COLAR ESTE ARQUIVO INTEIRO NO SQL EDITOR E RODAR UMA VEZ.
 --
 -- ARQUIVO GERADO por scripts/montar-rollout-cosmeticos.mjs — não editar à mão.
--- Migração dentro dele, texto idêntico: ${MIGRACAO}
---   sha256 ${sha}
+-- Migrações dentro dele, nesta ordem e com o texto idêntico ao do repositório:
+${shas}
 --
 -- ANTES: rodar supabase/rollout/cosmeticos-checkpoint-1-antes.sql (só leitura) e ver pronto_para_aplicar = true.
 --
@@ -38,17 +46,19 @@ export function montarRollout(migracao = ler(MIGRACAO)) {
 --
 -- DEPOIS: rodar supabase/rollout/cosmeticos-checkpoint-3-depois.sql (só leitura) e ver tudo_certo = true.
 --
--- O que muda: nasce a tabela das escolhas (vazia) e três funções. NADA do que existe muda: progresso,
+-- O que muda: nasce a tabela das escolhas (vazia, com a coluna da toalha) e seis funções. NADA do que existe muda: progresso,
 -- XP, ledger, crédito, lápides, jogadores e privilégios ficam como estão (as conferências provam). O
 -- servidor e a web que estão no ar hoje não usam nada disto; ativar é o passo seguinte (servidor, depois
 -- web), cada um com autorização própria.
 --
--- Rollback: supabase/rollback/20261117120000_cosmeticos_rollback.sql (apaga as escolhas gravadas, e só
--- elas). Depois dele, o checkpoint 1 volta a dizer pronto_para_aplicar = true.
+-- Rollback, NESTA ordem: supabase/rollback/20261118120000_cosmeticos_mesa_rollback.sql e depois
+-- supabase/rollback/20261117120000_cosmeticos_rollback.sql (apagam as escolhas gravadas, e só elas).
+-- Depois dos dois, o checkpoint 1 volta a dizer pronto_para_aplicar = true.
 
 `;
+  const meio = migracoes.map((m, i) => `-- ─── ${MIGRACOES[i]} ───\n${m}`).join("\n");
   return cabecalho + "begin;\n\n" + ler("supabase/rollout/partes/cosmeticos-1-antes.sql") +
-    migracao + ler("supabase/rollout/partes/cosmeticos-3-conferencias.sql");
+    meio + ler("supabase/rollout/partes/cosmeticos-3-conferencias.sql");
 }
 
 if (process.argv[1]?.endsWith("montar-rollout-cosmeticos.mjs")) {
