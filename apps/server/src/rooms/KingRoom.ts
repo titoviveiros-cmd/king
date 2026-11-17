@@ -283,6 +283,13 @@ export class KingRoom extends Room<{
    * do ritmo geral — a reação especial não pode virar a frase de todo lance.
    */
   readonly #coroaNaMao = new Map<number, number>();
+  /**
+   * Sessões cujo cliente SABE MOSTRAR a coroa (declarou `recursos: ["coroa"]` ao entrar). O cliente
+   * antigo — inclusive o que vai dentro do Android 0.1.1 — toca o som social para qualquer
+   * SOCIAL_MESSAGE e só desenha frases que conhece: receber a coroa seria som sem balão. Para ele a
+   * coroa simplesmente não é enviada. Por `sessionId`, que a reconexão preserva.
+   */
+  readonly #veemCoroa = new Set<string>();
 
   /** Há partida em curso? Só o BOOLEANO — nunca o estado. */
   partidaIniciada(): boolean {
@@ -494,7 +501,10 @@ export class KingRoom extends Room<{
       if (!veredicto.ok) return this.#recusar(client, "", veredicto.code, veredicto.message);
       if (coroa) this.#coroaNaMao.set(dados.seat, mao);
 
-      difundir(this, "SOCIAL_MESSAGE", { seat: dados.seat, messageId: id, duracaoMs: DURACAO_MS });
+      const social = { seat: dados.seat, messageId: id, duracaoMs: DURACAO_MS };
+      if (!coroa) return difundir(this, "SOCIAL_MESSAGE", social);
+      // A coroa vai só a quem sabe mostrá-la (ver `#veemCoroa`); o cliente antigo não a recebe.
+      for (const c of this.clients) if (this.#veemCoroa.has(c.sessionId)) enviar(c, "SOCIAL_MESSAGE", social);
     });
   }
 
@@ -1050,6 +1060,7 @@ export class KingRoom extends Room<{
     };
     client.userData = dados;
     this.#sessoes.set(client.sessionId, dados);
+    if (Array.isArray(options?.recursos) && options.recursos.includes(REACAO_DA_COROA)) this.#veemCoroa.add(client.sessionId);
     this.#conexaoAtiva.set(dados.playerId, client);
     this.#timerOrfa?.clear();
     this.#timerOrfa = null;
@@ -1213,7 +1224,9 @@ export class KingRoom extends Room<{
     if (assento.playerId !== dados.playerId) return; // o assento já é de outra pessoa
     const evento = { seat: dados.seat, playerId: dados.playerId, nick: assento.nick };
     this.#esvaziarAssento(assento);
-    for (const [sid, d] of this.#sessoes) if (d.playerId === dados.playerId) this.#sessoes.delete(sid);
+    for (const [sid, d] of this.#sessoes) {
+      if (d.playerId === dados.playerId) { this.#sessoes.delete(sid); this.#veemCoroa.delete(sid); }
+    }
     this.#conexaoAtiva.delete(dados.playerId);
     if (this.#host === dados.playerId) this.#passarAnfitriao();
     difundir(this, "PLAYER_LEFT", evento);

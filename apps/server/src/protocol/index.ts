@@ -123,6 +123,12 @@ export interface OpcoesDeEntrada {
    * É por isso que a ordem de ativação é cliente primeiro, `SUPABASE_URL` no servidor por último.
    */
   accessToken?: string;
+  /**
+   * O que este cliente SABE MOSTRAR além do conjunto original — hoje só `"coroa"` (Reação da
+   * Coroa). Opcional e aditivo: o cliente antigo não manda, e por isso não recebe a coroa (para ele
+   * seria som sem balão). Não autoriza nada: quem pode ENVIAR a coroa é decidido pelo banco.
+   */
+  recursos?: readonly string[];
 }
 
 export interface DefinirPronto {

@@ -237,9 +237,15 @@ export function opcoesDeEntrada(
 ) {
   return {
     protocolVersion: PROTOCOL_VERSION, nick: pedido.nick, avatar: pedido.avatar,
+    // Este cliente sabe desenhar a Reação da Coroa; sem isto o servidor não a envia (o cliente
+    // antigo tocaria o som social sem mostrar balão nenhum).
+    recursos: RECURSOS_DO_CLIENTE,
     ...(accessToken ? { accessToken } : {}),
   };
 }
+
+/** O que este cliente sabe mostrar além do conjunto original. Igual ao `REACAO_DA_COROA` do servidor. */
+export const RECURSOS_DO_CLIENTE: readonly string[] = ["coroa"];
 
 /**
  * Fabrica o abridor real, ligado a uma URL. É aqui — e só aqui — que `@colyseus/sdk` é usado.

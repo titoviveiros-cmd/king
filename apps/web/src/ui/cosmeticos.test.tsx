@@ -22,7 +22,7 @@ import { Mesa } from "./Mesa.js";
 import { PartidaRemota } from "../game/partidaRemota.js";
 import { COROA, ETIQUETAS_SOCIAIS, MENSAGENS, atalhosDe, fraseDe, porCategoria } from "./social.js";
 import { sanitizar } from "../analytics/analytics.js";
-import type { EstadoDaSalaLido } from "../net/clienteKing.js";
+import { RECURSOS_DO_CLIENTE, opcoesDeEntrada, type EstadoDaSalaLido } from "../net/clienteKing.js";
 
 const noop = () => {};
 const ler = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8").replace(/\r\n/g, "\n");
@@ -287,6 +287,16 @@ describe("a REAÇÃO DA COROA dentro do sistema social de sempre", () => {
     const lista = servidor.slice(servidor.indexOf("export const MENSAGENS_SOCIAIS = ["), servidor.indexOf("] as const;"));
     const doServidor = [...semComentarios(lista).matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
     expect([...ETIQUETAS_SOCIAIS].sort()).toEqual([...doServidor].sort());
+  });
+
+  it("este cliente DECLARA que sabe mostrar a coroa ao entrar — com a mesma etiqueta do servidor —, com ou sem conta", () => {
+    const servidor = ler("../../../server/src/rooms/social.ts");
+    const doServidor = /export const REACAO_DA_COROA = "([a-z-]+)"/.exec(servidor)?.[1];
+    expect(RECURSOS_DO_CLIENTE).toEqual([COROA.id]);
+    expect(COROA.id).toBe(doServidor);
+    const pedido = { nick: "Tito", avatar: "coruja" };
+    expect(opcoesDeEntrada(pedido).recursos).toEqual(["coroa"]);
+    expect(opcoesDeEntrada(pedido, "tok").recursos).toEqual(["coroa"]);
   });
 
   it("o analytics aceita a etiqueta da coroa (do conjunto fechado) e continua recusando texto livre", () => {

@@ -159,12 +159,14 @@ function escutar(sdk: SdkRoom, c?: Cliente): Cliente {
   return x;
 }
 
-const opcoes = (token: string | null, nick: string, avatar: string) => ({
-  protocolVersion: PROTOCOL_VERSION, nick, avatar, ...(token ? { accessToken: token } : {}),
+// O cliente NOVO declara que sabe mostrar a coroa; o ANTIGO (Android 0.1.1) não manda `recursos`.
+const opcoes = (token: string | null, nick: string, avatar: string, antigo = false) => ({
+  protocolVersion: PROTOCOL_VERSION, nick, avatar, ...(antigo ? {} : { recursos: ["coroa"] }),
+  ...(token ? { accessToken: token } : {}),
 });
 
-async function sentar(codigo: string | null, sub: string | null, nick: string, i: number): Promise<Cliente> {
-  const o = opcoes(sub ? await tokenDe(sub) : null, nick, AVATARES[i]);
+async function sentar(codigo: string | null, sub: string | null, nick: string, i: number, antigo = false): Promise<Cliente> {
+  const o = opcoes(sub ? await tokenDe(sub) : null, nick, AVATARES[i], antigo);
   const sdk = (codigo ? await colyseus.sdk.joinById(codigo, o) : await colyseus.sdk.create(SALA_KING, o)) as unknown as SdkRoom;
   const c = escutar(sdk);
   await ate(() => c.boasVindas !== null, 8000, `welcome ${nick}`);
@@ -174,11 +176,11 @@ async function sentar(codigo: string | null, sub: string | null, nick: string, i
 const assentos = (c: Cliente) => [...c.sdk.state.seats];
 
 /** Mesa de QUATRO humanos com identidade verificada, já em partida. */
-async function mesaDeQuatro(subs = [REAL, MOLDURA, NADA, OUTRO]): Promise<Cliente[]> {
-  const dono = await sentar(null, subs[0], "P0", 0);
+async function mesaDeQuatro(subs = [REAL, MOLDURA, NADA, OUTRO], antigos: number[] = []): Promise<Cliente[]> {
+  const dono = await sentar(null, subs[0], "P0", 0, antigos.includes(0));
   const codigo = dono.boasVindas!.roomCode;
   const todos = [dono];
-  for (let i = 1; i < 4; i++) todos.push(await sentar(codigo, subs[i], `P${i}`, i));
+  for (let i = 1; i < 4; i++) todos.push(await sentar(codigo, subs[i], `P${i}`, i, antigos.includes(i)));
   return todos;
 }
 async function comecar(todos: Cliente[]): Promise<void> {
@@ -308,6 +310,27 @@ describe("a REAÇÃO DA COROA: mesmo canal, só de quem foi liberado, uma por m�
     await new Promise((r) => setTimeout(r, 150));
     expect(assentos(todos[0])[2].moldura).toBe(false);
     expect(assentos(todos[0])[2].coroa).toBe(false);
+  }, 30_000);
+
+  it("CLIENTE ANTIGO (sem `recursos`, como o Android 0.1.1) não recebe a coroa — nada de som sem balão — mas recebe as frases e joga; a reconexão mantém o que cada um sabe mostrar", async () => {
+    const todos = await mesaDeQuatro(undefined, [3]); // P3 = cliente antigo
+    await ate(() => assentos(todos[0])[0].coroa, 8000, "coroa liberada");
+    await comecar(todos); // o antigo entra na partida como qualquer um
+    // P1 (novo) cai e volta pelo recoveryToken antes da coroa
+    const credencial = todos[1].boasVindas!.you.recoveryToken;
+    await todos[1].sdk.leave(false);
+    todos[1].boasVindas = null;
+    escutar((await colyseus.sdk.reconnect(credencial)) as unknown as SdkRoom, todos[1]);
+    await ate(() => todos[1].boasVindas !== null, 8000, "P1 voltou");
+    todos[0].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: REACAO_DA_COROA });
+    await ate(() => [0, 1, 2].every((i) => todos[i].sociais.length === 1), 8000, "a coroa chegar aos novos");
+    await new Promise((r) => setTimeout(r, 200));
+    expect(todos[3].sociais).toHaveLength(0);
+    // uma frase comum chega a TODOS, inclusive ao antigo
+    todos[3].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "boa" });
+    await ate(() => todos.every((c) => c.sociais.some((s) => s.messageId === "boa")), 8000, "a frase do antigo");
+    expect(todos[3].sociais.map((s) => s.messageId)).toEqual(["boa"]);
+    expect(todos[3].temVisao).toBe(true);
   }, 30_000);
 
   it("no lobby, nem a coroa: mesma regra de fase das frases", async () => {
