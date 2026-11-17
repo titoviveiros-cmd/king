@@ -2159,8 +2159,18 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .hm-progresso{display:inline-flex;align-items:center;gap:calc(var(--ui)*.66);margin-top:clamp(2px,.8vh,8px);
   padding:calc(var(--ui)*.3) calc(var(--ui)*.95) calc(var(--ui)*.3) calc(var(--ui)*.3);
   border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line);
-  font-family:var(--disp);font-variant-numeric:tabular-nums;max-width:min(92vw,470px);
+  font-family:var(--disp);font-variant-numeric:tabular-nums;max-width:min(94vw,620px);
   animation:riseIn .55s cubic-bezier(.34,1.4,.64,1) both;}
+/* NADA DO CARD ENCOLHE ABAIXO DO PRÓPRIO TEXTO (17/11/2026). Com a pílula 👑 no fim da linha, a
+   pilha lateral tinha `min-width:0` e um texto que não quebra: no teto de largura (470px) o convite
+   "Comece hoje: jogue online" passava POR BAIXO da pílula. Agora cada parte reserva a largura do que
+   escreve (`min-width:min-content`) e quem cede primeiro é só a BARRA (o `.pg-meio` encolhe até a
+   largura dos números). Se ainda faltar espaço, o convite quebra em duas linhas — nunca invade a
+   pílula. Prova: tests-progresso/homeCard.spec.ts, texto medido por Range nos 13 tamanhos. */
+.hm-progresso > *{min-width:min-content;}
+.hm-progresso .pg-meio{flex:1 12 calc(var(--ui)*8.8);}
+.hm-progresso .pg-lado{flex:0 1 auto;}
+.hm-progresso .pg-lado .pg-seq{white-space:normal;}
 .pg-nivel{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;
   width:calc(var(--ui)*2.8);height:calc(var(--ui)*2.8);border-radius:50%;line-height:1;color:#2a1805;
   background:radial-gradient(circle at 35% 30%,#fff1b0,var(--gold) 52%,var(--gold2));
