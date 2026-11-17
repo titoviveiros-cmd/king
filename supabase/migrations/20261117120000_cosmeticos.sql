@@ -21,8 +21,8 @@
 --
 --   leitura própria   `select` na própria linha (RLS). Sem nenhum GRANT de escrita ao cliente.
 --   escrita           `public.equipar_cosmetico(item, equipado)` — SECURITY DEFINER. Confere quem é
---                     (`auth.uid()`), confere o catálogo e, para EQUIPAR, confere o nível no próprio
---                     banco. Desequipar é sempre permitido.
+--                     (o `sub` do JWT, a mesma fonte do `auth.uid()`), confere o catálogo e, para
+--                     EQUIPAR, confere o nível no próprio banco. Desequipar é sempre permitido.
 --   leitura da sala   `king_private.cosmeticos_da_sala(ids)` — EXECUTE só do `king_server`, no
 --                     máximo quatro ids por chamada, e devolve só o EFEITO (equipado E com nível),
 --                     nunca XP. É assim que a moldura e a reação chegam aos quatro aparelhos sem que

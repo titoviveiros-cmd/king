@@ -148,12 +148,27 @@ test("a celebração some SOZINHA e 'Ver itens' leva à vitrine", async ({ page 
   await outra.close();
 });
 
+/**
+ * A mão é medida PARADA. Desde a animação de distribuição e pouso (Entrega A), as cartas chegam com
+ * `transform` por ~1,3 s, e o `getBoundingClientRect` mede a carta em voo. Espera as animações
+ * finitas da mão terminarem por conta própria (sem `finish()`), para comparar tamanhos finais.
+ */
+async function maoParada(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const mao = document.querySelector(".hand");
+    return !!mao && mao.getAnimations({ subtree: true })
+      .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+      .every((a) => a.playState === "finished");
+  }, undefined, { timeout: 10_000 });
+}
+
 test("equipar e desequipar vão ao BANCO; o Baralho Imperial vale na partida contra os bots sem mudar o tamanho de carta nenhuma", async ({ page }) => {
   const banco = novoBanco(4);
   await abrirHome(page, banco, { celebrados: ["moldura-real", "baralho-imperial", "reacao-coroa"] });
   // tamanho das cartas SEM o baralho, como referência
   await jogarContraOsBots(page);
   await expect(page.locator(".hand .card")).toHaveCount(13, { timeout: 20_000 });
+  await maoParada(page);
   const semBaralho = await page.locator(".hand .card").evaluateAll((cs) => cs.map((c) => { const r = c.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }));
   await page.goto("/");
 
@@ -167,6 +182,7 @@ test("equipar e desequipar vão ao BANCO; o Baralho Imperial vale na partida con
 
   await jogarContraOsBots(page);
   await expect(page.locator(".hand .card")).toHaveCount(13, { timeout: 20_000 });
+  await maoParada(page);
   const comBaralho = await page.locator(".hand .card").evaluateAll((cs) => cs.map((c) => {
     const r = c.getBoundingClientRect(); const s = getComputedStyle(c);
     return { tam: [Math.round(r.width), Math.round(r.height)], contorno: s.outlineStyle, face: c.textContent };

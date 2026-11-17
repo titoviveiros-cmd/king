@@ -21,8 +21,9 @@ import pg from "pg";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
+import { ARQUIVO_DO_ROLLOUT, montarRollout } from "./montar-rollout-cosmeticos.mjs";
 
 const RAIZ = new URL("../", import.meta.url);
 const ler = (rel) => readFileSync(new URL(rel, RAIZ), "utf8").replace(/\r\n/g, "\n");
@@ -78,6 +79,7 @@ async function criarModelo(nome, migracao) {
   } finally {
     await c.end();
   }
+  if (migracao === null) return; // modelo "como Production hoje": tudo, menos os cosméticos
   const s = await conectar(nome, "supa_postgres", SENHA_SUPABASE);
   try {
     await s.query(migracao);
@@ -311,6 +313,140 @@ const TESTES = [
   } },
 ];
 
+// ══ O ROLLOUT DE PRODUCTION — os ARQUIVOS exatos que seriam colados no SQL Editor ═════════════════
+//
+// Cada teste parte de um banco "como Production hoje" (todas as migrações anteriores, nenhum
+// cosmético), com contas e XP SINTÉTICOS, e aplica os arquivos pelo papel do SQL Editor
+// (`supa_postgres`, não superusuário).
+const ROLLOUT = ler(ARQUIVO_DO_ROLLOUT);
+const CHECKPOINT_1 = ler("supabase/rollout/cosmeticos-checkpoint-1-antes.sql");
+const CHECKPOINT_3 = ler("supabase/rollout/cosmeticos-checkpoint-3-depois.sql");
+
+/** Roda um arquivo inteiro como o SQL Editor: devolve a última tela, ou o erro (e limpa a sessão). */
+async function colar(c, sql) {
+  try {
+    const r = await c.query(sql);
+    const ultima = Array.isArray(r) ? r[r.length - 1] : r;
+    return { linha: ultima.rows[0], erro: null };
+  } catch (e) {
+    await c.query("rollback").catch(() => {});
+    return { linha: null, erro: e.message };
+  }
+}
+/** Contas sintéticas: XP alto, zero, sem progresso, e uma partida creditada DE VERDADE (ledger). */
+async function semear(b) {
+  const ids = await b.jogadores(1000, 0, null, 450);
+  const fim = ontem();
+  await (await b.servidor()).query(
+    "select * from king_private.creditar_partida($1::uuid, $2::timestamptz, $3::timestamptz, 2::smallint, 2::smallint, $4::jsonb)",
+    [randomUUID(), new Date(fim.getTime() - 20 * 60_000).toISOString(), fim.toISOString(),
+      JSON.stringify([{ player_id: ids[2], posicao: 1, participou: true }, { player_id: ids[3], posicao: 2, participou: true }])]);
+  return ids; // [1000 XP, 0 XP (fica em 0), sem progresso → creditado, 450 → creditado]
+}
+/** Tudo o que é privilégio, política e dono em `public`/`king_private` — para comparar antes/depois. */
+async function retratoDoBanco(admin) {
+  const r = await admin.query(`select
+    (select array_agg(x order by x collate "C") from (
+       select c.oid::regclass::text || ' ' || coalesce(c.relacl::text, '-') || ' ' || pg_get_userbyid(c.relowner) as x
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname in ('public','king_private') and c.relkind in ('r','v','m','S','p','f')
+       union all select p.oid::regprocedure::text || ' ' || coalesce(p.proacl::text, '-') || ' ' || pg_get_userbyid(p.proowner) || ' ' || p.prosecdef
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname in ('public','king_private')
+       union all select 'schema ' || nspname || ' ' || coalesce(nspacl::text, '-') from pg_namespace where nspname in ('public','king_private')
+       union all select 'policy ' || polrelid::regclass::text || ' ' || polname from pg_policy) as t) as tudo`);
+  return JSON.stringify(r.rows[0].tudo) + (await retratoDoXp(admin));
+}
+const semCosmeticos = async (admin) => (await admin.query(`select to_regclass('public.cosmeticos_equipados') is null
+  and to_regprocedure('public.equipar_cosmetico(text,boolean)') is null and to_regprocedure('king_private.cosmeticos_da_sala(uuid[])') is null
+  and to_regprocedure('king_private.nivel_do_cosmetico(text)') is null as ok`)).rows[0].ok;
+
+/** Defeitos plausíveis na migração: o arquivo do rollout com cada um precisa ABORTAR sem gravar nada. */
+const DEFEITOS = [
+  ["equipar-para-anon", "grant execute on function public.equipar_cosmetico(text, boolean) to authenticated;",
+    "grant execute on function public.equipar_cosmetico(text, boolean) to authenticated, anon;"],
+  ["sem-rls", "alter table public.cosmeticos_equipados enable row level security;\n", ""],
+  ["politica-aberta", "for select to authenticated using ((select auth.uid()) = player_id);", "for select to authenticated using (true);"],
+  ["catalogo-errado", "when 'baralho-imperial' then 4", "when 'baralho-imperial' then 3"],
+  ["cliente-escreve", "grant select on table public.cosmeticos_equipados to authenticated;",
+    "grant select, update on table public.cosmeticos_equipados to authenticated;"],
+  ["sala-para-o-servico", "grant execute on function king_private.cosmeticos_da_sala(uuid[]) to king_server;",
+    "grant execute on function king_private.cosmeticos_da_sala(uuid[]) to king_server, service_role;"],
+  ["mexe-no-xp", "reset role;\nrevoke create on schema public from king_progress_owner;",
+    "update public.progresso set xp_total = xp_total + 100;\nreset role;\nrevoke create on schema public from king_progress_owner;"],
+  ["esquece-de-fechar-o-schema", "revoke create on schema public from king_progress_owner;\n", ""],
+  ["sem-cascade", "references public.players (id) on delete cascade,", "references public.players (id),"],
+];
+
+const TESTES_DO_ROLLOUT = [
+  { id: "R1", nome: "o ARQUIVO do rollout é a migração VERBATIM (sha256 no cabeçalho) e confere com o montador", async fn() {
+    afirmar(ROLLOUT === montarRollout(), "o arquivo gravado diverge do que o montador monta hoje");
+    afirmar(ROLLOUT.split(MIGRACAO).length === 2, "a migração não está inteira, uma vez, dentro do arquivo");
+    afirmar(ROLLOUT.includes(createHash("sha256").update(MIGRACAO).digest("hex")), "o sha256 do cabeçalho não é o da migração");
+    afirmar(/^begin;$/m.test(ROLLOUT) && /^commit;$/m.test(ROLLOUT), "sem BEGIN/COMMIT");
+  } },
+  { id: "R2", nome: "aplicado INTEIRO pelo papel do SQL Editor: checkpoint 1 pronto → arquivo → relatório → checkpoint 3 tudo certo, progresso idêntico", async fn(b) {
+    const [mil, zero] = await semear(b);
+    const s = await b.supabase();
+    const c1 = (await colar(s, CHECKPOINT_1)).linha;
+    afirmar(c1?.pronto_para_aplicar === true, `checkpoint 1 não está pronto: ${JSON.stringify(c1)}`);
+    const xp = await retratoDoXp(b.admin);
+    const r = await colar(s, ROLLOUT);
+    afirmar(r.erro === null, `o rollout falhou: ${r.erro}`);
+    afirmar(r.linha.resultado === "COSMÉTICOS (ENTREGA B) APLICADA E CONFERIDA", `relatório: ${JSON.stringify(r.linha)}`);
+    const c3 = (await colar(s, CHECKPOINT_3)).linha;
+    afirmar(c3?.tudo_certo === true, `checkpoint 3: ${c3?.detalhe}`);
+    for (const k of ["linhas_de_progresso", "xp_total", "lancamentos", "xp_no_ledger", "partidas", "credito_md5", "nivel_md5", "schema_public_acl"]) {
+      afirmar(String(c3[k]) === String(c1[k]), `${k}: antes ${c1[k]}, depois ${c3[k]}`);
+    }
+    afirmar(c3.escolhas_gravadas === "0" || c3.escolhas_gravadas === 0, "nasceu com escolhas gravadas");
+    afirmar(await retratoDoXp(b.admin) === xp, "o rollout mexeu no XP");
+    // e funciona: quem tem nível equipa, quem não tem é recusado
+    afirmar((await equipar(await b.como(mil), "reacao-coroa")).rows[0].reacao_coroa === true, "1000 XP não equipou");
+    await reprova(equipar(await b.como(zero), "moldura-real"), "42501", "0 XP equipou");
+  } },
+  { id: "R3", nome: "colado DUAS vezes: a segunda recusa na parte 1 e não altera nada", async fn(b) {
+    await semear(b);
+    const s = await b.supabase();
+    afirmar((await colar(s, ROLLOUT)).erro === null, "1ª aplicação falhou");
+    const [eu] = await b.jogadores(1000);
+    await equipar(await b.como(eu), "moldura-real");
+    const antes = await retratoDoBanco(b.admin);
+    const r = await colar(s, ROLLOUT);
+    afirmar(r.erro?.includes("ROLLOUT COSMÉTICOS ABORTADO (parte 1)"), `a 2ª não recusou na parte 1: ${r.erro}`);
+    afirmar(await retratoDoBanco(b.admin) === antes, "a 2ª aplicação alterou o banco");
+    afirmar((await b.admin.query("select count(*)::int as n from public.cosmeticos_equipados")).rows[0].n === 1, "a escolha gravada sumiu");
+  } },
+  { id: "R4", nome: `arquivo com DEFEITO na migração aborta nas conferências e não grava NADA (${DEFEITOS.length} defeitos)`, async fn(b) {
+    await semear(b);
+    const s = await b.supabase();
+    const antes = await retratoDoBanco(b.admin);
+    for (const [nome, de, para] of DEFEITOS) {
+      afirmar(MIGRACAO.split(de).length === 2, `defeito ${nome}: trecho não encontrado exatamente 1 vez`);
+      const r = await colar(s, montarRollout(MIGRACAO.replace(de, para)));
+      afirmar(r.erro !== null, `defeito ${nome}: o arquivo foi APLICADO (${JSON.stringify(r.linha)})`);
+      afirmar(/CONFER[ÊE]NCIA \d FALHOU/.test(r.erro), `defeito ${nome}: abortou, mas não pela conferência: ${r.erro}`);
+      afirmar(await semCosmeticos(b.admin), `defeito ${nome}: sobrou objeto dos cosméticos`);
+      afirmar(await retratoDoBanco(b.admin) === antes, `defeito ${nome}: o banco mudou`);
+    }
+  } },
+  { id: "R5", nome: "ROLLBACK depois do rollout: volta EXATAMENTE ao banco de antes (checkpoint 1 pronto de novo), XP intacto", async fn(b) {
+    await semear(b);
+    const s = await b.supabase();
+    const antes = await retratoDoBanco(b.admin);
+    afirmar((await colar(s, ROLLOUT)).erro === null, "rollout falhou");
+    const [eu] = await b.jogadores(1000);
+    await equipar(await b.como(eu), "baralho-imperial");
+    const depoisDoRollout = await retratoDoXp(b.admin);
+    const r = await colar(s, ROLLBACK);
+    afirmar(r.erro === null, `rollback falhou: ${r.erro}`);
+    afirmar(await semCosmeticos(b.admin), "o rollback deixou objeto dos cosméticos");
+    afirmar(await retratoDoXp(b.admin) === depoisDoRollout, "o rollback mexeu no XP");
+    // o banco de antes, só com a conta nova do teste a mais (ela é dado, não privilégio)
+    const comConta = antes.slice(0, antes.indexOf("{\"total\""));
+    afirmar((await retratoDoBanco(b.admin)).startsWith(comConta), "privilégios/políticas/donos não voltaram ao de antes");
+    afirmar((await colar(s, CHECKPOINT_1)).linha?.pronto_para_aplicar === true, "checkpoint 1 não voltou a pronto");
+  } },
+];
+
 /** Cada mutação remove UMA proteção; `alvos` são os testes que precisam reprovar sem ela. */
 const MUTACOES = [
   { id: "sem-conferencia-de-nivel", alvos: ["K1", "K2", "K3"],
@@ -395,13 +531,25 @@ try {
     if (r) { falhou = true; console.error(`  XX  ${t.id} ${t.nome}\n        ${r.motivo}`); }
     else console.log(`  ok  ${t.id} ${t.nome}`);
   }
-  console.log(`\n${TESTES.length - reprovados.length}/${TESTES.length} testes verdes${PROVAS ? `, ${MUTACOES.length} mutações` : ""}`);
+  console.log("\nROLLOUT DE PRODUCTION — os arquivos exatos, num banco como o de hoje (contas e XP sintéticos)");
+  const reprovadosR = await rodar(null, ROLLBACK, TESTES_DO_ROLLOUT);
+  for (const t of TESTES_DO_ROLLOUT) {
+    const r = reprovadosR.find((x) => x.id === t.id);
+    if (r) { falhou = true; console.error(`  XX  ${t.id} ${t.nome}\n        ${r.motivo}`); }
+    else console.log(`  ok  ${t.id} ${t.nome}`);
+  }
+  const total = TESTES.length + TESTES_DO_ROLLOUT.length;
+  console.log(`\n${total - reprovados.length - reprovadosR.length}/${total} testes verdes${PROVAS ? `, ${MUTACOES.length} mutações` : ""}`);
 } catch (e) {
   falhou = true;
   console.error("\nERRO DE INFRAESTRUTURA:", e?.message ?? e);
 } finally {
   if (banco) await banco.stop().catch(() => {});
-  rmSync(dir, { recursive: true, force: true });
+  // No Windows o Postgres às vezes ainda segura um arquivo da pasta logo depois do stop (EPERM).
+  // A pasta é descartável e o veredito já está decidido: tenta de novo e, se ainda assim falhar,
+  // só avisa, sem trocar o resultado dos testes.
+  try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }); }
+  catch (e) { console.warn(`\naviso: a pasta temporária ${dir} ficou para trás (${e?.code ?? e}); pode apagar à mão.`); }
 }
 console.log(falhou ? "\nREPROVADO\n" : "\nAPROVADO\n");
 process.exit(falhou ? 1 : 0);
