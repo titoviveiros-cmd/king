@@ -22,7 +22,7 @@ import { randomUUID } from "node:crypto";
 import { CloseCode, Room, ServerError, generateId, type Client } from "colyseus";
 import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import {
-  AVATAR_PADRAO, AVATARES, TEMA_PADRAO, TEMAS_DA_MESA, avatarDeBot, avatarValido, nomeDeBotLivre,
+  AVATAR_PADRAO, AVATARES, TEMA_PADRAO, TEMAS_DA_MESA, TEMAS_LIVRES, avatarDeBot, avatarValido, nomeDeBotLivre,
 } from "./identidade.js";
 import { DURACAO_MS, REACAO_DA_COROA, RitmoSocial, mensagemValida } from "./social.js";
 import { cosmeticosEmUso } from "../progresso/cosmeticos.js";
@@ -290,6 +290,17 @@ export class KingRoom extends Room<{
    * coroa simplesmente não é enviada. Por `sessionId`, que a reconexão preserva.
    */
   readonly #veemCoroa = new Set<string>();
+  /**
+   * A TOALHA COMO COSMÉTICO: as toalhas que o anfitrião ATUAL liberou, pelo banco
+   * (`toalhas_do_anfitriao`). As livres (`TEMAS_LIVRES`) valem sempre, sem banco. Quem passa a ser
+   * anfitrião começa sem nenhuma além das livres até o banco responder.
+   */
+  #toalhasDoAnfitriao = new Set<string>();
+  /**
+   * O anfitrião já escolheu a mesa nesta sala? Até a primeira escolha, a sala usa a toalha que ele
+   * EQUIPOU na vitrine — é assim que a toalha "vai com ele". Depois, a escolha da sala manda.
+   */
+  #mesaEscolhida = false;
 
   /** Há partida em curso? Só o BOOLEANO — nunca o estado. */
   partidaIniciada(): boolean {
@@ -430,7 +441,13 @@ export class KingRoom extends Room<{
       if (!(TEMAS_DA_MESA as readonly string[]).includes(tema ?? "")) {
         return this.#recusar(client, "", "INVALID_PAYLOAD", "Tema desconhecido");
       }
+      // As toalhas de nível valem só para quem as liberou — e quem diz isso é o BANCO, não o botão.
+      // Um cliente modificado que mande "esmeralda" sem o nível leva esta recusa.
+      if (!(TEMAS_LIVRES as readonly string[]).includes(tema as string) && !this.#toalhasDoAnfitriao.has(tema as string)) {
+        return this.#recusar(client, "", "NOT_UNLOCKED", "Essa mesa ainda não foi liberada");
+      }
       this.state.tableTheme = tema as string;
+      this.#mesaEscolhida = true;
     });
 
     // ── avatar: um por mesa ───────────────────────────────────────────────────────────────────
@@ -1067,7 +1084,11 @@ export class KingRoom extends Room<{
 
     // O PRIMEIRO humano a entrar é o anfitrião. Se o anfitrião anterior saiu, o assento fica
     // órfão de dono e o próximo a chegar assume — senão ninguém poderia mexer nos bots.
-    if (this.#host === null) this.#host = dados.playerId;
+    if (this.#host === null) {
+      this.#host = dados.playerId;
+      this.#toalhasDoAnfitriao = new Set();
+      if (dados.identidadePermanente) void this.#lerMesaDoAnfitriao(dados.playerId);
+    }
 
     const nick = options?.nick?.trim() || `Jogador ${seat + 1}`;
     const assento = this.state.seats[seat];
@@ -1270,9 +1291,33 @@ export class KingRoom extends Room<{
     this.#host = null;
     for (const a of this.state.seats) a.host = false;
     const proximo = this.state.seats.find((a) => a.playerId !== ASSENTO_VAZIO && !a.bot);
+    this.#toalhasDoAnfitriao = new Set();
     if (!proximo) return;
     this.#host = proximo.playerId;
     proximo.host = true;
+    // NO LOBBY, a mesa passa a ser a do NOVO anfitrião (a que ele equipou, ou a padrão até o banco
+    // responder): uma toalha que só o anterior liberou não fica na mão de quem não a tem. COM A
+    // PARTIDA EM CURSO, a mesa fica — trocar a toalha no meio do jogo porque alguém saiu seria ruído.
+    if (this.state.status === "lobby") {
+      this.#mesaEscolhida = false;
+      this.state.tableTheme = TEMA_PADRAO;
+    }
+    const permanente = [...this.#sessoes.values()].some((d) => d.playerId === proximo.playerId && d.identidadePermanente);
+    if (permanente) void this.#lerMesaDoAnfitriao(proximo.playerId);
+  }
+
+  /**
+   * A MESA DO ANFITRIÃO, pelo banco: as toalhas liberadas e, enquanto ninguém escolheu a mesa desta
+   * sala e ela ainda está no lobby, a toalha que ele equipou. Assíncrono e sem lançar; a resposta só
+   * vale se ele ainda for o anfitrião.
+   */
+  async #lerMesaDoAnfitriao(playerId: string): Promise<void> {
+    const m = await cosmeticosEmUso().mesaDoJogador?.(playerId).catch(() => null);
+    if (!m || this.#host !== playerId) return;
+    this.#toalhasDoAnfitriao = new Set(m.liberadas);
+    if (!this.#mesaEscolhida && this.state.status === "lobby" && (TEMAS_DA_MESA as readonly string[]).includes(m.toalha)) {
+      this.state.tableTheme = m.toalha;
+    }
   }
 
   /**

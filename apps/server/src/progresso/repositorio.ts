@@ -5,10 +5,11 @@
 // mesmo que este arquivo tentasse um INSERT, o Postgres recusaria. A segunda porta, desde a E-2, é
 // `king_private.expurgar_lapides` — com o mesmo desenho: o servidor informa, o banco decide. A
 // terceira, desde a Entrega B, só LÊ: `king_private.cosmeticos_da_sala` devolve o efeito dos
-// cosméticos (equipado E com nível) de quem sentou — o banco decide, a sala só mostra.
+// cosméticos (equipado E com nível) de quem sentou — o banco decide, a sala só mostra. A quarta, da
+// toalha como cosmético, também só LÊ: `king_private.toalhas_do_anfitriao`.
 import pg from "pg";
 import type { LancamentoConfirmado, ResultadoDaPartida } from "./tipos.js";
-import { CHAMADA_DOS_COSMETICOS, type LinhaDeCosmeticos } from "./cosmeticos.js";
+import { CHAMADA_DA_MESA, CHAMADA_DOS_COSMETICOS, type LinhaDaMesa, type LinhaDeCosmeticos } from "./cosmeticos.js";
 
 export interface RepositorioDeProgresso {
   /** UMA consulta trivial (`select 1`): prova conexão, TLS e credencial, sem tocar em dado nenhum. */
@@ -59,6 +60,7 @@ export function parametrosDoCredito(r: ResultadoDaPartida): unknown[] {
  */
 export type RepositorioPg = RepositorioDeProgresso & {
   cosmeticosDaSala(ids: string[]): Promise<LinhaDeCosmeticos[]>;
+  mesaDoAnfitriao(id: string): Promise<LinhaDaMesa[]>;
 };
 
 export function repositorioPg(origem: { connectionString: string; ca: string } | { pool: pg.Pool }): RepositorioPg {
@@ -92,6 +94,10 @@ export function repositorioPg(origem: { connectionString: string; ca: string } |
     async cosmeticosDaSala(ids) {
       const { rows } = await pool.query(CHAMADA_DOS_COSMETICOS, [ids]);
       return rows as LinhaDeCosmeticos[];
+    },
+    async mesaDoAnfitriao(id) {
+      const { rows } = await pool.query(CHAMADA_DA_MESA, [id]);
+      return rows as LinhaDaMesa[];
     },
     async encerrar() {
       await pool.end();

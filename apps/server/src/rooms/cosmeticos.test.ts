@@ -12,13 +12,13 @@ import { boot, type ColyseusTestServer } from "@colyseus/testing";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import { configurarVerificador, restaurarVerificador, VerificadorDeIdentidade } from "../auth/identidade.js";
 import { SALA_KING, servidor } from "../app.js";
-import { AVATARES } from "./identidade.js";
+import { AVATARES, TEMAS_DA_MESA } from "./identidade.js";
 import {
   PROTOCOL_VERSION, type AcaoRecusada, type BoasVindas, type MensagemSocialDifundida,
 } from "../protocol/index.js";
 import {
   COSMETICOS_DESLIGADOS, SEM_COSMETICOS, configurarCosmeticos, fonteDeCosmeticosPg, restaurarCosmeticos,
-  type CosmeticosDoAssento, type FonteDeCosmeticos,
+  type CosmeticosDoAssento, type FonteDeCosmeticos, type MesaDoJogador,
 } from "../progresso/cosmeticos.js";
 import { COOLDOWN_MS, REACAO_DA_COROA } from "./social.js";
 
@@ -86,8 +86,12 @@ let verificador: VerificadorDeIdentidade;
 /** O "banco": o efeito por jogador. Trocável por teste. */
 let banco: Record<string, CosmeticosDoAssento> = {};
 let perguntas: string[] = [];
+/** A mesa de cada anfitrião (a toalha como cosmético). Ausente = o banco não soube responder. */
+let mesas: Record<string, MesaDoJogador> = {};
+let perguntasDaMesa: string[] = [];
 const fonteFalsa: FonteDeCosmeticos = {
   async doJogador(id) { perguntas.push(id); return banco[id] ?? SEM_COSMETICOS; },
+  async mesaDoJogador(id) { perguntasDaMesa.push(id); return mesas[id] ?? null; },
 };
 
 async function tokenDe(sub: string) {
@@ -122,13 +126,18 @@ beforeEach(async () => {
     [MOLDURA]: { moldura: true, coroa: false },
   };
   perguntas = [];
+  mesas = {
+    [REAL]: { toalha: "esmeralda", liberadas: ["imperial", "verde", "vinho", "esmeralda"] },
+    [NADA]: { toalha: "imperial", liberadas: ["imperial", "verde"] },
+  };
+  perguntasDaMesa = [];
   configurarCosmeticos(fonteFalsa);
 });
 afterEach(() => { restaurarCosmeticos(); });
 
-interface AssentoView { seat: number; playerId: string; bot: boolean; moldura: boolean; coroa: boolean }
+interface AssentoView { seat: number; playerId: string; bot: boolean; host: boolean; moldura: boolean; coroa: boolean }
 interface SdkRoom {
-  state: { status: string; seats: Iterable<AssentoView> };
+  state: { status: string; tableTheme: string; seats: Iterable<AssentoView> };
   send(t: string, m?: unknown): void;
   onMessage(t: string, cb: (m: never) => void): void;
   leave(consentido?: boolean): Promise<unknown>;
@@ -339,5 +348,134 @@ describe("a REAÇÃO DA COROA: mesmo canal, só de quem foi liberado, uma por m�
     todos[0].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: REACAO_DA_COROA });
     await ate(() => todos[0].rejeicoes.length > 0, 8000, "recusa");
     expect(todos[0].rejeicoes[0].code).toBe("WRONG_PHASE");
+  }, 30_000);
+});
+
+// ═══════════════════ A TOALHA DA MESA (a toalha como cosmético) ═══════════════════
+
+describe("a fonte da MESA DO ANFITRIÃO nunca atrapalha", () => {
+  const catalogo = TEMAS_DA_MESA;
+  it("devolve a toalha efetiva e as liberadas; sem a consulta, fora de `closed` ou id que não é UUID, nem pergunta", async () => {
+    const consultarMesa = vi.fn(async () => [{ toalha: "vinho", liberadas: ["imperial", "verde", "vinho"] }]);
+    const ok = fonteDeCosmeticosPg({ consultar: async () => [], consultarMesa, pronto: () => true, log: () => {} }, catalogo);
+    expect(await ok.mesaDoJogador!(REAL)).toEqual({ toalha: "vinho", liberadas: ["imperial", "verde", "vinho"] });
+    expect(consultarMesa).toHaveBeenCalledWith(REAL);
+    consultarMesa.mockClear();
+    const fechada = fonteDeCosmeticosPg({ consultar: async () => [], consultarMesa, pronto: () => false, log: () => {} }, catalogo);
+    expect(await fechada.mesaDoJogador!(REAL)).toBeNull();
+    expect(await ok.mesaDoJogador!("bot:1")).toBeNull();
+    expect(consultarMesa).not.toHaveBeenCalled();
+    const semPorta = fonteDeCosmeticosPg({ consultar: async () => [], pronto: () => true, log: () => {} }, catalogo);
+    expect(await semPorta.mesaDoJogador!(REAL)).toBeNull();
+  });
+
+  it("toalha fora do catálogo, liberada estranha, erro e PRAZO viram `null` (a sala fica nas livres)", async () => {
+    const log = () => {};
+    const casos = [
+      async () => [{ toalha: "roxa", liberadas: ["imperial"] }],
+      async () => [{ toalha: "imperial", liberadas: ["imperial", "<script>"] }],
+      async () => [{ toalha: "imperial", liberadas: "imperial" }],
+      async () => [],
+      async () => { throw Object.assign(new Error("x"), { code: "57014" }); },
+      () => new Promise<never>(() => {}),
+    ];
+    for (const consultarMesa of casos) {
+      const f = fonteDeCosmeticosPg({ consultar: async () => [], consultarMesa: consultarMesa as never, pronto: () => true, log, prazoMs: 30 }, catalogo);
+      expect(await f.mesaDoJogador!(REAL)).toBeNull();
+    }
+  });
+});
+
+describe("a TOALHA na sala: a mesa é do anfitrião, e só o que ELE liberou", () => {
+  const tema = (c: Cliente) => c.sdk.state.tableTheme;
+
+  it("a sala NASCE com a toalha que o anfitrião equipou — os quatro veem a mesma", async () => {
+    const todos = await mesaDeQuatro(); // dono = REAL, nível 10 no "banco", Esmeralda equipada
+    await ate(() => todos.every((c) => tema(c) === "esmeralda"), 8000, "a toalha do anfitrião");
+    expect(perguntasDaMesa).toEqual([REAL]); // só o ANFITRIÃO é perguntado
+  }, 30_000);
+
+  it("anfitrião SEM o nível: escolher Vinho é RECUSADO (NOT_UNLOCKED) e a mesa não muda; as livres passam", async () => {
+    const dono = await sentar(null, NADA, "Dono", 0);
+    await ate(() => perguntasDaMesa.length === 1, 8000, "a mesa ser lida");
+    await new Promise((r) => setTimeout(r, 50));
+    dono.sdk.send("CLIENT_SET_TABLE_THEME", { theme: "vinho" });
+    await ate(() => dono.rejeicoes.length > 0, 8000, "recusa");
+    expect(dono.rejeicoes[0].code).toBe("NOT_UNLOCKED");
+    expect(tema(dono)).toBe("imperial");
+    dono.sdk.send("CLIENT_SET_TABLE_THEME", { theme: "verde" });
+    await ate(() => tema(dono) === "verde", 8000, "a Verde, que é livre");
+  }, 30_000);
+
+  it("anfitrião COM o nível escolhe a Vinho; quem não é anfitrião não escolhe nada", async () => {
+    const todos = await mesaDeQuatro();
+    await ate(() => tema(todos[1]) === "esmeralda", 8000, "toalha inicial");
+    todos[0].sdk.send("CLIENT_SET_TABLE_THEME", { theme: "vinho" });
+    await ate(() => todos.every((c) => tema(c) === "vinho"), 8000, "a Vinho nos quatro");
+    todos[1].sdk.send("CLIENT_SET_TABLE_THEME", { theme: "verde" });
+    await ate(() => todos[1].rejeicoes.length > 0, 8000, "recusa de quem não é anfitrião");
+    expect(todos[1].rejeicoes[0].code).toBe("NOT_HOST");
+    expect(tema(todos[0])).toBe("vinho");
+  }, 30_000);
+
+  it("a ESCOLHA da sala vence a resposta atrasada do banco (a toalha equipada não pisa na escolha)", async () => {
+    let liberar: (m: MesaDoJogador) => void = () => {};
+    configurarCosmeticos({
+      doJogador: async () => SEM_COSMETICOS,
+      mesaDoJogador: () => new Promise<MesaDoJogador>((r) => { liberar = r; }),
+    });
+    const dono = await sentar(null, REAL, "Dono", 0);
+    dono.sdk.send("CLIENT_SET_TABLE_THEME", { theme: "verde" });
+    await ate(() => tema(dono) === "verde", 8000, "a escolha");
+    liberar({ toalha: "esmeralda", liberadas: ["imperial", "verde", "vinho", "esmeralda"] });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(tema(dono)).toBe("verde");
+  }, 30_000);
+
+  it("convidado sem conta e BANCO FORA: ninguém pergunta (ou a pergunta falha) e só as livres valem", async () => {
+    restaurarVerificador();
+    const semConta = await sentar(null, null, "Sem conta", 0);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(perguntasDaMesa).toEqual([]);
+    semConta.sdk.send("CLIENT_SET_TABLE_THEME", { theme: "esmeralda" });
+    await ate(() => semConta.rejeicoes.length > 0, 8000, "recusa");
+    expect(semConta.rejeicoes[0].code).toBe("NOT_UNLOCKED");
+    expect(tema(semConta)).toBe("imperial");
+  }, 30_000);
+
+  it("o anfitrião SAI no lobby: a mesa vira a do NOVO anfitrião, que só escolhe o que ELE liberou", async () => {
+    const todos = await mesaDeQuatro([REAL, NADA, MOLDURA, OUTRO]);
+    await ate(() => tema(todos[1]) === "esmeralda", 8000, "toalha inicial");
+    await todos[0].sdk.leave(true);
+    await ate(() => assentos(todos[1])[1].host === true, 8000, "novo anfitrião");
+    await ate(() => perguntasDaMesa.includes(NADA), 8000, "a mesa do novo anfitrião ser lida");
+    // a Esmeralda era do anfitrião que saiu: não fica na mão de quem não a liberou
+    await ate(() => todos.slice(1).every((c) => tema(c) === "imperial"), 8000, "a mesa do novo anfitrião");
+    todos[1].sdk.send("CLIENT_SET_TABLE_THEME", { theme: "vinho" });
+    await ate(() => todos[1].rejeicoes.length > 0, 8000, "recusa");
+    expect(todos[1].rejeicoes[0].code).toBe("NOT_UNLOCKED");
+  }, 30_000);
+
+  it("o novo anfitrião NÃO herda as toalhas do anterior, nem quando o banco não responde por ele", async () => {
+    const todos = await mesaDeQuatro([REAL, MOLDURA, NADA, OUTRO]); // MOLDURA: o banco não sabe a mesa dele
+    await ate(() => tema(todos[1]) === "esmeralda", 8000, "toalha inicial");
+    await todos[0].sdk.leave(true);
+    await ate(() => assentos(todos[1])[1].host === true, 8000, "novo anfitrião");
+    await ate(() => perguntasDaMesa.includes(MOLDURA), 8000, "a pergunta pelo novo anfitrião");
+    await new Promise((r) => setTimeout(r, 50));
+    todos[1].sdk.send("CLIENT_SET_TABLE_THEME", { theme: "esmeralda" });
+    await ate(() => todos[1].rejeicoes.length > 0, 8000, "recusa");
+    expect(todos[1].rejeicoes[0].code).toBe("NOT_UNLOCKED");
+  }, 30_000);
+
+  it("o anfitrião SAI com a partida em curso: a toalha da mesa NÃO muda no meio do jogo", async () => {
+    const todos = await mesaDeQuatro([REAL, NADA, MOLDURA, OUTRO]);
+    await ate(() => tema(todos[1]) === "esmeralda", 8000, "toalha inicial");
+    await comecar(todos);
+    await todos[0].sdk.leave(true);
+    await ate(() => assentos(todos[1])[1].host === true, 8000, "novo anfitrião");
+    await ate(() => perguntasDaMesa.includes(NADA), 8000, "a mesa do novo anfitrião ser lida");
+    await new Promise((r) => setTimeout(r, 100));
+    expect(todos.slice(1).map(tema)).toEqual(["esmeralda", "esmeralda", "esmeralda"]);
   }, 30_000);
 });

@@ -38,12 +38,21 @@ export type Avatar = (typeof AVATARES)[number];
 //
 // É configuração de SALA, não de jogador: todo mundo joga na mesma mesa, então quem escolhe é o
 // anfitrião e o valor é sincronizado como qualquer outro estado público.
+//
+// DESDE A TOALHA COMO COSMÉTICO: as duas mesas de sempre continuam LIVRES; as outras duas liberam
+// pelo nível do ANFITRIÃO, que o servidor pergunta ao banco (`king_private.toalhas_do_anfitriao`).
+// A ordem é a do catálogo do banco. Um cliente antigo desenha só o que conhece e cai no padrão.
 export const TEMAS_DA_MESA = [
-  "imperial", // Noite Imperial — o roxo aprovado, o padrão da casa
-  "verde",    // Verde de Cartas — mesa clássica de baralho, na paleta do KING
+  "imperial",  // Noite Imperial — o roxo aprovado, o padrão da casa (livre)
+  "verde",     // Verde Clássica — mesa clássica de baralho, na paleta do KING (livre)
+  "vinho",     // Vinho Clássica — nível 8
+  "esmeralda", // Esmeralda Real — nível 10
 ] as const;
 
 export type TemaDaMesa = (typeof TEMAS_DA_MESA)[number];
+
+/** As que qualquer anfitrião escolhe, sem banco nenhum — eram livres antes da toalha virar item. */
+export const TEMAS_LIVRES: readonly TemaDaMesa[] = ["imperial", "verde"];
 
 export const TEMA_PADRAO: TemaDaMesa = "imperial";
 
