@@ -49,7 +49,7 @@ export function etiquetaDoAvatar(
  * numa partida normal ele nunca deveria ser exercido, e o teste que o cobre é o de estado
  * degenerado, não o de partida.
  */
-export function Insignia({ seat, avatar, nome, classe = "av", selo }: {
+export function Insignia({ seat, avatar, nome, classe = "av", selo, moldura }: {
   seat: Seat;
   avatar?: string;
   nome: string;
@@ -57,9 +57,15 @@ export function Insignia({ seat, avatar, nome, classe = "av", selo }: {
   classe?: string;
   /** O selo do castigo desenha um `<i>` dentro de uma linha de texto, não um bloco. */
   selo?: boolean;
+  /**
+   * A MOLDURA REAL (Entrega B). Quem decide é o SERVIDOR (`assento.moldura`, lido do banco); aqui
+   * só se desenha. É um anel por fora do círculo (`box-shadow`): o desenho, a cor do assento e o
+   * tamanho do avatar ficam exatamente os mesmos.
+   */
+  moldura?: boolean;
 }) {
   const d = avatar ? desenhoDoAvatar(avatar) : null;
-  const cls = `${classe} s${seat}`;
+  const cls = `${classe} s${seat}${moldura ? " moldura-real" : ""}`;
   const conteudo = d ? d.glifo : (nome[0] ?? "?");
   return selo
     ? <i className={cls} aria-label={d?.rotulo}>{conteudo}</i>

@@ -11,7 +11,7 @@ import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVicto
 import { analytics } from "../analytics/analytics.js";
 import { anunciarFimDePartida } from "../analytics/partida.js";
 import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
-import { BalaoSocial, BotaoSocial, type MesaMultiplayer } from "./MesaOnline.js";
+import { BalaoSocial, BotaoSocial, coroaDaMesa, type MesaMultiplayer } from "./MesaOnline.js";
 import { useXpDaPartida, xpParaExibir } from "../game/xpDaPartida.js";
 import { XpNoFim } from "./Progresso.js";
 
@@ -213,7 +213,7 @@ export function PlacarFinal({
                   principais continuam sendo o que a tela oferece, e este é o círculo discreto do
                   lado. Mesmo componente da Mesa e do placar entre-mãos — mesmo catálogo fechado,
                   mesma etiqueta viajando, mesma validação e mesmo anti-spam do servidor. */}
-              {mp && <BotaoSocial status="finished" variante="fim" onEnviar={mp.onEnviarMensagem} />}
+              {mp && <BotaoSocial status="finished" variante="fim" onEnviar={mp.onEnviarMensagem} coroa={coroaDaMesa(mp, game.handNumber())} />}
             </div>
           )}
         </div>

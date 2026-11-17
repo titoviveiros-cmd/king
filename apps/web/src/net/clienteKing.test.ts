@@ -82,9 +82,10 @@ describe("lerEstadoDaSala", () => {
     expect(torto.status).toBe("lobby"); // status desconhecido cai no seguro
     // `avatar` vazio é aceitável AQUI: quem garante um valor do conjunto fechado é o servidor,
     // e a camada de desenho cai no padrão sozinha. O leitor não inventa dado que não veio.
+    // Cosméticos que não vieram (servidor anterior à Entrega B) ficam DESLIGADOS, nunca indefinidos.
     expect(torto.seats).toEqual([
-      { seat: 0, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "" },
-      { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "" },
+      { seat: 0, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "", moldura: false, coroa: false },
+      { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "", moldura: false, coroa: false },
     ]);
   });
 

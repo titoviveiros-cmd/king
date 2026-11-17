@@ -27,7 +27,13 @@ export const MENSAGENS_SOCIAIS = [
   "revanche", "por-pouco", "mesa-minha",
   // cortesia — as duas únicas que servem para combinar algo, e por isso não podem faltar
   "ja-volto", "desculpa",
+  // A REAÇÃO DA COROA (Entrega B, nível 6). Etiqueta válida para o formato, mas a sala só a aceita
+  // de quem o banco liberou, e no máximo uma por mão — ver o handler em `KingRoom.ts`.
+  "coroa",
 ] as const;
+
+/** A etiqueta da Reação da Coroa: a única que exige desbloqueio. */
+export const REACAO_DA_COROA = "coroa";
 
 export type MensagemSocial = (typeof MENSAGENS_SOCIAIS)[number];
 

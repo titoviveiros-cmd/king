@@ -54,6 +54,8 @@ async function supabaseFicticio(page: Page, { status = 200, atrasoMs = 0, linha 
 }
 
 const card = (page: Page) => page.locator(".hm-progresso");
+/** As únicas requisições que a Home faz com sessão: LEITURAS do próprio progresso e da própria escolha de cosméticos. */
+const SO_LEITURA = /^GET \/rest\/v1\/(meu_progresso|cosmeticos_equipados)$/;
 const jogarAgora = (page: Page) => page.getByRole("button", { name: /jogar agora/i });
 
 /** O card em repouso: abaixo das ações, na tela, sem rolagem lateral e sem nada cruzando. */
@@ -108,8 +110,9 @@ test("com sessão: o card aparece abaixo das ações, na tela, sem rolagem later
   await expect(page.locator(".pg-lado, .pg-seq, .pg-recorde")).toHaveCount(0);
   // a leitura pede `*`: é o que deixa o banco sem a migração responder sem erro
   expect(consultas.every((q) => new URLSearchParams(q).get("select") === "*"), consultas.join(" | ")).toBe(true);
-  // só LEITURA: uma consulta a meu_progresso, e nenhuma chamada de autenticação/criação
-  expect(chamadas.filter((c2) => !c2.startsWith("GET /rest/v1/meu_progresso"))).toEqual([]);
+  // só LEITURA: meu_progresso e, desde a Entrega B, a LEITURA da própria escolha de cosméticos —
+  // nenhuma chamada de autenticação/criação e nenhuma escrita
+  expect(chamadas.filter((c2) => !SO_LEITURA.test(c2))).toEqual([]);
   expect(chamadas.length).toBeGreaterThanOrEqual(1);
 });
 
@@ -142,7 +145,7 @@ for (const [estado, linha, seq, recorde] of [
     expect(Math.abs(c.height - semSeq.height), `o card cresceu de ${semSeq.height}px para ${c.height}px`).toBeLessThanOrEqual(1);
     await outra.close();
     // continua sendo só leitura
-    expect(chamadas.filter((c2) => !c2.startsWith("GET /rest/v1/meu_progresso"))).toEqual([]);
+    expect(chamadas.filter((c2) => !SO_LEITURA.test(c2))).toEqual([]);
     if (process.env.KING_SHOTS) await page.screenshot({ path: `${process.env.KING_SHOTS}/home-sequencia-${estado}-${ti.project.name}.png` });
   });
 }

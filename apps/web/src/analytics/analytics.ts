@@ -19,7 +19,7 @@
 //      Chave fora do esquema é descartada; valor fora do formato é descartado. A lista de chaves
 //      proibidas continua como segunda barreira — e um teste garante que nenhuma chave do esquema
 //      cai nela, para que alargar o esquema não abra a porta por engano.
-import { MENSAGENS } from "../ui/social.js";
+import { ETIQUETAS_SOCIAIS } from "../ui/social.js";
 
 /**
  * Os eventos que o KING conhece. Conjunto fechado: erro de digitação não compila, e evento fora
@@ -101,7 +101,7 @@ export const ESQUEMA: { readonly [E in Evento]: Readonly<Record<string, Regra>> 
   reconnect: { modo: MODO },
   rematch_clicked: { modo: MODO, posicao: POSICAO },
   // A etiqueta pode ir: é do conjunto fechado do servidor, não é texto de ninguém.
-  social_message_sent: { mensagem: rotulo(32, MENSAGENS.map((m) => m.id)) },
+  social_message_sent: { mensagem: rotulo(32, ETIQUETAS_SOCIAIS) },
 };
 
 /**

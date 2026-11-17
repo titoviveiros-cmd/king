@@ -16,7 +16,7 @@ import type { Seat } from "@king/engine";
 import { deveAlertar, lerRelogio } from "./relogio.js";
 import { sfxTap, sfxSocial, sfxTempoAcabando } from "../audio/sounds.js";
 import {
-  atalhosDe, fraseDe, porCategoria, ROTULO_DA_CATEGORIA, type MomentoSocial,
+  atalhosDe, COROA, fraseDe, porCategoria, ROTULO_DA_CATEGORIA, type MomentoSocial,
 } from "./social.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao, RelogioRecebido } from "../game/useKingOnline.js";
@@ -241,10 +241,26 @@ export function ConsensoDaProximaMao({
 export function BalaoSocial({ mensagem }: { mensagem?: { id: string; nonce: number } }) {
   const frase = fraseDe(mensagem?.id);
   if (!frase) return null;
+  // A Reação da Coroa usa o MESMO balão, no MESMO lugar (ao lado de quem mandou) e pelo MESMO
+  // tempo — só ganha o acabamento de ouro. Nenhum segundo canal, nenhuma tela à parte.
+  const coroa = frase.id === COROA.id;
   return (
-    <span key={mensagem!.nonce} className="balao" role="status">{frase.texto}</span>
+    <span key={mensagem!.nonce} className={`balao${coroa ? " coroa" : ""}`} role="status">{frase.texto}</span>
   );
 }
+
+/**
+ * A REAÇÃO DA COROA NESTE APARELHO: liberada para o MEU assento pelo servidor? A `chave` é a mão
+ * corrente desta sala — o servidor aceita uma coroa por mão, e o botão se apaga depois de usada
+ * para ninguém tocar à toa. Quem decide continua sendo o servidor: o botão é só a cortesia.
+ */
+export function coroaDaMesa(mp: MesaMultiplayer, mao: number): { chave: string } | undefined {
+  if (!mp.sala?.seats[mp.eu]?.coroa) return undefined;
+  return { chave: `${mp.sala.roomCode}:${mao}` };
+}
+
+/** A última mão em que ESTE aparelho mandou a coroa. Fora do React: Mesa e Placar dividem. */
+let coroaUsadaEm: string | null = null;
 
 /**
  * O botão de falar e o painel.
@@ -261,7 +277,7 @@ export function BalaoSocial({ mensagem }: { mensagem?: { id: string; nonce: numb
  *
  * Não existe campo de texto. Não é limitação de implementação: é a decisão de produto.
  */
-export function BotaoSocial({ status, onEnviar, variante = "mesa" }: {
+export function BotaoSocial({ status, onEnviar, variante = "mesa", coroa }: {
   status: MomentoSocial;
   onEnviar: (id: string) => void;
   /**
@@ -273,16 +289,20 @@ export function BotaoSocial({ status, onEnviar, variante = "mesa" }: {
    * se quer. O que muda entre os dois é só ONDE o gatilho se ancora, e isso é CSS.
    */
   variante?: "mesa" | "placar" | "fim";
+  /** A Reação da Coroa, quando o SERVIDOR a liberou para este assento (ver `coroaDaMesa`). */
+  coroa?: { chave: string };
 }) {
   const [aberto, setAberto] = useState(false);
   const [tudo, setTudo] = useState(false);
 
   const mandar = (id: string) => {
     sfxSocial();
+    if (id === COROA.id && coroa) coroaUsadaEm = coroa.chave;
     onEnviar(id);
     setAberto(false);
     setTudo(false);
   };
+  const coroaGasta = !!coroa && coroaUsadaEm === coroa.chave;
 
   return (
     <>
@@ -298,6 +318,16 @@ export function BotaoSocial({ status, onEnviar, variante = "mesa" }: {
       {aberto && <div className="socscrim" onClick={() => setAberto(false)} aria-hidden />}
       {aberto && (
         <div className={`socpanel socpanel-${variante}`} role="dialog" aria-modal="true" aria-label="Mensagens rápidas">
+          {coroa && (
+            <button
+              className="socbtn soccoroa"
+              disabled={coroaGasta}
+              onClick={() => mandar(COROA.id)}
+              aria-label={coroaGasta ? "Reação da Coroa: já usada nesta mão" : "Reação da Coroa"}
+            >
+              {COROA.texto}{coroaGasta && <small> · já usada nesta mão</small>}
+            </button>
+          )}
           {tudo ? (
             porCategoria().map(({ categoria, frases }) => (
               <div key={categoria} className="socgrupo">

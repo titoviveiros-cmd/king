@@ -9,6 +9,7 @@ import { iniciarAnalytics } from "./analytics/iniciar.js";
 import { capturarConvite } from "./net/convite.js";
 import { iniciarAppNativo } from "./nativo/arranque.js";
 import { conviteDoArranqueDoApp } from "./nativo/linkDoApp.js";
+import { aplicarBaralho, baralhoGuardado } from "./auth/cosmeticos.js";
 
 /**
  * A altura visível vem do CSS: `--vh` é `1dvh` onde existe e `1vh` como reserva (ver theme.css).
@@ -23,6 +24,10 @@ import { conviteDoArranqueDoApp } from "./nativo/linkDoApp.js";
 // O CONVITE ANTES DE TUDO. O `?sala=` é lido e APAGADO da barra aqui, antes de o analytics ler a
 // URL: o código da sala é a chave dela, e não pode virar dado de ninguém. Travado em convite.test.ts.
 const convite = capturarConvite();
+
+// O BARALHO IMPERIAL (Entrega B) é deste aparelho: vale desde o primeiro quadro, inclusive numa
+// partida contra os bots. A Home relê a escolha do banco e corrige se outro aparelho mudou.
+aplicarBaralho(baralhoGuardado(), false);
 
 // Antes da primeira tela: decide o destino da medição (PostHog ou silêncio) e o contexto. Não
 // baixa nada aqui — o SDK, quando configurado, chega depois, num arquivo à parte.

@@ -29,6 +29,12 @@ export interface AssentoLido {
   host: boolean;
   /** Avatar escolhido. Vem do estado autoritativo — é o MESMO em todos os aparelhos. */
   avatar: string;
+  /**
+   * COSMÉTICOS (Entrega B), preenchidos SÓ pelo servidor com o que o banco liberou. Opcionais: um
+   * servidor anterior a eles não manda os campos, e aí não há moldura nem coroa — nunca erro.
+   */
+  moldura?: boolean;
+  coroa?: boolean;
 }
 
 /** Estado PÚBLICO da sala. Nunca contém mão, baralho nem semente — isso é lei do servidor. */
@@ -111,6 +117,8 @@ export function lerEstadoDaSala(bruto: unknown): EstadoDaSalaLido | null {
         bot: booleano(a.bot),
         host: booleano(a.host),
         avatar: texto(a.avatar),
+        moldura: booleano(a.moldura),
+        coroa: booleano(a.coroa),
       };
     }),
   };

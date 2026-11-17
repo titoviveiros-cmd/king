@@ -2189,3 +2189,116 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   .trumpslot.nt .sym{white-space:nowrap;font-size:calc(var(--ui)*1.05);line-height:1.1;
     text-align:left;flex:0 0 auto;}
 }
+
+/* ══════════════════ ITENS DA COROA (Entrega B) ══════════════════
+   Três cosméticos por nível, nenhuma vantagem: tudo aqui é pintura por cima do que já existe.
+   Nada muda tamanho, posição ou alvo de toque de carta, avatar ou botão do jogo. */
+
+/* ── MOLDURA REAL (nível 2): um anel ouro e vinho POR FORA do círculo do avatar. `box-shadow`, e não
+   borda nem tamanho: o desenho, a cor do assento e a caixa do avatar ficam idênticos. O anel de vez
+   continua sendo o do CARD (`.opp.active`), e o esmaecido de quem caiu (`.ausente`) vale por cima. */
+.av.moldura-real,.sl-av.moldura-real{border-color:#f4c542;
+  box-shadow:0 0 0 2px #7a1840,0 0 0 3.5px #f4c542,0 0 12px rgba(244,197,66,.55);}
+
+/* ── BARALHO IMPERIAL (nível 4): só neste aparelho (`html[data-baralho=imperial]`, aplicado por
+   auth/cosmeticos.ts). FACE: um filete roxo-real por DENTRO da carta e o papel levemente marfim —
+   naipe, valor, cor e tamanho são os mesmos; `outline` com recuo não ocupa espaço nem muda o alvo.
+   VERSO: o padrão imperial no lugar do azul. */
+:root[data-baralho="imperial"] .card:not(.back),.card.imperial:not(.back){
+  background:#fffaf0;outline:1.5px solid rgba(110,40,160,.5);outline-offset:calc(var(--cw)*-.07);}
+:root[data-baralho="imperial"] .card.back,.card.back.imperial{border:2px solid #f4c542;
+  background:radial-gradient(circle at 50% 50%,rgba(244,197,66,.55) 0 14%,transparent 15%),
+    repeating-linear-gradient(45deg,#4b1a7a 0 6px,#5e2290 6px 12px);}
+
+/* ── REAÇÃO DA COROA (nível 6): o MESMO balão, no MESMO lugar, com acabamento vinho e ouro e um
+   brilho que passa DUAS vezes (nunca em laço). Só cor e fundo animam: a posição do balão por
+   assento usa `transform`, e ela não é tocada. */
+.balao.coroa{color:#ffe7a0;border:1px solid #f4c542;
+  background:linear-gradient(110deg,#5a1036 0 40%,#9b2a5c 50%,#5a1036 60% 100%);background-size:250% 100%;
+  box-shadow:0 8px 20px -8px #000,0 0 14px rgba(244,197,66,.45);
+  animation:balaoEntra .22s cubic-bezier(.22,1.4,.4,1),coroaBrilho 1.1s .2s ease-in-out 2 both;}
+.balao.coroa::after{border-top-color:#5a1036;}
+@keyframes coroaBrilho{from{background-position:100% 0;}to{background-position:-50% 0;}}
+.balao.coroa.amostra{position:static;transform:none;animation:none;display:inline-block;font-size:12px;}
+.balao.coroa.amostra::after{display:none;}
+.socbtn.soccoroa{display:block;width:100%;margin-bottom:6px;color:#ffe7a0;border-color:#f4c542;
+  background:linear-gradient(180deg,#7a1840,#4a0f3a);}
+.socbtn.soccoroa:disabled{opacity:.5;cursor:default;}
+.socbtn.soccoroa small{font-size:.8em;font-weight:700;color:#e9cfe0;}
+
+/* ── A PORTA, NO CARD DE PROGRESSO: uma pílula curta no fim da mesma linha. */
+.pg-itens{flex:none;display:inline-flex;align-items:center;gap:3px;cursor:pointer;
+  font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*.74);color:var(--gold);white-space:nowrap;
+  background:rgba(244,197,66,.1);border:1px solid rgba(244,197,66,.45);border-radius:999px;
+  padding:calc(var(--ui)*.22) calc(var(--ui)*.5);min-height:28px;}
+.pg-itens b{color:#fff;font-variant-numeric:tabular-nums;}
+.pg-itens:active{transform:translateY(1px);}
+
+/* ── A VITRINE */
+.ovcard.itens{width:min(92vw,520px);text-align:left;}
+.ovcard.itens h2,.ovcard.itens .sub{text-align:center;}
+.it-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:clamp(6px,1.2vh,10px);}
+.it-item{display:flex;align-items:center;gap:12px;padding:clamp(6px,1.2vh,10px) 12px;border-radius:14px;
+  background:rgba(255,255,255,.05);border:1px solid var(--line);}
+.it-item.equipado{border-color:rgba(244,197,66,.6);background:rgba(244,197,66,.08);}
+.it-item.bloqueado .it-amostra{filter:grayscale(.85) brightness(.75);}
+.it-amostra{flex:none;width:64px;display:flex;align-items:center;justify-content:center;gap:4px;}
+.it-amostra .sl-av{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(135deg,#ffe27a,var(--gold));color:#231206;font-size:17px;}
+.it-baralho .card{--cw:26px;}
+.it-baralho .card .idx b{font-size:9px;} .it-baralho .card .idx span{font-size:8px;}
+.it-baralho .card .pip{font-size:14px;}
+.it-texto{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.it-nome{font-family:var(--disp);font-weight:800;color:#fff;font-size:clamp(.82rem,2.1vh,1rem);}
+.it-desc{color:var(--muted);font-size:clamp(.66rem,1.7vh,.8rem);line-height:1.3;}
+.it-lado{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px;}
+.it-estado{font-family:var(--disp);font-weight:800;font-size:clamp(.62rem,1.6vh,.74rem);letter-spacing:.04em;
+  text-transform:uppercase;color:var(--faint);white-space:nowrap;}
+.it-item.desbloqueado .it-estado{color:var(--turq);}
+.it-item.equipado .it-estado{color:var(--gold);}
+.it-botao{min-height:36px;padding:6px 12px;font-size:clamp(.66rem,1.7vh,.8rem);}
+.it-aviso{color:var(--gold);text-align:center;margin:8px 0 0;font-size:clamp(.7rem,1.7vh,.85rem);}
+.it-origem{color:var(--faint);text-align:center;margin:clamp(6px,1.4vh,12px) 0 0;font-size:clamp(.62rem,1.6vh,.76rem);line-height:1.35;}
+.it-fechar{display:block;margin:clamp(8px,1.6vh,14px) auto 0;}
+@media (max-height: 360px){
+  .it-desc{display:none;}
+  .it-item{padding:3px 10px;}
+  .it-lista{gap:5px;}
+  .it-amostra{width:52px;}
+  .it-amostra .sl-av{width:28px;height:28px;font-size:14px;}
+  .it-botao{min-height:32px;padding:3px 12px;}
+  .it-lado{flex-direction:row;align-items:center;gap:8px;}
+  .ovcard.itens{padding-top:10px;padding-bottom:10px;}
+  .ovcard.itens h2{font-size:1rem;}
+  .ovcard.itens .sub{margin-bottom:6px;}
+  .it-origem{margin-top:6px;}
+  .it-fechar{margin-top:6px;}
+}
+
+/* ── "NOVO ITEM DESBLOQUEADO!": curta, sobre a Home, um toque fecha. */
+.novoitem{position:fixed;inset:0;z-index:55;display:grid;place-items:center;cursor:pointer;
+  background:radial-gradient(ellipse at 50% 45%,rgba(122,24,64,.55),rgba(10,5,20,.82) 70%);
+  animation:niVeu .25s ease-out both;}
+.novoitem.saindo{animation:niSai .3s ease-in both;}
+.ni-cartao{cursor:default;display:flex;flex-direction:column;align-items:center;gap:clamp(4px,1.2vh,10px);
+  padding:clamp(12px,2.4vh,22px) clamp(18px,3vw,30px);border-radius:22px;max-width:min(92vw,460px);
+  background:linear-gradient(180deg,var(--surface),var(--night2));border:1px solid rgba(244,197,66,.55);
+  box-shadow:0 24px 60px -12px #000,0 0 30px rgba(244,197,66,.25);
+  animation:niEntra .45s cubic-bezier(.22,1.4,.4,1) both;}
+.ni-coroa{color:var(--gold);line-height:0;animation:niCoroa .9s .1s ease-out both;}
+.ni-titulo{font-family:var(--disp);font-weight:800;color:var(--gold);letter-spacing:.04em;text-align:center;
+  font-size:clamp(1rem,3.4vh,1.5rem);}
+.ni-itens{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 14px;}
+.ni-itens li{display:flex;align-items:center;gap:6px;font-family:var(--disp);font-weight:800;color:#fff;
+  font-size:clamp(.78rem,2.1vh,.95rem);}
+.ni-itens .it-amostra{width:auto;}
+.ni-acoes{display:flex;gap:10px;margin-top:4px;}
+@keyframes niVeu{from{opacity:0;}to{opacity:1;}}
+@keyframes niSai{to{opacity:0;}}
+@keyframes niEntra{from{opacity:0;transform:scale(.86);}to{opacity:1;transform:scale(1);}}
+@keyframes niCoroa{0%{transform:translateY(-8px) scale(.8);opacity:0;}60%{transform:translateY(0) scale(1.08);opacity:1;}100%{transform:scale(1);}}
+@media (max-height: 360px){ .ni-coroa{display:none;} }
+@media (prefers-reduced-motion: reduce){
+  .balao.coroa{animation:none;background-position:50% 0;}
+  .novoitem,.novoitem.saindo,.ni-cartao,.ni-coroa{animation:none;}
+}

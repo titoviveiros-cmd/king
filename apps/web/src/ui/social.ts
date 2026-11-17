@@ -43,7 +43,18 @@ export const MENSAGENS: readonly FraseSocial[] = [
   { id: "desculpa",       texto: "Desculpa a demora!",      categoria: "cortesia" },
 ];
 
-const POR_ID = new Map(MENSAGENS.map((m) => [m.id, m]));
+/**
+ * A REAÇÃO DA COROA (Entrega B, nível 6). Fora de `MENSAGENS` de propósito: ela não entra nos
+ * atalhos nem no painel de todo mundo — só aparece, no topo do painel, para quem o SERVIDOR
+ * liberou (`assento.coroa`), e o servidor ainda aceita no máximo uma por mão. Mas o balão dela
+ * precisa ser desenhado em TODOS os aparelhos, por isso `fraseDe` a conhece.
+ */
+export const COROA: FraseSocial = { id: "coroa", texto: "Viva o Rei! 👑", categoria: "rei" };
+
+/** Todas as etiquetas que o servidor aceita, inclusive a especial. */
+export const ETIQUETAS_SOCIAIS: readonly string[] = [...MENSAGENS.map((m) => m.id), COROA.id];
+
+const POR_ID = new Map([...MENSAGENS, COROA].map((m) => [m.id, m]));
 
 /** `null` para etiqueta desconhecida: a tela ignora em vez de desenhar um balão vazio. */
 export function fraseDe(id: string | undefined): FraseSocial | null {

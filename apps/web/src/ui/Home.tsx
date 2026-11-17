@@ -5,7 +5,7 @@ import { sfxTap } from "../audio/sounds.js";
 import { AVATARES, desenhoDoAvatar, type Avatar } from "./avatares.js";
 import type { ContaDaHome } from "../auth/useConta.js";
 import type { ProgressoDoJogador } from "../auth/progresso.js";
-import { ProgressoNaHome } from "./Progresso.js";
+import { ProgressoNaHome, type ItensDoCard } from "./Progresso.js";
 import type { Convite } from "../net/convite.js";
 import { ROTULO_DA_VERSAO } from "../versao.js";
 
@@ -60,7 +60,7 @@ export interface OnlineDaHome {
 }
 
 export function Home({
-  onStart, onOpenAudio, online, tutorial, conta, progresso, onAbrirConta,
+  onStart, onOpenAudio, online, tutorial, conta, progresso, onAbrirConta, itens,
 }: {
   onStart: (avatar: Avatar) => void;
   onOpenAudio: () => void;
@@ -79,6 +79,11 @@ export function Home({
    * nesta publicação (sem identidade, ou web sem conta neste navegador) — e o botão não aparece.
    */
   onAbrirConta?: () => void;
+  /**
+   * Os ITENS DA COROA (Entrega B): quantos estão liberados e como abrir a vitrine. Ausente = vitrine
+   * indisponível (sem sessão, banco sem a migração, leitura falhou) — e o card é o de sempre.
+   */
+  itens?: ItensDoCard;
 }) {
   const preparo = online?.preparo ?? null;
   const [painel, setPainel] = useState(() => !!preparo);
@@ -155,7 +160,7 @@ export function Home({
 
       {/* O PROGRESSO FICA ABAIXO DAS AÇÕES, e é o card do jogador, não um painel: quem abre o jogo
           veio jogar, e o XP é a lembrança de que cada partida conta — não o assunto da tela. */}
-      {progresso && <ProgressoNaHome progresso={progresso} />}
+      {progresso && <ProgressoNaHome progresso={progresso} itens={itens} />}
 
       {/* APRENDA KING fica FORA da fileira principal e em tom discreto: quem já sabe jogar não
           deve tropeçar nele toda vez que abre o app, e quem não sabe precisa achá-lo sem

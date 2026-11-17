@@ -24,7 +24,8 @@ import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import {
   AVATAR_PADRAO, AVATARES, TEMA_PADRAO, TEMAS_DA_MESA, avatarDeBot, avatarValido, nomeDeBotLivre,
 } from "./identidade.js";
-import { DURACAO_MS, RitmoSocial, mensagemValida } from "./social.js";
+import { DURACAO_MS, REACAO_DA_COROA, RitmoSocial, mensagemValida } from "./social.js";
+import { cosmeticosEmUso } from "../progresso/cosmeticos.js";
 import { ArraySchema, schema } from "@colyseus/schema";
 import { TOTAL_HANDS, rankings, type Seat } from "@king/engine";
 import { AutoridadeDaPartida, type Resultado } from "../match/autoridade.js";
@@ -92,6 +93,17 @@ export const AssentoPublico = schema({
    * em todos os aparelhos. Sempre um valor do conjunto fechado, nunca texto livre do cliente.
    */
   avatar: "string",
+  /**
+   * COSMÉTICOS (Entrega B). Público porque é para os quatro verem — e quem preenche é SÓ o servidor,
+   * com o que o BANCO devolveu para a identidade verificada (`progresso/cosmeticos.ts`). O cliente
+   * não tem mensagem para escrever aqui.
+   *
+   * Campos NOVOS no estado, e não mensagem nova: o estado chega por reflexão e o cliente antigo lê
+   * só os campos que conhece (`lerEstadoDaSala`), então isto não sobe `PROTOCOL_VERSION`.
+   */
+  moldura: "boolean",
+  /** A Reação da Coroa está liberada para este assento (equipada e com nível, segundo o banco). */
+  coroa: "boolean",
 }, "AssentoPublico");
 export type AssentoPublico = InstanceType<typeof AssentoPublico>;
 
@@ -266,6 +278,11 @@ export class KingRoom extends Room<{
   #host: string | null = null;
   /** Ritmo das mensagens sociais, por assento. Conferido AQUI — no cliente seria sugestão. */
   readonly #ritmoSocial = new RitmoSocial();
+  /**
+   * REAÇÃO DA COROA: a mão em que cada assento já a usou. Um teto PRÓPRIO, de uma por mão, por cima
+   * do ritmo geral — a reação especial não pode virar a frase de todo lance.
+   */
+  readonly #coroaNaMao = new Map<number, number>();
 
   /** Há partida em curso? Só o BOOLEANO — nunca o estado. */
   partidaIniciada(): boolean {
@@ -461,8 +478,21 @@ export class KingRoom extends Room<{
       if (this.state.status === "lobby") {
         return this.#recusar(client, "", "WRONG_PHASE", "A partida ainda não começou");
       }
+      // A REAÇÃO DA COROA (Entrega B): mesma etiqueta, mesmo canal, mesmo anti-spam — e duas travas
+      // a mais, as duas aqui. Liberada é o que o BANCO disse ao sentar (`assento.coroa`); o cliente
+      // não tem como afirmar isso. E uma por mão, conferida ANTES do ritmo: uma coroa recusada não
+      // gasta o fôlego das frases comuns.
+      const coroa = id === REACAO_DA_COROA;
+      const mao = this.autoridade.estadoAutoritativo()?.hand?.handNumber ?? 0;
+      if (coroa && !this.state.seats[dados.seat].coroa) {
+        return this.#recusar(client, "", "INVALID_PAYLOAD", "Reação ainda não desbloqueada");
+      }
+      if (coroa && this.#coroaNaMao.get(dados.seat) === mao) {
+        return this.#recusar(client, "", "RATE_LIMITED", "A coroa já foi usada nesta mão");
+      }
       const veredicto = this.#ritmoSocial.permitir(dados.seat, Date.now());
       if (!veredicto.ok) return this.#recusar(client, "", veredicto.code, veredicto.message);
+      if (coroa) this.#coroaNaMao.set(dados.seat, mao);
 
       difundir(this, "SOCIAL_MESSAGE", { seat: dados.seat, messageId: id, duracaoMs: DURACAO_MS });
     });
@@ -1049,6 +1079,10 @@ export class KingRoom extends Room<{
     const pedido = avatarValido(options?.avatar);
     const ocupado = this.#avataresEmUso(seat).includes(pedido);
     assento.avatar = ocupado ? AVATAR_PENDENTE : pedido;
+    // Cosméticos começam DESLIGADOS e só acendem com a resposta do banco, depois de sentar.
+    assento.moldura = false;
+    assento.coroa = false;
+    if (dados.identidadePermanente) void this.#lerCosmeticos(dados.playerId, seat);
 
     enviar(client, "SERVER_WELCOME", {
       protocolVersion: PROTOCOL_VERSION,
@@ -1195,8 +1229,24 @@ export class KingRoom extends Room<{
     assento.bot = false;
     assento.host = false;
     assento.avatar = AVATAR_PADRAO;
+    assento.moldura = false;
+    assento.coroa = false;
     // o histórico de mensagens não pode punir quem sentar aqui depois
     this.#ritmoSocial.esquecer(assento.seat);
+    this.#coroaNaMao.delete(assento.seat);
+  }
+
+  /**
+   * Os cosméticos de quem acabou de sentar, pelo BANCO. Assíncrono e sem lançar: a entrada já
+   * aconteceu, e a resposta só vale se o assento ainda for da MESMA pessoa — quem saiu antes de o
+   * banco responder não deixa moldura para quem sentou no lugar.
+   */
+  async #lerCosmeticos(playerId: string, seat: Seat): Promise<void> {
+    const c = await cosmeticosEmUso().doJogador(playerId).catch(() => null);
+    const assento = this.state.seats[seat];
+    if (!c || assento.playerId !== playerId) return;
+    assento.moldura = c.moldura;
+    assento.coroa = c.coroa;
   }
 
   /**
@@ -1279,5 +1329,7 @@ function assentoVazio(seat: number): AssentoPublico {
   a.bot = false;
   a.host = false;
   a.avatar = AVATAR_PADRAO;
+  a.moldura = false;
+  a.coroa = false;
   return a;
 }

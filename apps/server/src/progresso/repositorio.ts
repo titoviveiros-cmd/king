@@ -3,9 +3,12 @@
 // O servidor não escreve em tabela nenhuma. Ele chama `king_private.creditar_partida` com o
 // RESULTADO, e o banco decide o XP. O papel usado (`king_server`) não tem privilégio de tabela:
 // mesmo que este arquivo tentasse um INSERT, o Postgres recusaria. A segunda porta, desde a E-2, é
-// `king_private.expurgar_lapides` — com o mesmo desenho: o servidor informa, o banco decide.
+// `king_private.expurgar_lapides` — com o mesmo desenho: o servidor informa, o banco decide. A
+// terceira, desde a Entrega B, só LÊ: `king_private.cosmeticos_da_sala` devolve o efeito dos
+// cosméticos (equipado E com nível) de quem sentou — o banco decide, a sala só mostra.
 import pg from "pg";
 import type { LancamentoConfirmado, ResultadoDaPartida } from "./tipos.js";
+import { CHAMADA_DOS_COSMETICOS, type LinhaDeCosmeticos } from "./cosmeticos.js";
 
 export interface RepositorioDeProgresso {
   /** UMA consulta trivial (`select 1`): prova conexão, TLS e credencial, sem tocar em dado nenhum. */
@@ -49,7 +52,16 @@ export function parametrosDoCredito(r: ResultadoDaPartida): unknown[] {
  * conexão sem TLS e sem `checkServerIdentity` próprio. Nada aqui monta host ou usuário do Supabase:
  * a string de conexão é a copiada do painel, na fase de operação.
  */
-export function repositorioPg(origem: { connectionString: string; ca: string } | { pool: pg.Pool }): RepositorioDeProgresso {
+/**
+ * O repositório real tem uma TERCEIRA porta, só de leitura: os cosméticos da sala (Entrega B). Ela
+ * fica fora de `RepositorioDeProgresso` porque o progresso não precisa dela — quem a usa é a fonte
+ * de cosméticos, ligada no boot. Mesmo papel, mesmo pool: nenhuma conexão a mais.
+ */
+export type RepositorioPg = RepositorioDeProgresso & {
+  cosmeticosDaSala(ids: string[]): Promise<LinhaDeCosmeticos[]>;
+};
+
+export function repositorioPg(origem: { connectionString: string; ca: string } | { pool: pg.Pool }): RepositorioPg {
   const pool = "pool" in origem
     ? origem.pool
     : new pg.Pool({
@@ -76,6 +88,10 @@ export function repositorioPg(origem: { connectionString: string; ca: string } |
     async expurgarLapides(marcador, protegidas) {
       const { rows: [l] } = await pool.query(CHAMADA_DE_EXPURGO, [marcador, protegidas]);
       return { removidas: Number(l.removidas), retidas: Number(l.retidas) };
+    },
+    async cosmeticosDaSala(ids) {
+      const { rows } = await pool.query(CHAMADA_DOS_COSMETICOS, [ids]);
+      return rows as LinhaDeCosmeticos[];
     },
     async encerrar() {
       await pool.end();

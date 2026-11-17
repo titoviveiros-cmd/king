@@ -17,6 +17,7 @@ import { OutboxDeProgresso } from "./progresso/outbox.js";
 import { resumoSeguro } from "./progresso/falhas.js";
 import { repositorioPg } from "./progresso/repositorio.js";
 import { ServicoDeProgresso, configurarProgresso } from "./progresso/servico.js";
+import { configurarCosmeticos, fonteDeCosmeticosPg } from "./progresso/cosmeticos.js";
 
 const SAIDA_CONFIGURACAO_INVALIDA = 78;
 
@@ -39,11 +40,15 @@ try {
 try {
   const progresso = lerConfiguracaoDeProgresso(process.env);
   if (progresso.modo === "database") {
-    const servico = new ServicoDeProgresso(
-      new OutboxDeProgresso(progresso.outbox),
-      repositorioPg({ connectionString: progresso.url, ca: progresso.ca }),
-    );
+    const repositorio = repositorioPg({ connectionString: progresso.url, ca: progresso.ca });
+    const servico = new ServicoDeProgresso(new OutboxDeProgresso(progresso.outbox), repositorio);
     configurarProgresso(servico);
+    // OS COSMÉTICOS (Entrega B) leem pelo MESMO pool e obedecem ao MESMO disjuntor: fora de
+    // `closed`, nenhuma mesa pergunta nada ao banco e todo mundo joga sem cosmético.
+    configurarCosmeticos(fonteDeCosmeticosPg({
+      consultar: (ids) => repositorio.cosmeticosDaSala(ids),
+      pronto: () => servico.estado === "closed",
+    }));
     console.log("[king] progress mode: database");
     // UMA sonda e, se passar, as pendências de um boot anterior. NÃO segura a subida: o jogo sobe
     // mesmo com o banco recusando a credencial (open_auth) ou com o pooler bloqueado (open_circuit).

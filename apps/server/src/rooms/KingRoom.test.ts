@@ -318,9 +318,12 @@ describe("J · nenhum estado privado chega ao cliente", () => {
       // público; um campo novo que apareça sem passar por esta linha reprova o teste, que é
       // exatamente o ponto. `bot` e `host` são públicos porque o lobby precisa desenhar quem é
       // bot e quem manda na composição — nenhum dos dois revela informação de jogo. `avatar`
-      // é público pelo mesmo motivo: identidade tem de ser IGUAL nos quatro aparelhos.
+      // é público pelo mesmo motivo: identidade tem de ser IGUAL nos quatro aparelhos. `moldura` e
+      // `coroa` (Entrega B) são dois booleanos de COSMÉTICO, preenchidos só pelo servidor com o
+      // que o banco liberou: dizem "tem moldura" e "pode mandar a coroa", e nada de XP, nível,
+      // mão ou carta — o nível exato nunca sai do banco.
       expect(Object.keys(a).sort()).toEqual(
-        ["assisted", "avatar", "bot", "connected", "host", "nick", "playerId", "ready", "seat"],
+        ["assisted", "avatar", "bot", "connected", "coroa", "host", "moldura", "nick", "playerId", "ready", "seat"],
       );
     }
   });

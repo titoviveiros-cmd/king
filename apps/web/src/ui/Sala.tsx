@@ -207,11 +207,11 @@ export function Sala({
                   aria-label="Trocar o seu avatar"
                   title="Trocar o seu avatar"
                 >
-                  <Insignia vazio={false} bot={false} avatar={a?.avatar} />
+                  <Insignia vazio={false} bot={false} avatar={a?.avatar} moldura={a?.moldura} />
                   <i aria-hidden>✎</i>
                 </button>
               ) : (
-                <Insignia vazio={vazio} bot={bot} avatar={a?.avatar} />
+                <Insignia vazio={vazio} bot={bot} avatar={a?.avatar} moldura={!vazio && !bot && a?.moldura} />
               )}
               <span className="sl-nome">
                 {vazio ? (reservado ? "Lugar do 2º jogador…" : "Aguardando…") : a.nick}
@@ -396,14 +396,15 @@ export function avataresEmUso(assentos: readonly AssentoLido[], eu: Seat | null)
  * O círculo do lugar. Cor pelo assento, desenho pelo avatar autoritativo — e o robô continua
  * com cara de robô, porque agora ele tem nome de gente.
  */
-function Insignia({ vazio, bot, avatar }: { vazio: boolean; bot: boolean; avatar?: string }) {
+function Insignia({ vazio, bot, avatar, moldura }: { vazio: boolean; bot: boolean; avatar?: string; moldura?: boolean }) {
   if (vazio) return <span className="sl-av" aria-label="lugar vago">+</span>;
   if (bot) return <span className="sl-av" aria-label="bot">🤖</span>;
   // PENDENTE NÃO É UM BICHO. Desenhar o padrão aqui mostraria um animal com cara de escolhido, que
   // é exatamente o que a regra nova existe para evitar. Interrogação: neutra e sem dono.
   if (!avatar) return <span className="sl-av pendente" aria-label="avatar ainda não escolhido">?</span>;
   const d = desenhoDoAvatar(avatar);
-  return <span className="sl-av" aria-label={d.rotulo}>{d.glifo}</span>;
+  // A Moldura Real (Entrega B), decidida pelo servidor: um anel por fora, o bicho igual.
+  return <span className={`sl-av${moldura ? " moldura-real" : ""}`} aria-label={d.rotulo}>{d.glifo}</span>;
 }
 
 /** O que a sala diz e permite AGORA — a regra inteira numa função pura, testável sem renderizar. */

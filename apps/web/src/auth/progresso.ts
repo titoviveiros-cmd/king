@@ -22,6 +22,11 @@ export interface ProgressoDoJogador {
    * estranho. Ausente, a tela é exatamente a de antes.
    */
   sequencia?: SequenciaDoJogador;
+  /**
+   * De QUEM é este progresso (o `player_id` da própria linha). Serve só para guardar, por conta,
+   * o que já foi celebrado neste aparelho (Entrega B). Ausente quando o banco não mandou um UUID.
+   */
+  playerId?: string;
 }
 
 /**
@@ -54,6 +59,7 @@ export interface LinhaDoMeuProgresso {
   sequencia_recorde?: unknown;
   sequencia_hoje?: unknown;
   sequencia_partida?: unknown;
+  player_id?: unknown;
 }
 
 /** O que a leitura precisa do banco. Duas consultas, nenhuma escrita. */
@@ -95,7 +101,11 @@ export function criarLeitorDeProgresso(porta: () => Promise<PortaDeProgresso | n
         const { xp_total, nivel, xp_no_nivel, xp_do_nivel } = data;
         if (![xp_total, nivel, xp_no_nivel, xp_do_nivel].every(inteiro) || nivel < 1) return null;
         const sequencia = lerSequencia(data);
-        return { xpTotal: xp_total, nivel, xpNoNivel: xp_no_nivel, xpDoNivel: xp_do_nivel, ...(sequencia ? { sequencia } : {}) };
+        const playerId = typeof data.player_id === "string" && UUID.test(data.player_id) ? data.player_id.toLowerCase() : null;
+        return {
+          xpTotal: xp_total, nivel, xpNoNivel: xp_no_nivel, xpDoNivel: xp_do_nivel,
+          ...(sequencia ? { sequencia } : {}), ...(playerId ? { playerId } : {}),
+        };
       } catch {
         return null;
       }
