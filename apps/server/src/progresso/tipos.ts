@@ -12,7 +12,17 @@ export interface HumanoDoResultado {
   playerId: string;
   posicao: Posicao;
   participou: boolean;
+  /**
+   * RECORDES (Entrega D): a PONTUAÇÃO FINAL do motor, só de quem participou. Opcional: o outbox
+   * gravado antes desta entrega não a tem, e continua válido. NÃO vai para `creditar_partida` (o
+   * contrato do XP não muda): vai para `king_private.registrar_placares`, na mesma transação.
+   */
+  pontos?: number;
 }
+
+/** A faixa que o banco aceita (`placares_online_pontos`). */
+export const PONTOS_MIN = -5000;
+export const PONTOS_MAX = 5000;
 
 export interface ResultadoDaPartida {
   /** `crypto.randomUUID()`, gerado pelo servidor no início da partida. */
@@ -62,9 +72,14 @@ export function validarResultado(x: unknown): ResultadoDaPartida {
   }
   const vistos = new Set<string>();
   for (const h of r.humanos) {
-    if (!h || typeof h !== "object" || Object.keys(h).sort().join(",") !== "participou,playerId,posicao") {
+    const chavesDoHumano = h && typeof h === "object" ? Object.keys(h).sort().join(",") : "";
+    if (chavesDoHumano !== "participou,playerId,posicao" && chavesDoHumano !== "participou,playerId,pontos,posicao") {
       throw new ResultadoInvalido("humano com campos inesperados");
     }
+    if (h.pontos !== undefined && (!Number.isInteger(h.pontos) || h.pontos < PONTOS_MIN || h.pontos > PONTOS_MAX)) {
+      throw new ResultadoInvalido("pontuação fora da faixa");
+    }
+    if (h.pontos !== undefined && !h.participou) throw new ResultadoInvalido("pontuação de quem não participou");
     if (typeof h.playerId !== "string" || !UUID.test(h.playerId)) throw new ResultadoInvalido("playerId não é UUID");
     if (vistos.has(h.playerId)) throw new ResultadoInvalido("jogador repetido");
     vistos.add(h.playerId);

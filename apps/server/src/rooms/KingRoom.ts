@@ -880,6 +880,9 @@ export class KingRoom extends Room<{
     if (!m || !this.#iniciadaEm || this.#elenco.length !== ASSENTOS) return;
     const posicoes: Record<number, Posicao> = {};
     for (const linha of rankings(m)) posicoes[linha.seat] = linha.position as Posicao;
+    // RECORDES (Entrega D): a pontuação FINAL de cada assento, do motor — nunca do cliente.
+    const pontos: Record<number, number> = {};
+    m.cumulative.forEach((total, seat) => { pontos[seat] = total; });
     const assentos: AssentoAoFim[] = this.#elenco.map((e, seat) => ({
       seat,
       playerId: e.playerId,
@@ -896,6 +899,7 @@ export class KingRoom extends Room<{
         terminadaEm: new Date(),
         assentos,
         posicoes,
+        pontos,
       });
     } catch (e) {
       console.error(`[progresso] registrador falhou ao receber o fim da partida: ${(e as Error)?.name ?? "erro"}`);
