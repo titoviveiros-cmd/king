@@ -321,9 +321,10 @@ describe("J · nenhum estado privado chega ao cliente", () => {
       // é público pelo mesmo motivo: identidade tem de ser IGUAL nos quatro aparelhos. `moldura` e
       // `coroa` (Entrega B) são dois booleanos de COSMÉTICO, preenchidos só pelo servidor com o
       // que o banco liberou: dizem "tem moldura" e "pode mandar a coroa", e nada de XP, nível,
-      // mão ou carta — o nível exato nunca sai do banco.
+      // mão ou carta — o nível exato nunca sai do banco. `estiloMoldura` e `reacoes` (Entrega C) são o
+      // mesmo efeito, com o NOME da moldura e as reações de nível liberadas — nunca XP nem nível.
       expect(Object.keys(a).sort()).toEqual(
-        ["assisted", "avatar", "bot", "connected", "coroa", "host", "moldura", "nick", "playerId", "ready", "seat"],
+        ["assisted", "avatar", "bot", "connected", "coroa", "estiloMoldura", "host", "moldura", "nick", "playerId", "reacoes", "ready", "seat"],
       );
     }
   });

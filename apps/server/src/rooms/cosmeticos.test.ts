@@ -20,7 +20,7 @@ import {
   COSMETICOS_DESLIGADOS, SEM_COSMETICOS, configurarCosmeticos, fonteDeCosmeticosPg, restaurarCosmeticos,
   type CosmeticosDoAssento, type FonteDeCosmeticos, type MesaDoJogador,
 } from "../progresso/cosmeticos.js";
-import { COOLDOWN_MS, REACAO_DA_COROA } from "./social.js";
+import { COOLDOWN_MS, REACAO_DA_COROA, REACOES } from "./social.js";
 
 type Chave = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
 
@@ -34,7 +34,7 @@ const OUTRO = ID(4);
 
 describe("a fonte de cosméticos nunca atrapalha", () => {
   it("fora de `closed` o banco NÃO é tocado", async () => {
-    const consultar = vi.fn(async () => [{ player_id: REAL, moldura_real: true, reacao_coroa: true }]);
+    const consultar = vi.fn(async () => [{ player_id: REAL, moldura: "real", reacoes: ["coroa"] }]);
     const f = fonteDeCosmeticosPg({ consultar, pronto: () => false, log: () => {} });
     expect(await f.doJogador(REAL)).toEqual(SEM_COSMETICOS);
     expect(consultar).not.toHaveBeenCalled();
@@ -51,11 +51,25 @@ describe("a fonte de cosméticos nunca atrapalha", () => {
     const f = fonteDeCosmeticosPg({
       consultar: async (ids) => {
         expect(ids).toEqual([REAL]);
-        return [{ player_id: OUTRO, moldura_real: true, reacao_coroa: true }, { player_id: REAL, moldura_real: true, reacao_coroa: false }];
+        return [{ player_id: OUTRO, moldura: "real", reacoes: ["coroa"] }, { player_id: REAL, moldura: "rubi", reacoes: ["aplauso", "fogo"] }];
       },
       pronto: () => true, log: () => {},
     });
-    expect(await f.doJogador(REAL)).toEqual({ moldura: true, coroa: false });
+    // as reações saem na ORDEM do catálogo, seja qual for a ordem da linha
+    expect(await f.doJogador(REAL)).toEqual({ moldura: "rubi", reacoes: ["fogo", "aplauso"] });
+  });
+
+  it("só passa o que é do CATÁLOGO: moldura estranha vira nenhuma, reação livre/estranha some, forma errada vira vazio", async () => {
+    const linhas = [
+      [{ player_id: REAL, moldura: "dourada", reacoes: ["risada", "coroa", "<img>", 7] }],
+      [{ player_id: REAL, moldura: 1, reacoes: "coroa" }],
+      [{ player_id: REAL, moldura: null, reacoes: null }],
+    ];
+    const esperado = [{ moldura: "", reacoes: ["coroa"] }, { moldura: "", reacoes: [] }, { moldura: "", reacoes: [] }];
+    for (const [i, l] of linhas.entries()) {
+      const f = fonteDeCosmeticosPg({ consultar: async () => l as never, pronto: () => true, log: () => {} });
+      expect(await f.doJogador(REAL)).toEqual(esperado[i]);
+    }
   });
 
   it("erro, resposta estranha e PRAZO estourado viram 'sem cosméticos' — e o log não leva o id inteiro nem o host", async () => {
@@ -122,8 +136,8 @@ beforeEach(async () => {
   await colyseus.cleanup();
   configurarVerificador(verificador);
   banco = {
-    [REAL]: { moldura: true, coroa: true },
-    [MOLDURA]: { moldura: true, coroa: false },
+    [REAL]: { moldura: "real", reacoes: ["coroa"] },
+    [MOLDURA]: { moldura: "real", reacoes: [] },
   };
   perguntas = [];
   mesas = {
@@ -131,11 +145,15 @@ beforeEach(async () => {
     [NADA]: { toalha: "imperial", liberadas: ["imperial", "verde"] },
   };
   perguntasDaMesa = [];
+  soCoroa = [];
   configurarCosmeticos(fonteFalsa);
 });
 afterEach(() => { restaurarCosmeticos(); });
 
-interface AssentoView { seat: number; playerId: string; bot: boolean; host: boolean; moldura: boolean; coroa: boolean }
+interface AssentoView {
+  seat: number; playerId: string; bot: boolean; host: boolean; moldura: boolean; coroa: boolean;
+  estiloMoldura: string; reacoes: string;
+}
 interface SdkRoom {
   state: { status: string; tableTheme: string; seats: Iterable<AssentoView> };
   send(t: string, m?: unknown): void;
@@ -168,14 +186,17 @@ function escutar(sdk: SdkRoom, c?: Cliente): Cliente {
   return x;
 }
 
-// O cliente NOVO declara que sabe mostrar a coroa; o ANTIGO (Android 0.1.1) não manda `recursos`.
-const opcoes = (token: string | null, nick: string, avatar: string, antigo = false) => ({
-  protocolVersion: PROTOCOL_VERSION, nick, avatar, ...(antigo ? {} : { recursos: ["coroa"] }),
+// O cliente NOVO declara as reações que sabe mostrar; o ANTIGO (Android 0.1.1) não manda `recursos`; o
+// da Entrega B só conhece a coroa (`soCoroa`).
+let soCoroa: number[] = [];
+const opcoes = (token: string | null, nick: string, avatar: string, antigo = false, i = -1) => ({
+  protocolVersion: PROTOCOL_VERSION, nick, avatar,
+  ...(antigo ? {} : { recursos: soCoroa.includes(i) ? ["coroa"] : [...REACOES, "lixo", "<b>", 42] }),
   ...(token ? { accessToken: token } : {}),
 });
 
 async function sentar(codigo: string | null, sub: string | null, nick: string, i: number, antigo = false): Promise<Cliente> {
-  const o = opcoes(sub ? await tokenDe(sub) : null, nick, AVATARES[i], antigo);
+  const o = opcoes(sub ? await tokenDe(sub) : null, nick, AVATARES[i], antigo, i);
   const sdk = (codigo ? await colyseus.sdk.joinById(codigo, o) : await colyseus.sdk.create(SALA_KING, o)) as unknown as SdkRoom;
   const c = escutar(sdk);
   await ate(() => c.boasVindas !== null, 8000, `welcome ${nick}`);
@@ -260,10 +281,12 @@ describe("a MOLDURA chega igual aos quatro aparelhos", () => {
     await ate(() => assentos(dono)[1].playerId === "", 8000, "saiu");
     await sentar(codigo, NADA, "Novo", 1);
     await ate(() => assentos(dono)[1].playerId === NADA, 8000, "novo sentou");
-    liberar({ moldura: true, coroa: true });
+    liberar({ moldura: "diamante", reacoes: ["coroa", "fogo"] });
     await new Promise((r) => setTimeout(r, 100));
     expect(assentos(dono)[1].moldura).toBe(false);
     expect(assentos(dono)[1].coroa).toBe(false);
+    expect(assentos(dono)[1].estiloMoldura).toBe("");
+    expect(assentos(dono)[1].reacoes).toBe("");
   }, 30_000);
 });
 
@@ -351,6 +374,64 @@ describe("a REAÇÃO DA COROA: mesmo canal, só de quem foi liberado, uma por m�
   }, 30_000);
 });
 
+// ═══════════════════ O CATÁLOGO (Entrega C): molduras e reações novas ═══════════════════
+
+describe("Entrega C: a moldura ESCOLHIDA e as reações novas, pela sala", () => {
+  it("a moldura escolhida (estilo) e as reações liberadas chegam IGUAIS aos quatro; o cliente da Entrega B continua vendo 'tem moldura' e 'tem coroa'", async () => {
+    banco[REAL] = { moldura: "diamante", reacoes: ["fogo", "coroa", "caveira", "aplauso"] };
+    banco[MOLDURA] = { moldura: "onix", reacoes: ["fogo"] };
+    const todos = await mesaDeQuatro();
+    await ate(() => todos.every((c) => assentos(c)[0].estiloMoldura === "diamante" && assentos(c)[1].estiloMoldura === "onix"), 8000, "molduras");
+    for (const c of todos) {
+      expect(assentos(c).map((a) => a.estiloMoldura)).toEqual(["diamante", "onix", "", ""]);
+      expect(assentos(c).map((a) => a.moldura)).toEqual([true, true, false, false]);
+      expect(assentos(c).map((a) => a.reacoes)).toEqual(["fogo,coroa,caveira,aplauso", "fogo", "", ""]);
+      expect(assentos(c).map((a) => a.coroa)).toEqual([true, false, false, false]);
+    }
+  }, 30_000);
+
+  it("reações LIVRES (risada, choro): de qualquer assento, até do nível 1; CADA uma uma vez por mão; não chegam a quem não sabe mostrar", async () => {
+    soCoroa = [1]; // P1 = cliente da Entrega B (só conhece a coroa)
+    const todos = await mesaDeQuatro(undefined, [3]); // P3 = cliente antigo
+    await comecar(todos);
+    todos[2].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "risada" }); // NADA, nível 1
+    await ate(() => [0, 2].every((i) => todos[i].sociais.length === 1), 8000, "a risada chegar");
+    await new Promise((r) => setTimeout(r, 200));
+    expect(todos[0].sociais[0]).toMatchObject({ seat: 2, messageId: "risada" });
+    expect(todos[1].sociais).toHaveLength(0);
+    expect(todos[3].sociais).toHaveLength(0);
+    await new Promise((r) => setTimeout(r, COOLDOWN_MS + 50));
+    todos[2].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "risada" });
+    await ate(() => todos[2].rejeicoes.length > 0, 8000, "2ª risada recusada");
+    expect(todos[2].rejeicoes[0]).toMatchObject({ code: "RATE_LIMITED" });
+    todos[2].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "choro" }); // outra reação: o teto é por reação
+    await ate(() => todos[0].sociais.length === 2, 8000, "o choro passar");
+    expect(todos[0].sociais.map((s) => s.messageId)).toEqual(["risada", "choro"]);
+  }, 30_000);
+
+  it("reação de NÍVEL só de quem o banco liberou: o fogo de quem só tem a coroa é recusado; com o fogo liberado, fogo e coroa passam, e cada uma tem o próprio teto", async () => {
+    banco[MOLDURA] = { moldura: "real", reacoes: ["fogo", "coroa"] };
+    const todos = await mesaDeQuatro();
+    await ate(() => assentos(todos[0])[1].reacoes === "fogo,coroa" && assentos(todos[0])[0].coroa, 8000, "reações liberadas");
+    await comecar(todos);
+    todos[0].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "fogo" }); // REAL só tem a coroa
+    todos[2].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "caveira" }); // NADA não tem nada de nível
+    await ate(() => todos[0].rejeicoes.length > 0 && todos[2].rejeicoes.length > 0, 8000, "recusas");
+    expect(todos[0].rejeicoes[0].code).toBe("INVALID_PAYLOAD");
+    expect(todos[2].rejeicoes[0].code).toBe("INVALID_PAYLOAD");
+    todos[1].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "fogo" });
+    await ate(() => todos[3].sociais.length === 1, 8000, "fogo");
+    await new Promise((r) => setTimeout(r, COOLDOWN_MS + 50));
+    todos[1].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "coroa" });
+    await ate(() => todos[3].sociais.length === 2, 8000, "coroa");
+    await new Promise((r) => setTimeout(r, COOLDOWN_MS + 50));
+    todos[1].sdk.send("CLIENT_SOCIAL_MESSAGE", { messageId: "fogo" });
+    await ate(() => todos[1].rejeicoes.length > 0, 8000, "2º fogo recusado");
+    expect(todos[1].rejeicoes[0]).toMatchObject({ code: "RATE_LIMITED", message: "Esta reação já foi usada nesta mão" });
+    expect(todos[3].sociais.map((s) => [s.seat, s.messageId])).toEqual([[1, "fogo"], [1, "coroa"]]);
+  }, 40_000);
+});
+
 // ═══════════════════ A TOALHA DA MESA (a toalha como cosmético) ═══════════════════
 
 describe("a fonte da MESA DO ANFITRIÃO nunca atrapalha", () => {
@@ -416,6 +497,18 @@ describe("a TOALHA na sala: a mesa é do anfitrião, e só o que ELE liberou", (
     await ate(() => todos[1].rejeicoes.length > 0, 8000, "recusa de quem não é anfitrião");
     expect(todos[1].rejeicoes[0].code).toBe("NOT_HOST");
     expect(tema(todos[0])).toBe("vinho");
+  }, 30_000);
+
+  it("Entrega C: as mesas novas (Azul Royal, Preta Premium) seguem a MESMA regra — só a liberada passa, e vale para os quatro", async () => {
+    mesas[REAL] = { toalha: "imperial", liberadas: ["imperial", "verde", "vinho", "azul"] }; // nível 8–11
+    const todos = await mesaDeQuatro();
+    await ate(() => perguntasDaMesa.length === 1, 8000, "a mesa ser lida");
+    await new Promise((r) => setTimeout(r, 50));
+    todos[0].sdk.send("CLIENT_SET_TABLE_THEME", { theme: "preta" });
+    await ate(() => todos[0].rejeicoes.length > 0, 8000, "a Preta recusada");
+    expect(todos[0].rejeicoes[0].code).toBe("NOT_UNLOCKED");
+    todos[0].sdk.send("CLIENT_SET_TABLE_THEME", { theme: "azul" });
+    await ate(() => todos.every((c) => tema(c) === "azul"), 8000, "a Azul nos quatro");
   }, 30_000);
 
   it("a ESCOLHA da sala vence a resposta atrasada do banco (a toalha equipada não pisa na escolha)", async () => {
