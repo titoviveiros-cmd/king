@@ -13,8 +13,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parse, type HTMLElement } from "node-html-parser";
 import { createMatch, startNextHand, redactFor, type Seat } from "@king/engine";
 import {
-  CATALOGO, NADA_EQUIPADO, aplicarBaralho, baralhoGuardado, criarCosmeticos, estadoDoItem, liberadosNo,
-  marcarCelebrados, paraCelebrar, type Equipados, type PortaDeCosmeticos,
+  CATALOGO, CATEGORIAS, DESBLOQUEAVEIS, NADA_EQUIPADO, aplicarBaralho, baralhoGuardado, criarCosmeticos,
+  estadoDoItem, guardarMesa, itemDaToalha, liberadosNo, marcarCelebrados, mesaGuardada, paraCelebrar,
+  proximoDesbloqueio, type Equipados, type PortaDeCosmeticos,
 } from "../auth/cosmeticos.js";
 import { NovoItemDesbloqueado, ORIGEM_DO_XP, VitrineDeItens } from "./Cosmeticos.js";
 import { BalaoSocial, coroaDaMesa, type MesaMultiplayer } from "./MesaOnline.js";
@@ -39,34 +40,52 @@ let armazenamento: Armazenamento;
 beforeEach(() => { armazenamento = new Armazenamento(); (globalThis as { localStorage?: unknown }).localStorage = armazenamento; });
 afterEach(() => { delete (globalThis as { localStorage?: unknown }).localStorage; });
 
-describe("o catálogo é FECHADO e é o mesmo do banco", () => {
-  it("três itens, níveis 2/4/6, nesta ordem", () => {
-    expect(CATALOGO.map((i) => [i.id, i.nivel])).toEqual([["moldura-real", 2], ["baralho-imperial", 4], ["reacao-coroa", 6]]);
+describe("o catálogo é FECHADO, por categoria, e é o mesmo do banco", () => {
+  it("sete itens em quatro categorias, nesta ordem; as duas mesas de sempre LIVRES (nível 1)", () => {
+    expect(CATEGORIAS.map((c) => c.id)).toEqual(["moldura", "baralho", "mesa", "reacao"]);
+    expect(CATALOGO.map((i) => [i.id, i.categoria, i.nivel])).toEqual([
+      ["moldura-real", "moldura", 2], ["baralho-imperial", "baralho", 4],
+      ["mesa-imperial", "mesa", 1], ["mesa-verde", "mesa", 1], ["mesa-vinho", "mesa", 8], ["mesa-esmeralda", "mesa", 10],
+      ["reacao-coroa", "reacao", 6],
+    ]);
+    // só a mesa é exclusiva; "avatar" é só o lugar marcado no tipo, sem item
+    expect(CATEGORIAS.filter((c) => c.exclusiva).map((c) => c.id)).toEqual(["mesa"]);
+    expect(CATALOGO.some((i) => i.categoria === "avatar")).toBe(false);
+    // o que conta como desbloqueio: os de nível
+    expect(DESBLOQUEAVEIS.map((i) => i.id)).toEqual(["moldura-real", "baralho-imperial", "mesa-vinho", "mesa-esmeralda", "reacao-coroa"]);
   });
 
-  it("os níveis daqui são os MESMOS da migração (o banco é quem recusa)", () => {
+  it("os níveis daqui são os MESMOS das migrações (o banco é quem recusa) — e as toalhas, as MESMAS do servidor", () => {
     const sql = ler("../../../../supabase/migrations/20261117120000_cosmeticos.sql");
-    for (const i of CATALOGO) expect(sql).toContain(`when '${i.id}'`.padEnd(`when '${i.id}'`.length) );
-    for (const i of CATALOGO) expect(sql).toMatch(new RegExp(`when '${i.id}'\\s+then ${i.nivel}\\b`));
+    const sqlMesa = ler("../../../../supabase/migrations/20261118120000_cosmeticos_mesa.sql");
+    for (const i of CATALOGO.filter((x) => !x.toalha)) expect(sql).toMatch(new RegExp(`when '${i.id}'\\s+then ${i.nivel}\\b`));
+    for (const i of CATALOGO.filter((x) => x.toalha)) expect(sqlMesa).toMatch(new RegExp(`when '${i.toalha}'\\s+then ${i.nivel}\\b`));
+    const servidor = ler("../../../server/src/rooms/identidade.ts");
+    const temas = servidor.slice(servidor.indexOf("export const TEMAS_DA_MESA"), servidor.indexOf("] as const;", servidor.indexOf("export const TEMAS_DA_MESA")));
+    expect([...temas.matchAll(/"([a-z]+)"/g)].map((m) => m[1])).toEqual(CATALOGO.filter((i) => i.toalha).map((i) => i.toalha));
   });
 
-  it("estado de cada item nas BORDAS de nível", () => {
+  it("estado de cada desbloqueio nas BORDAS de nível; as livres nunca bloqueiam", () => {
+    // ordem de DESBLOQUEAVEIS: moldura 2, baralho 4, vinho 8, esmeralda 10, coroa 6
+    const B = "bloqueado", D = "desbloqueado";
     const tabela: [number, string[]][] = [
-      [1, ["bloqueado", "bloqueado", "bloqueado"]],
-      [2, ["desbloqueado", "bloqueado", "bloqueado"]],
-      [3, ["desbloqueado", "bloqueado", "bloqueado"]],
-      [4, ["desbloqueado", "desbloqueado", "bloqueado"]],
-      [5, ["desbloqueado", "desbloqueado", "bloqueado"]],
-      [6, ["desbloqueado", "desbloqueado", "desbloqueado"]],
-      [40, ["desbloqueado", "desbloqueado", "desbloqueado"]],
+      [1, [B, B, B, B, B]], [2, [D, B, B, B, B]], [4, [D, D, B, B, B]], [6, [D, D, B, B, D]],
+      [7, [D, D, B, B, D]], [8, [D, D, D, B, D]], [9, [D, D, D, B, D]], [10, [D, D, D, D, D]], [40, [D, D, D, D, D]],
     ];
     for (const [nivel, esperado] of tabela) {
-      expect(CATALOGO.map((i) => estadoDoItem(i, nivel, NADA_EQUIPADO)), `nível ${nivel}`).toEqual(esperado);
-      expect(liberadosNo(nivel).length).toBe(esperado.filter((e) => e !== "bloqueado").length);
+      expect(DESBLOQUEAVEIS.map((i) => estadoDoItem(i, nivel, NADA_EQUIPADO)), `nível ${nivel}`).toEqual(esperado);
+      expect(liberadosNo(nivel).length).toBe(esperado.filter((e) => e !== B).length);
+      expect(estadoDoItem(itemDaToalha("verde"), nivel, NADA_EQUIPADO)).toBe(D);
+      expect(estadoDoItem(itemDaToalha("imperial"), nivel, NADA_EQUIPADO)).toBe("equipado"); // a padrão
     }
-    const tudo: Equipados = { "moldura-real": true, "baralho-imperial": true, "reacao-coroa": true };
+    const tudo: Equipados = { ...NADA_EQUIPADO, "moldura-real": true, "baralho-imperial": true, "reacao-coroa": true };
     // equipado no banco mas abaixo do nível (impossível pelo banco): a vitrine mostra BLOQUEADO
-    expect(CATALOGO.map((i) => estadoDoItem(i, 4, tudo))).toEqual(["equipado", "equipado", "bloqueado"]);
+    expect(["moldura-real", "baralho-imperial", "reacao-coroa"].map((id) => estadoDoItem(CATALOGO.find((i) => i.id === id)!, 4, tudo)))
+      .toEqual(["equipado", "equipado", "bloqueado"]);
+    expect(proximoDesbloqueio(1)?.id).toBe("moldura-real");
+    expect(proximoDesbloqueio(6)?.id).toBe("mesa-vinho");
+    expect(proximoDesbloqueio(9)?.id).toBe("mesa-esmeralda");
+    expect(proximoDesbloqueio(10)).toBeNull();
   });
 });
 
@@ -74,12 +93,17 @@ describe("leitura e equipar: o banco decide, falha vira 'sem vitrine'", () => {
   function porta(over: Partial<PortaDeCosmeticos> = {}) {
     const chamadas: string[] = [];
     const p: PortaDeCosmeticos = {
-      meus: async () => { chamadas.push("meus"); return { data: { moldura_real: true, baralho_imperial: false, reacao_coroa: false }, error: null }; },
+      meus: async () => { chamadas.push("meus"); return { data: { moldura_real: true, baralho_imperial: false, reacao_coroa: false, toalha: "verde" }, error: null }; },
       equipar: async (item, sim) => { chamadas.push(`equipar:${item}:${sim}`); return { data: [{ moldura_real: true, baralho_imperial: sim, reacao_coroa: false }], error: null }; },
+      equiparToalha: async (t) => { chamadas.push(`toalha:${t}`); return { data: [{ toalha: t }], error: null }; },
       ...over,
     };
     return { p, chamadas };
   }
+  const comMesa = (base: Partial<Equipados>, t: string): Equipados => ({
+    ...NADA_EQUIPADO, ...base,
+    "mesa-imperial": t === "imperial", "mesa-verde": t === "verde", "mesa-vinho": t === "vinho", "mesa-esmeralda": t === "esmeralda",
+  });
 
   it("SEM SESSÃO não pergunta nada (nem cria convidado)", async () => {
     const { p, chamadas } = porta();
@@ -90,7 +114,7 @@ describe("leitura e equipar: o banco decide, falha vira 'sem vitrine'", () => {
   });
 
   it("lê o que está equipado; sem linha ainda = nada equipado", async () => {
-    expect(await criarCosmeticos(async () => porta().p).meus()).toEqual({ "moldura-real": true, "baralho-imperial": false, "reacao-coroa": false });
+    expect(await criarCosmeticos(async () => porta().p).meus()).toEqual(comMesa({ "moldura-real": true }, "verde"));
     const vazio = porta({ meus: async () => ({ data: null, error: null }) }).p;
     expect(await criarCosmeticos(async () => vazio).meus()).toEqual(NADA_EQUIPADO);
   });
@@ -101,6 +125,9 @@ describe("leitura e equipar: o banco decide, falha vira 'sem vitrine'", () => {
       { meus: async () => { throw new Error("rede"); } },
       { meus: async () => ({ data: { moldura_real: "sim", baralho_imperial: false, reacao_coroa: false }, error: null }) },
       { meus: async () => ({ data: { moldura_real: true }, error: null }) },
+      // banco só com a parte 1 (sem a coluna da toalha) ou com toalha fora do catálogo: sem vitrine
+      { meus: async () => ({ data: { moldura_real: true, baralho_imperial: false, reacao_coroa: false }, error: null }) },
+      { meus: async () => ({ data: { moldura_real: true, baralho_imperial: false, reacao_coroa: false, toalha: "roxa" }, error: null }) },
     ];
     for (const c of casos) expect(await criarCosmeticos(async () => porta(c).p).meus()).toBeNull();
     expect(await criarCosmeticos(async () => null).meus()).toBeNull();
@@ -111,17 +138,43 @@ describe("leitura e equipar: o banco decide, falha vira 'sem vitrine'", () => {
     const api = criarCosmeticos(async () => p);
     expect(await api.equipar("moldura-dourada" as never, true)).toEqual({ ok: false, motivo: "falha" });
     expect(chamadas).toEqual([]);
-    expect(await api.equipar("baralho-imperial", true)).toEqual({ ok: true, equipados: { "moldura-real": true, "baralho-imperial": true, "reacao-coroa": false } });
+    // a toalha que já estava (verde) fica: `equipar_cosmetico` não mexe nela
+    expect(await api.equipar("baralho-imperial", true, comMesa({}, "verde")))
+      .toEqual({ ok: true, equipados: comMesa({ "moldura-real": true, "baralho-imperial": true }, "verde") });
     const negado = criarCosmeticos(async () => porta({ equipar: async () => ({ data: null, error: { code: "42501", message: "nível insuficiente" } }) }).p);
     expect(await negado.equipar("reacao-coroa", true)).toEqual({ ok: false, motivo: "nivel" });
     const caiu = criarCosmeticos(async () => porta({ equipar: async () => { throw new Error("rede"); } }).p);
     expect(await caiu.equipar("reacao-coroa", true)).toEqual({ ok: false, motivo: "falha" });
   });
 
-  it("a porta real só LÊ cosmeticos_equipados e só CHAMA equipar_cosmetico — nada de nível ou XP vai do cliente", () => {
+  it("a MESA: escolher vai a equipar_toalha; 'desequipar' volta para a padrão; as outras escolhas ficam; 42501 = nível", async () => {
+    const { p, chamadas } = porta();
+    const api = criarCosmeticos(async () => p);
+    const antes = comMesa({ "moldura-real": true, "reacao-coroa": true }, "imperial");
+    expect(await api.equipar("mesa-vinho", true, antes)).toEqual({ ok: true, equipados: comMesa({ "moldura-real": true, "reacao-coroa": true }, "vinho") });
+    expect(await api.equipar("mesa-vinho", false, comMesa({}, "vinho"))).toEqual({ ok: true, equipados: comMesa({}, "imperial") });
+    expect(chamadas).toEqual(["toalha:vinho", "toalha:imperial"]);
+    const negado = criarCosmeticos(async () => porta({ equiparToalha: async () => ({ data: null, error: { code: "42501", message: "nível insuficiente" } }) }).p);
+    expect(await negado.equipar("mesa-esmeralda", true)).toEqual({ ok: false, motivo: "nivel" });
+    const estranha = criarCosmeticos(async () => porta({ equiparToalha: async () => ({ data: [{ toalha: "roxa" }], error: null }) }).p);
+    expect(await estranha.equipar("mesa-verde", true)).toEqual({ ok: false, motivo: "falha" });
+  });
+
+  it("a mesa CONTRA OS BOTS: só a toalha guardada e conhecida; o resto cai na Noite Imperial", () => {
+    expect(mesaGuardada()).toBe("imperial");
+    guardarMesa("esmeralda");
+    expect(mesaGuardada()).toBe("esmeralda");
+    armazenamento.setItem("king:mesa", "roxa<script>");
+    expect(mesaGuardada()).toBe("imperial");
+    guardarMesa("imperial");
+    expect(armazenamento.getItem("king:mesa")).toBeNull();
+  });
+
+  it("a porta real só LÊ cosmeticos_equipados e só CHAMA as duas portas de equipar — nada de nível ou XP vai do cliente", () => {
     const t = semComentarios(ler("../auth/cosmeticos.ts"));
     expect(t).toContain('c.from("cosmeticos_equipados")');
     expect(t).toContain('c.rpc("equipar_cosmetico", { p_item: item, p_equipado: equipado })');
+    expect(t).toContain('c.rpc("equipar_toalha", { p_toalha: toalha })');
     expect(t).not.toMatch(/\.(insert|update|upsert|delete)\s*\(/);
     expect(t).not.toMatch(/p_nivel|p_xp|xp_total/);
   });
@@ -182,13 +235,34 @@ describe("a VITRINE diz bloqueado/desbloqueado/equipado, e não promete XP de pa
   ));
   const item = (r: HTMLElement, id: string) => r.querySelector(`[data-item="${id}"]`)!;
 
-  it("nível 1: os três bloqueados, cada um com o nível que libera, e nenhum botão de equipar", () => {
+  it("nível 1: os cinco desbloqueios trancados, cada um com o nível que libera; as duas mesas de sempre livres", () => {
     const r = vitrine(1);
-    for (const i of CATALOGO) {
+    for (const i of DESBLOQUEAVEIS) {
       expect(item(r, i.id).classList.contains("bloqueado")).toBe(true);
       expect(item(r, i.id).querySelector(".it-estado")!.text).toBe(`🔒 Nível ${i.nivel}`);
       expect(item(r, i.id).querySelector(".it-botao")).toBeNull();
     }
+    // a mesa é EXCLUSIVA: a em uso não tem botão; a outra livre tem "Usar"
+    expect(item(r, "mesa-imperial").querySelector(".it-estado")!.text).toBe("Em uso");
+    expect(item(r, "mesa-imperial").querySelector(".it-botao")).toBeNull();
+    expect(item(r, "mesa-verde").querySelector(".it-estado")!.text).toBe("Livre");
+    expect(item(r, "mesa-verde").querySelector(".it-botao")!.text).toBe("Usar");
+    expect(r.querySelector(".it-proximo")!.text).toBe("Próximo: Moldura Real no nível 2");
+  });
+
+  it("a vitrine é organizada por CATEGORIA, na ordem do catálogo, cada item dentro da sua", () => {
+    const r = vitrine(8);
+    const secoes = r.querySelectorAll(".it-categoria");
+    expect(secoes.map((s) => s.querySelector(".it-cat-titulo")!.text)).toEqual(["Molduras", "Baralhos", "Mesas", "Reações"]);
+    expect(secoes.map((s) => s.querySelectorAll(".it-item").map((li) => li.getAttribute("data-item"))))
+      .toEqual([["moldura-real"], ["baralho-imperial"], ["mesa-imperial", "mesa-verde", "mesa-vinho", "mesa-esmeralda"], ["reacao-coroa"]]);
+    expect(item(r, "mesa-vinho").querySelector(".it-estado")!.text).toBe("Desbloqueado");
+    expect(item(r, "mesa-esmeralda").querySelector(".it-estado")!.text).toBe("🔒 Nível 10");
+    expect(r.querySelector(".sub")!.text).toContain("4 de 5");
+    expect(r.querySelector(".it-proximo")!.text).toBe("Próximo: Esmeralda Real no nível 10");
+    expect(vitrine(10).querySelector(".it-proximo")!.text).toBe("Todos os itens da Coroa desbloqueados");
+    // a amostra da mesa é o PANO de verdade (mesmos tokens da Mesa), não uma cor aproximada
+    expect(item(r, "mesa-esmeralda").querySelector(".tema-amostra")!.getAttribute("data-tema")).toBe("esmeralda");
   });
 
   it("nível 4 com o baralho equipado: moldura desbloqueada, baralho equipado (Desequipar), coroa bloqueada", () => {
@@ -198,7 +272,7 @@ describe("a VITRINE diz bloqueado/desbloqueado/equipado, e não promete XP de pa
     expect(item(r, "baralho-imperial").querySelector(".it-estado")!.text).toBe("Equipado");
     expect(item(r, "baralho-imperial").querySelector(".it-botao")!.text).toBe("Desequipar");
     expect(item(r, "reacao-coroa").querySelector(".it-estado")!.text).toBe("🔒 Nível 6");
-    expect(r.querySelector(".sub")!.text).toContain("2 de 3");
+    expect(r.querySelector(".sub")!.text).toContain("2 de 5");
   });
 
   it("diz de onde vem o XP: online com outras pessoas; contra os bots não conta", () => {

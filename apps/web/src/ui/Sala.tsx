@@ -23,18 +23,18 @@ import { enviarConvite, linkDoConvite } from "../net/convite.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao } from "../game/useKingOnline.js";
 import { AVATARES, desenhoDoAvatar } from "./avatares.js";
+import { CATALOGO, nivelLembrado } from "../auth/cosmeticos.js";
 
 /**
- * As mesas disponíveis. Espelha `TEMAS_DA_MESA` do servidor, que é quem valida.
+ * As mesas disponíveis: as do CATÁLOGO de cosméticos (categoria `mesa`), que espelha `TEMAS_DA_MESA`
+ * do servidor — e é o servidor quem valida, perguntando ao banco o que o anfitrião liberou.
  *
- * O NOME é do produto, não da cor: "Noite Imperial" e "Verde de Cartas" pertencem ao KING, e é
- * assim que a escolha aparece para quem está na sala. O desenho de cada uma vive no `theme.css`,
- * em tokens — nenhum componente sabe qual mesa está no ar.
+ * O NOME é do produto, não da cor: "Noite Imperial", "Verde Clássica", "Vinho Clássica" e
+ * "Esmeralda Real" pertencem ao KING. Com quatro, a linha mostra as AMOSTRAS do pano e o nome da
+ * mesa escolhida uma vez só (cada botão leva o próprio nome no rótulo acessível). O desenho de cada
+ * uma vive no `theme.css`, em tokens — nenhum componente sabe qual mesa está no ar.
  */
-const MESAS = [
-  { id: "imperial", nome: "Noite Imperial" },
-  { id: "verde", nome: "Verde de Cartas" },
-] as const;
+const MESAS = CATALOGO.filter((i) => i.toalha).map((i) => ({ id: i.toalha!, nome: i.nome, nivel: i.nivel }));
 
 const LUGARES: Seat[] = [0, 1, 2, 3];
 
@@ -81,6 +81,9 @@ export function Sala({
   const codigo = sala?.roomCode ?? "";
   const podeMexer = souAnfitriao && conexao === "conectado";
   const temaAtual = sala?.tableTheme ?? "imperial";
+  const nomeDaMesa = MESAS.find((m) => m.id === temaAtual)?.nome ?? MESAS[0].nome;
+  /** O cadeado é APRESENTAÇÃO (o servidor recusa de verdade): sem nível lido, só as livres abrem. */
+  const meuNivel = nivelLembrado() ?? 1;
   /** Sem sala ainda (conectando), não há composição a explicar. */
   const situacao = sala ? situacaoDaSala(ocupados, humanos, souAnfitriao, pronto) : null;
 
@@ -291,22 +294,25 @@ export function Sala({
             autorização. Quem não é anfitrião lê a escolha e vê de quem ela é. */}
         <div className="sl-mesa">
           <span className="sl-mesa-lb">Mesa</span>
+          <span className="sl-mesa-nome" aria-hidden>{nomeDaMesa}</span>
           <div className="sl-mesa-ops" role="radiogroup" aria-label="Cor da mesa">
             {MESAS.map((m) => {
               const escolhida = temaAtual === m.id;
+              const trancada = souAnfitriao && meuNivel < m.nivel;
               return (
                 <button
                   key={m.id}
                   type="button"
                   role="radio"
                   aria-checked={escolhida}
-                  className={`sl-mesa-op ${m.id}${escolhida ? " on" : ""}`}
-                  disabled={!podeMexer}
+                  aria-label={trancada ? `${m.nome} — libera no nível ${m.nivel}` : m.nome}
+                  className={`sl-mesa-op ${m.id}${escolhida ? " on" : ""}${trancada ? " trancada" : ""}`}
+                  disabled={!podeMexer || trancada}
                   onClick={() => { sfxTap(); onEscolherMesa(m.id); }}
-                  title={m.nome}
+                  title={trancada ? `${m.nome} · nível ${m.nivel}` : m.nome}
                 >
-                  <i aria-hidden />
-                  <span>{m.nome}</span>
+                  <i aria-hidden className="tema-amostra" data-tema={m.id} />
+                  {trancada && <b aria-hidden>🔒</b>}
                 </button>
               );
             })}

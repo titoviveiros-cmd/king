@@ -1,14 +1,16 @@
 // A VITRINE DOS ITENS DA COROA (Entrega B) e a celebração "NOVO ITEM DESBLOQUEADO!".
 //
-// Enxuta de propósito: três cartões, cada um dizendo UMA coisa — bloqueado (e em que nível libera),
-// desbloqueado ou equipado — e um botão. Nada de loja, preço, moeda, sorteio ou "falta pouco":
+// Enxuta de propósito: uma seção por CATEGORIA (molduras, baralhos, mesas, reações), cada cartão
+// dizendo UMA coisa — bloqueado (e em que nível libera), desbloqueado/livre ou em uso — e um botão.
+// No topo, quanto falta para o PRÓXIMO desbloqueio: a progressão aparece sem virar painel. Nada de loja, preço, moeda, sorteio ou "falta pouco":
 // o único caminho para um item é jogar online e subir de nível, e a vitrine diz isso com todas as
 // letras, para ninguém achar que uma partida contra os bots vai liberar alguma coisa.
 import { useEffect, useRef, useState } from "react";
 import { sfxTap } from "../audio/sounds.js";
 import { Crown } from "./Crown.js";
 import {
-  CATALOGO, estadoDoItem, type Equipados, type ItemDoCatalogo, type ItemId,
+  CATALOGO, CATEGORIAS, DESBLOQUEAVEIS, estadoDoItem, liberadosNo, proximoDesbloqueio,
+  type Equipados, type ItemDoCatalogo, type ItemId,
 } from "../auth/cosmeticos.js";
 
 /** O que a vitrine diz sobre de onde vem o XP. Sem promessa que a partida solo não cumpre. */
@@ -22,7 +24,10 @@ const ROTULO: Record<ReturnType<typeof estadoDoItem>, string> = {
 
 /** A amostra de cada item — o mesmo desenho que ele terá na partida. */
 export function AmostraDoItem({ id }: { id: ItemId }) {
-  if (id === "moldura-real") return <span className="it-amostra" aria-hidden><span className="sl-av moldura-real">👑</span></span>;
+  const toalha = CATALOGO.find((i) => i.id === id)?.toalha;
+  // a MESA: um pedaço oval da toalha, com os MESMOS tokens do pano da partida
+  if (toalha) return <span className="it-amostra" aria-hidden><span className="it-mesa tema-amostra" data-tema={toalha}><i /></span></span>;
+  if (id === "moldura-real") return <span className="it-amostra" aria-hidden><span className="sl-av s0 moldura-real">🦁</span></span>;
   if (id === "baralho-imperial") {
     return (
       <span className="it-amostra it-baralho" aria-hidden>
@@ -35,6 +40,47 @@ export function AmostraDoItem({ id }: { id: ItemId }) {
   return <span className="it-amostra" aria-hidden><span className="balao coroa amostra">👑</span></span>;
 }
 
+/**
+ * Um cartão da vitrine. Nas categorias EXCLUSIVAS (a mesa), o item em uso não tem botão — escolher
+ * outro é que troca —, e os de nível 1 aparecem como "Livre".
+ */
+function ItemDaVitrine({ item, exclusiva, nivel, equipados, ocupado, onEquipar }: {
+  item: ItemDoCatalogo;
+  exclusiva: boolean;
+  nivel: number;
+  equipados: Equipados;
+  ocupado: boolean;
+  onEquipar: (item: ItemId, equipado: boolean) => void;
+}) {
+  const estado = estadoDoItem(item, nivel, equipados);
+  const rotulo = estado === "bloqueado" ? `🔒 Nível ${item.nivel}`
+    : exclusiva ? (estado === "equipado" ? "Em uso" : item.nivel <= 1 ? "Livre" : "Desbloqueado")
+    : ROTULO[estado];
+  const comBotao = estado !== "bloqueado" && !(exclusiva && estado === "equipado");
+  return (
+    <li className={`it-item ${estado}`} data-item={item.id}>
+      <AmostraDoItem id={item.id} />
+      <span className="it-texto">
+        <b className="it-nome">{item.nome}</b>
+        <span className="it-desc">{item.descricao}</span>
+      </span>
+      <span className="it-lado">
+        <span className="it-estado">{rotulo}</span>
+        {comBotao && (
+          <button
+            className={`btn ${estado === "equipado" ? "ghost" : "gold"} it-botao`}
+            disabled={ocupado}
+            aria-pressed={estado === "equipado"}
+            onClick={() => { sfxTap(); onEquipar(item.id, estado !== "equipado"); }}
+          >
+            {exclusiva ? "Usar" : estado === "equipado" ? "Desequipar" : "Equipar"}
+          </button>
+        )}
+      </span>
+    </li>
+  );
+}
+
 export function VitrineDeItens({ nivel, equipados, ocupado, aviso, onEquipar, onFechar }: {
   nivel: number;
   equipados: Equipados;
@@ -43,40 +89,29 @@ export function VitrineDeItens({ nivel, equipados, ocupado, aviso, onEquipar, on
   onEquipar: (item: ItemId, equipado: boolean) => void;
   onFechar: () => void;
 }) {
+  const proximo = proximoDesbloqueio(nivel);
   return (
     <div className="ov" onClick={onFechar}>
       <div className="ovcard itens" role="dialog" aria-modal="true" aria-labelledby="it-titulo" onClick={(e) => e.stopPropagation()}>
         <h2 id="it-titulo">Itens da Coroa</h2>
-        <div className="sub">Nível {nivel} · {CATALOGO.filter((i) => nivel >= i.nivel).length} de {CATALOGO.length} liberados</div>
-        <ul className="it-lista">
-          {CATALOGO.map((item) => {
-            const estado = estadoDoItem(item, nivel, equipados);
-            return (
-              <li key={item.id} className={`it-item ${estado}`} data-item={item.id}>
-                <AmostraDoItem id={item.id} />
-                <span className="it-texto">
-                  <b className="it-nome">{item.nome}</b>
-                  <span className="it-desc">{item.descricao}</span>
-                </span>
-                <span className="it-lado">
-                  <span className="it-estado">
-                    {estado === "bloqueado" ? `🔒 Nível ${item.nivel}` : ROTULO[estado]}
-                  </span>
-                  {estado !== "bloqueado" && (
-                    <button
-                      className={`btn ${estado === "equipado" ? "ghost" : "gold"} it-botao`}
-                      disabled={ocupado}
-                      aria-pressed={estado === "equipado"}
-                      onClick={() => { sfxTap(); onEquipar(item.id, estado !== "equipado"); }}
-                    >
-                      {estado === "equipado" ? "Desequipar" : "Equipar"}
-                    </button>
-                  )}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="sub">Nível {nivel} · {liberadosNo(nivel).length} de {DESBLOQUEAVEIS.length} desbloqueados</div>
+        {/* A PROGRESSÃO, numa linha: o próximo item e em que nível. Sem contagem regressiva. */}
+        <p className="it-proximo" data-proximo={proximo?.id ?? ""}>
+          {proximo ? <>Próximo: <b>{proximo.nome}</b> no nível {proximo.nivel}</> : <b>Todos os itens da Coroa desbloqueados</b>}
+        </p>
+        <div className="it-lista">
+          {CATEGORIAS.map((cat) => (
+            <section key={cat.id} className={`it-categoria cat-${cat.id}`} aria-labelledby={`it-cat-${cat.id}`}>
+              <h3 id={`it-cat-${cat.id}`} className="it-cat-titulo">{cat.nome}</h3>
+              <ul className={`it-itens${cat.exclusiva ? " exclusiva" : ""}`}>
+                {CATALOGO.filter((i) => i.categoria === cat.id).map((item) => (
+                  <ItemDaVitrine key={item.id} item={item} exclusiva={cat.exclusiva} nivel={nivel}
+                    equipados={equipados} ocupado={ocupado} onEquipar={onEquipar} />
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
         {aviso && <p className="it-aviso" role="status">{aviso}</p>}
         <p className="it-origem">{ORIGEM_DO_XP}</p>
         <button className="btn gold it-fechar" onClick={() => { sfxTap(); onFechar(); }}>Voltar</button>

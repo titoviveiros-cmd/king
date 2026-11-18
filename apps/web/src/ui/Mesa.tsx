@@ -23,6 +23,7 @@ import { UltimaVaza } from "./UltimaVaza.js";
 import { UltimaMao } from "./UltimaMao.js";
 import { ReiCapturado, cenaDoReiJaVista, marcarCenaDoReiVista } from "./ReiCapturado.js";
 import { useDistribuicaoDaMao } from "./distribuicao.js";
+import { ehToalha, mesaGuardada } from "../auth/cosmeticos.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
 
@@ -58,8 +59,7 @@ export function faixaDoNome(nome: string): "" | "medio" | "longo" {
  * contra o conjunto fechado, e esta é a segunda rede — se um dia chegar um tema que este cliente
  * ainda não conhece (versão nova no ar, aparelho com o bundle antigo), a mesa continua desenhada.
  */
-const TEMAS_CONHECIDOS = new Set(["imperial", "verde"]);
-const temaDaMesa = (id: string | undefined) => (id && TEMAS_CONHECIDOS.has(id) ? id : "imperial");
+const temaDaMesa = (id: string | undefined) => (ehToalha(id) ? id : "imperial");
 
 /** Saldo com sinal, no formato curto do card. O menos é o de verdade, não o hífen. */
 const fmtPts = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "0");
@@ -364,8 +364,9 @@ export function Mesa({
       // layout, não de estado da partida, e por isso mora numa classe e não numa medida de JS.
       className={`mesa${shaking ? " shaking" : ""}${contract?.isPositive && trump && !anunciandoUltimaMao ? " comtrunfo" : ""}${mp ? " temsocial" : ""}`}
       /* O tema vem do estado AUTORITATIVO da sala, não de preferência local: todo mundo joga na
-         mesma mesa. Sem multiplayer cai no padrão, que é a mesa aprovada. */
-      data-tema={temaDaMesa(mp?.sala?.tableTheme)}
+         mesma mesa. Contra os bots não há sala: vale a toalha equipada na vitrine (guardada no
+         aparelho, só quando o nível alcança). */
+      data-tema={mp ? temaDaMesa(mp.sala?.tableTheme) : mesaGuardada()}
     >
       <div className="inlay" />
 

@@ -20,6 +20,9 @@ const HOST = `https://${REF}.supabase.co`;
 const CHAVE_DA_SESSAO = `sb-${REF}-auth-token`;
 const UID = "11111111-1111-4111-8111-111111111111";
 const NIVEIS = { "moldura-real": 2, "baralho-imperial": 4, "reacao-coroa": 6 } as const;
+/** As toalhas da mesa (parte 2): nível de cada uma, como no banco. */
+const TOALHAS = { imperial: 1, verde: 1, vinho: 8, esmeralda: 10 } as const;
+type ToalhaId = keyof typeof TOALHAS;
 type Item = keyof typeof NIVEIS;
 const COLUNA: Record<Item, "moldura_real" | "baralho_imperial" | "reacao_coroa"> = {
   "moldura-real": "moldura_real", "baralho-imperial": "baralho_imperial", "reacao-coroa": "reacao_coroa",
@@ -43,12 +46,12 @@ const progressoNo = (nivel: number) => ({ player_id: UID, xp_total: 25 * (nivel 
 interface Banco {
   nivel: number;
   /** `null` = a tabela não existe (migração não aplicada). */
-  linha: Record<string, boolean> | null;
+  linha: Record<string, boolean | string> | null;
   chamadas: string[];
   /** Força o banco a recusar o próximo equipar (cliente com vitrine desatualizada). */
   recusarProximo?: boolean;
 }
-const novoBanco = (nivel: number, linha: Record<string, boolean> | null = {}): Banco => ({ nivel, linha, chamadas: [] });
+const novoBanco = (nivel: number, linha: Record<string, boolean | string> | null = {}): Banco => ({ nivel, linha, chamadas: [] });
 
 async function supabaseFicticio(page: Page, banco: Banco) {
   await page.route(`${HOST}/**`, async (route) => {
@@ -60,7 +63,8 @@ async function supabaseFicticio(page: Page, banco: Banco) {
     if (url.pathname === "/rest/v1/cosmeticos_equipados") {
       if (!banco.linha) return json(404, { code: "42P01", message: "relation does not exist" });
       const vazia = Object.keys(banco.linha).length === 0;
-      return json(200, vazia ? [] : [banco.linha]);
+      // a coluna `toalha` tem padrão no banco: toda linha existente a traz
+      return json(200, vazia ? [] : [{ toalha: "imperial", ...banco.linha }]);
     }
     if (url.pathname === "/rest/v1/rpc/equipar_cosmetico" && req.method() === "POST") {
       const { p_item, p_equipado } = JSON.parse(req.postData() ?? "{}") as { p_item: Item; p_equipado: boolean };
@@ -70,7 +74,18 @@ async function supabaseFicticio(page: Page, banco: Banco) {
         return json(403, { code: "42501", message: "nível insuficiente" });
       }
       banco.linha = { moldura_real: false, baralho_imperial: false, reacao_coroa: false, ...(banco.linha ?? {}), [COLUNA[p_item]]: p_equipado };
-      return json(200, [banco.linha]);
+      // `equipar_cosmetico` devolve SÓ as três colunas dela
+      return json(200, [{ moldura_real: banco.linha.moldura_real, baralho_imperial: banco.linha.baralho_imperial, reacao_coroa: banco.linha.reacao_coroa }]);
+    }
+    if (url.pathname === "/rest/v1/rpc/equipar_toalha" && req.method() === "POST") {
+      const { p_toalha } = JSON.parse(req.postData() ?? "{}") as { p_toalha: ToalhaId };
+      if (!(p_toalha in TOALHAS)) return json(400, { code: "22023", message: "toalha fora do catálogo" });
+      if (banco.recusarProximo || banco.nivel < TOALHAS[p_toalha]) {
+        banco.recusarProximo = false;
+        return json(403, { code: "42501", message: "nível insuficiente" });
+      }
+      banco.linha = { moldura_real: false, baralho_imperial: false, reacao_coroa: false, ...(banco.linha ?? {}), toalha: p_toalha };
+      return json(200, [{ toalha: p_toalha }]);
     }
     return json(404, {});
   });
@@ -87,7 +102,7 @@ async function jogarContraOsBots(page: Page) {
   }
 }
 const vitrine = (page: Page) => page.locator(".ovcard.itens");
-const item = (page: Page, id: Item) => page.locator(`.it-item[data-item="${id}"]`);
+const item = (page: Page, id: string) => page.locator(`.it-item[data-item="${id}"]`);
 const celebracao = (page: Page) => page.locator(".novoitem");
 
 async function abrirHome(page: Page, banco: Banco, { celebrados }: { celebrados?: Item[] } = {}) {
@@ -104,7 +119,7 @@ async function abrirHome(page: Page, banco: Banco, { celebrados }: { celebrados?
 test("nível 1: a vitrine mostra os três BLOQUEADOS, com o nível de cada um, e nada para equipar", async ({ page }) => {
   const banco = novoBanco(1);
   await abrirHome(page, banco);
-  await expect(itensBtn(page)).toHaveText("👑 0/3");
+  await expect(itensBtn(page)).toHaveText("👑 0/5");
   await expect(celebracao(page)).toHaveCount(0);
   await itensBtn(page).click();
   await expect(vitrine(page)).toBeVisible();
@@ -128,7 +143,7 @@ test("subiu para o nível 4: NOVO ITEM DESBLOQUEADO! aparece UMA vez — recarre
   await expect(page.getByRole("button", { name: /jogar agora/i })).toBeEnabled();
   await page.reload();
   await expect(page.locator(".hm-progresso")).toBeVisible();
-  await expect(itensBtn(page)).toHaveText("👑 2/3");
+  await expect(itensBtn(page)).toHaveText("👑 2/5");
   await page.waitForTimeout(800);
   await expect(celebracao(page)).toHaveCount(0);
 });
@@ -272,4 +287,106 @@ test("com MOVIMENTO REDUZIDO, a celebração diz tudo sem animar", async ({ page
   await expect(celebracao(page).locator(".ni-titulo")).toHaveText("NOVO ITEM DESBLOQUEADO!");
   const animando = await celebracao(page).evaluate((el) => el.getAnimations({ subtree: true }).filter((a) => a.playState === "running").length);
   expect(animando).toBe(0);
+});
+
+// ═══════════════════ A TOALHA DA MESA (nova categoria) e a vitrine por categoria ═══════════════════
+
+const TODOS_CELEBRADOS: string[] = ["moldura-real", "baralho-imperial", "reacao-coroa", "mesa-vinho", "mesa-esmeralda"];
+
+test("nível 8: a Vinho Clássica é desbloqueada, celebrada UMA vez, e o contador da Home diz 4/5", async ({ page }) => {
+  const banco = novoBanco(8);
+  await abrirHome(page, banco, { celebrados: ["moldura-real", "baralho-imperial", "reacao-coroa"] });
+  await expect(celebracao(page)).toBeVisible();
+  await expect(celebracao(page).locator(".ni-itens li")).toHaveText(["Vinho Clássica"]);
+  await page.mouse.click(5, 5);
+  await expect(celebracao(page)).toHaveCount(0, { timeout: 2_000 });
+  await expect(itensBtn(page)).toHaveText("👑 4/5");
+});
+
+test("MESA equipável: escolher a Vinho vai ao BANCO (equipar_toalha) e vale na partida contra os bots; voltar à Noite Imperial também", async ({ page }, ti) => {
+  const banco = novoBanco(8);
+  await abrirHome(page, banco, { celebrados: TODOS_CELEBRADOS as Item[] });
+  await itensBtn(page).click();
+  await expect(item(page, "mesa-imperial").locator(".it-estado")).toHaveText("Em uso");
+  await expect(item(page, "mesa-esmeralda").locator(".it-estado")).toHaveText("🔒 Nível 10");
+  await expect(item(page, "mesa-esmeralda").locator(".it-botao")).toHaveCount(0);
+  await item(page, "mesa-vinho").getByRole("button", { name: "Usar" }).click();
+  await expect(item(page, "mesa-vinho").locator(".it-estado")).toHaveText("Em uso");
+  await expect(item(page, "mesa-imperial").locator(".it-estado")).toHaveText("Livre");
+  expect(banco.chamadas).toContain("POST /rest/v1/rpc/equipar_toalha");
+  expect(banco.linha).toMatchObject({ toalha: "vinho" });
+  await vitrine(page).getByRole("button", { name: "Voltar" }).click();
+
+  await jogarContraOsBots(page);
+  await expect(page.locator(".mesa")).toHaveAttribute("data-tema", "vinho", { timeout: 20_000 });
+  await expect(page.locator(".hand .card")).toHaveCount(13, { timeout: 20_000 });
+  await maoParada(page);
+  if (process.env.KING_SHOTS) await page.screenshot({ path: `${process.env.KING_SHOTS}/mesa-vinho-solo-${ti.project.name}.png` });
+
+  await page.goto("/");
+  await itensBtn(page).click();
+  await item(page, "mesa-imperial").getByRole("button", { name: "Usar" }).click();
+  await expect(item(page, "mesa-imperial").locator(".it-estado")).toHaveText("Em uso");
+  expect(banco.linha).toMatchObject({ toalha: "imperial" });
+  await vitrine(page).getByRole("button", { name: "Voltar" }).click();
+  await jogarContraOsBots(page);
+  await expect(page.locator(".mesa")).toHaveAttribute("data-tema", "imperial", { timeout: 20_000 });
+});
+
+test("a RECUSA do banco na toalha aparece e a mesa não muda", async ({ page }) => {
+  const banco = novoBanco(10);
+  await abrirHome(page, banco, { celebrados: TODOS_CELEBRADOS as Item[] });
+  await itensBtn(page).click();
+  banco.recusarProximo = true;
+  await item(page, "mesa-esmeralda").getByRole("button", { name: "Usar" }).click();
+  await expect(vitrine(page).locator(".it-aviso")).toContainText("ainda não foi liberado");
+  await expect(item(page, "mesa-imperial").locator(".it-estado")).toHaveText("Em uso");
+  expect(banco.linha).toEqual({});
+});
+
+test("a vitrine é organizada por CATEGORIA, aponta o PRÓXIMO desbloqueio e cabe na tela (rolando por dentro)", async ({ page }, ti) => {
+  const banco = novoBanco(6, { moldura_real: true, baralho_imperial: true, reacao_coroa: false });
+  await abrirHome(page, banco, { celebrados: TODOS_CELEBRADOS as Item[] });
+  await itensBtn(page).click();
+  await expect(vitrine(page).locator(".it-cat-titulo")).toHaveText(["Molduras", "Baralhos", "Mesas", "Reações"]);
+  await expect(vitrine(page).locator(".it-proximo")).toHaveText("Próximo: Vinho Clássica no nível 8");
+  await expect(vitrine(page).locator(".sub")).toContainText("3 de 5");
+  const vp = page.viewportSize()!;
+  const v = (await vitrine(page).boundingBox())!;
+  expect(v.y).toBeGreaterThanOrEqual(0);
+  expect(v.y + v.height, "a vitrine passou da tela").toBeLessThanOrEqual(vp.height + 0.5);
+  // título e Voltar sempre à vista; o último item alcançável rolando a LISTA (não a página)
+  await expect(vitrine(page).getByRole("button", { name: "Voltar" })).toBeInViewport();
+  await expect(vitrine(page).locator("#it-titulo")).toBeInViewport();
+  await item(page, "reacao-coroa").scrollIntoViewIfNeeded();
+  await expect(item(page, "reacao-coroa")).toBeInViewport();
+  const lateral = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  expect(lateral).toBeLessThanOrEqual(0);
+  if (process.env.KING_SHOTS) {
+    await vitrine(page).locator(".it-lista").evaluate((el) => { el.scrollTop = 0; });
+    await page.screenshot({ path: `${process.env.KING_SHOTS}/vitrine-categorias-${ti.project.name}.png` });
+  }
+});
+
+test("o BARALHO IMPERIAL premium: verso com brasão e faces marfim com filete de ouro, SEM mudar tamanho nem a marca de jogável", async ({ page }, ti) => {
+  const banco = novoBanco(4, { moldura_real: false, baralho_imperial: true, reacao_coroa: false });
+  await abrirHome(page, banco, { celebrados: ["moldura-real", "baralho-imperial"] });
+  await expect(page.locator("html")).toHaveAttribute("data-baralho", "imperial");
+  await jogarContraOsBots(page);
+  await expect(page.locator(".hand .card")).toHaveCount(13, { timeout: 20_000 });
+  await maoParada(page);
+  const estilo = await page.locator(".hand .card").first().evaluate((c) => {
+    const s = getComputedStyle(c);
+    return { borda: s.borderTopColor, contorno: s.outlineStyle, fundo: s.backgroundImage };
+  });
+  expect(estilo.contorno).toBe("solid");
+  expect(estilo.borda).toBe("rgb(212, 168, 58)"); // a borda em ouro (mesma largura)
+  expect(estilo.fundo).toContain("radial-gradient");
+  // a carta jogável continua com a MESMA marca turquesa (o estado do jogo não é do cosmético)
+  const legal = page.locator(".hand .card.legal").first();
+  if (await legal.count()) {
+    const marca = await legal.evaluate((c) => getComputedStyle(c, "::after").backgroundColor);
+    expect(marca).toBe("rgb(45, 212, 191)");
+  }
+  if (process.env.KING_SHOTS) await page.screenshot({ path: `${process.env.KING_SHOTS}/baralho-imperial-premium-${ti.project.name}.png` });
 });

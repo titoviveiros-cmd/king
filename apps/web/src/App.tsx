@@ -16,7 +16,7 @@ import { PainelConta } from "./ui/PainelConta.js";
 import { aoConviteDoApp } from "./nativo/linkDoApp.js";
 import { leitorDeProgressoConfigurado } from "./auth/progresso.js";
 import { useMeuProgresso } from "./game/useMeuProgresso.js";
-import { cosmeticosConfigurados, CATALOGO, liberadosNo } from "./auth/cosmeticos.js";
+import { cosmeticosConfigurados, DESBLOQUEAVEIS, liberadosNo } from "./auth/cosmeticos.js";
 import { useCosmeticos } from "./game/useCosmeticos.js";
 import { NovoItemDesbloqueado, VitrineDeItens } from "./ui/Cosmeticos.js";
 
@@ -181,7 +181,7 @@ function ModoLocal({
           progresso={progresso}
           onAbrirConta={painelDaConta.oferecer ? () => setContaAberta(true) : undefined}
           itens={cosmeticos.disponivel
-            ? { liberados: liberadosNo(cosmeticos.nivel).length, total: CATALOGO.length, onAbrir: () => setItensAbertos(true) }
+            ? { liberados: liberadosNo(cosmeticos.nivel).length, total: DESBLOQUEAVEIS.length, onAbrir: () => setItensAbertos(true) }
             : undefined}
         />
         {itensAbertos && cosmeticos.equipados && (

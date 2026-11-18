@@ -17,7 +17,8 @@
 //   node scripts/homologacao-cosmeticos.mjs [--ip 192.168.x.y] [--porta 8443] [--sem-build]
 //
 // O painel https://IP:PORTA/homolog lista as contas que entraram e dá XP SINTÉTICO a cada uma (100,
-// 450, 1000) — só neste banco descartável — para ver os desbloqueios dos níveis 2, 4 e 6.
+// 450, 1000, 1750, 2700) — só neste banco descartável — para ver os desbloqueios dos níveis 2, 4, 6, 8
+// (Vinho Clássica) e 10 (Esmeralda Real).
 // Pré-requisitos: `npm run build` já rodado nesta árvore (o servidor compilado) e `openssl` no PATH.
 import EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
@@ -199,7 +200,7 @@ async function rest(q, res, url) {
   try {
     if (q.method === "GET" && url.pathname === "/rest/v1/meu_progresso") return devolver(await comoCliente(c, "select * from public.meu_progresso"));
     if (q.method === "GET" && url.pathname === "/rest/v1/cosmeticos_equipados") {
-      return devolver(await comoCliente(c, "select moldura_real, baralho_imperial, reacao_coroa from public.cosmeticos_equipados"));
+      return devolver(await comoCliente(c, "select moldura_real, baralho_imperial, reacao_coroa, toalha from public.cosmeticos_equipados"));
     }
     if (q.method === "GET" && url.pathname === "/rest/v1/xp_eventos") {
       const id = /^eq\.(.+)$/.exec(url.searchParams.get("partida_id") ?? "")?.[1] ?? "";
@@ -209,6 +210,10 @@ async function rest(q, res, url) {
     if (q.method === "POST" && url.pathname === "/rest/v1/rpc/equipar_cosmetico") {
       const b = await corpo(q);
       return devolver(await comoCliente(c, "select * from public.equipar_cosmetico($1, $2)", [b.p_item ?? null, b.p_equipado ?? null]));
+    }
+    if (q.method === "POST" && url.pathname === "/rest/v1/rpc/equipar_toalha") {
+      const b = await corpo(q);
+      return devolver(await comoCliente(c, "select * from public.equipar_toalha($1)", [b.p_toalha ?? null]));
     }
     return json(res, 404, { code: "PGRST205", message: `não existe nesta homologação: ${q.method} ${url.pathname}` });
   } catch (e) { return erroPg(res, e); }
@@ -238,10 +243,10 @@ async function auth(q, res, url) {
 
 const PAINEL = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Homologação — XP sintético</title><style>body{font:16px system-ui;margin:16px;background:#111;color:#eee}button{font-size:15px;margin:2px;padding:8px}td{padding:6px}</style>
-<h1>Homologação isolada (banco descartável)</h1><p>XP <b>sintético</b>: só existe neste PC. Nível 2 = 100, 4 = 450, 6 = 1000.</p>
+<h1>Homologação isolada (banco descartável)</h1><p>XP <b>sintético</b>: só existe neste PC. Nível 2 = 100, 4 = 450, 6 = 1000, 8 = 1750, 10 = 2700.</p>
 <table id="t"></table><script>
 async function carregar(){const r=await fetch("/homolog/contas");const l=await r.json();
-document.getElementById("t").innerHTML=l.map(c=>"<tr><td>"+c.id.slice(0,8)+"</td><td>"+c.xp+" XP · nível "+c.nivel+"</td><td>"+[0,100,450,1000].map(x=>"<button onclick=dar('"+c.id+"',"+x+")>"+x+"</button>").join("")+"</td><td>"+c.equipados+"</td></tr>").join("")||"<tr><td>nenhuma conta ainda: abra o jogo e entre numa sala online</td></tr>";}
+document.getElementById("t").innerHTML=l.map(c=>"<tr><td>"+c.id.slice(0,8)+"</td><td>"+c.xp+" XP · nível "+c.nivel+"</td><td>"+[0,100,450,1000,1750,2700].map(x=>"<button onclick=dar('"+c.id+"',"+x+")>"+x+"</button>").join("")+"</td><td>"+c.equipados+"</td></tr>").join("")||"<tr><td>nenhuma conta ainda: abra o jogo e entre numa sala online</td></tr>";}
 async function dar(id,xp){await fetch("/homolog/xp",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({id,xp})});carregar();}
 carregar();setInterval(carregar,3000);</script>`;
 
@@ -249,13 +254,13 @@ async function painel(q, res, url) {
   if (url.pathname === "/homolog") { res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); return res.end(PAINEL); }
   if (url.pathname === "/homolog/contas") {
     const r = await admin.query(`select p.id::text, coalesce(g.xp_total, 0) as xp, public.nivel_de(coalesce(g.xp_total, 0)) as nivel,
-      concat_ws(' ', case when c.moldura_real then 'moldura' end, case when c.baralho_imperial then 'baralho' end, case when c.reacao_coroa then 'coroa' end) as equipados
+      concat_ws(' ', case when c.moldura_real then 'moldura' end, case when c.baralho_imperial then 'baralho' end, case when c.reacao_coroa then 'coroa' end, 'mesa ' || c.toalha) as equipados
       from public.players p left join public.progresso g on g.player_id = p.id left join public.cosmeticos_equipados c on c.player_id = p.id order by p.id`);
     return json(res, 200, r.rows);
   }
   if (url.pathname === "/homolog/xp" && q.method === "POST") {
     const b = await corpo(q);
-    if (!UUID.test(b.id ?? "") || ![0, 100, 450, 1000].includes(b.xp)) return json(res, 400, { erro: "id/xp" });
+    if (!UUID.test(b.id ?? "") || ![0, 100, 450, 1000, 1750, 2700].includes(b.xp)) return json(res, 400, { erro: "id/xp" });
     await admin.query(`insert into public.progresso (player_id, xp_total) values ($1, $2)
       on conflict (player_id) do update set xp_total = excluded.xp_total`, [b.id, b.xp]);
     log(`XP sintético: ${b.id.slice(0, 8)} → ${b.xp}`);
