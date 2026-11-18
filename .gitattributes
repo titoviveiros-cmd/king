@@ -8,3 +8,4 @@ supabase/rollout/cosmeticos-*.sql text eol=lf
 supabase/rollout/partes/cosmeticos-*.sql text eol=lf
 supabase/migrations/20261117120000_cosmeticos.sql text eol=lf
 supabase/migrations/20261118120000_cosmeticos_mesa.sql text eol=lf
+supabase/migrations/20261119120000_cosmeticos_catalogo.sql text eol=lf

@@ -3,7 +3,7 @@
 // de Production. NÃO foi aplicado em lugar nenhum: aplicar exige autorização própria.
 //
 //   supabase/rollout/cosmeticos-aplicar.sql =
-//     cabeçalho + BEGIN + partes/cosmeticos-1-antes.sql + AS DUAS MIGRAÇÕES (texto idêntico) + partes/cosmeticos-3-conferencias.sql
+//     cabeçalho + BEGIN + partes/cosmeticos-1-antes.sql + AS TRÊS MIGRAÇÕES (texto idêntico) + partes/cosmeticos-3-conferencias.sql
 //
 // Cada migração entra VERBATIM, e o cabeçalho traz o sha256 de cada uma: o arquivo do rollout nunca pode
 // divergir delas. O teste R1 de `scripts/testar-cosmeticos-sql.mjs` reprova se o arquivo gravado não for exatamente
@@ -17,10 +17,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 const RAIZ = new URL("../", import.meta.url);
 const ler = (rel) => readFileSync(new URL(rel, RAIZ), "utf8").replace(/\r\n/g, "\n");
 export const ARQUIVO_DO_ROLLOUT = "supabase/rollout/cosmeticos-aplicar.sql";
-/** As migrações, NA ORDEM: a parte 1 (moldura, baralho, reação) e a parte 2 (a toalha da mesa). */
+/** As migrações, NA ORDEM: a parte 1 (moldura, baralho, reação), a parte 2 (a toalha da mesa) e a 3 (o catálogo da Entrega C). */
 export const MIGRACOES = [
   "supabase/migrations/20261117120000_cosmeticos.sql",
   "supabase/migrations/20261118120000_cosmeticos_mesa.sql",
+  "supabase/migrations/20261119120000_cosmeticos_catalogo.sql",
 ];
 export const lerMigracoes = () => MIGRACOES.map(ler);
 
@@ -29,7 +30,7 @@ export function montarRollout(migracoes = lerMigracoes()) {
   const shas = migracoes
     .map((m, i) => `--   ${MIGRACOES[i]}\n--     sha256 ${createHash("sha256").update(m).digest("hex")}`)
     .join("\n");
-  const cabecalho = `-- ENTREGA B — COSMÉTICOS POR NÍVEL — COLAR ESTE ARQUIVO INTEIRO NO SQL EDITOR E RODAR UMA VEZ.
+  const cabecalho = `-- ENTREGAS B e C — COSMÉTICOS POR NÍVEL — COLAR ESTE ARQUIVO INTEIRO NO SQL EDITOR E RODAR UMA VEZ.
 --
 -- ARQUIVO GERADO por scripts/montar-rollout-cosmeticos.mjs — não editar à mão.
 -- Migrações dentro dele, nesta ordem e com o texto idêntico ao do repositório:
@@ -46,14 +47,15 @@ ${shas}
 --
 -- DEPOIS: rodar supabase/rollout/cosmeticos-checkpoint-3-depois.sql (só leitura) e ver tudo_certo = true.
 --
--- O que muda: nasce a tabela das escolhas (vazia, com a coluna da toalha) e seis funções. NADA do que existe muda: progresso,
+-- O que muda: nasce a tabela das escolhas (vazia: moldura, baralho, reações e toalha) e nove funções. NADA do que existe muda: progresso,
 -- XP, ledger, crédito, lápides, jogadores e privilégios ficam como estão (as conferências provam). O
 -- servidor e a web que estão no ar hoje não usam nada disto; ativar é o passo seguinte (servidor, depois
 -- web), cada um com autorização própria.
 --
--- Rollback, NESTA ordem: supabase/rollback/20261118120000_cosmeticos_mesa_rollback.sql e depois
+-- Rollback, NESTA ordem: supabase/rollback/20261119120000_cosmeticos_catalogo_rollback.sql,
+-- supabase/rollback/20261118120000_cosmeticos_mesa_rollback.sql e por último
 -- supabase/rollback/20261117120000_cosmeticos_rollback.sql (apagam as escolhas gravadas, e só elas).
--- Depois dos dois, o checkpoint 1 volta a dizer pronto_para_aplicar = true.
+-- Depois dos três, o checkpoint 1 volta a dizer pronto_para_aplicar = true.
 
 `;
   const meio = migracoes.map((m, i) => `-- ─── ${MIGRACOES[i]} ───\n${m}`).join("\n");
