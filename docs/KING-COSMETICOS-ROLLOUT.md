@@ -18,6 +18,7 @@ Introspecção **somente leitura** do projeto `dwkpkpmfsqvyarjtcmjd`, em 17/11/2
 | `20261025130000_credito_com_conta_excluida` | ✅ `contas_excluidas` |
 | `20261026120000_retencao_das_lapides` | ✅ `expurgo_das_lapides`, `expurgar_lapides` |
 | `20261117120000_cosmeticos` | ❌ **ausente**, como deve ser |
+| `20261118120000_cosmeticos_mesa` (a toalha) | ❌ **ausente**, como deve ser |
 
 Ficaram de fora dessa leitura:
 - **Papéis e GRANTs:** a introspecção não os mostra. Quem confirma é o **checkpoint 1**.
@@ -54,7 +55,8 @@ jogo.
    O arquivo é **uma transação**:
    - recusas iniciais;
    - retrato do "antes";
-   - a migração, idêntica ao arquivo oficial (o sha256 está no cabeçalho);
+   - as **duas** migrações (parte 1: moldura, baralho e reação; parte 2: a toalha), cada uma idêntica
+     ao arquivo oficial (o sha256 de cada uma está no cabeçalho);
    - **7 conferências**;
    - `commit`.
 
@@ -86,21 +88,26 @@ jogo.
 
 1. **Web:** promover o deploy anterior na Vercel.
 2. **Servidor:** fazer o rollback automático do `king_deploy`, ou implantar o commit anterior.
-3. **Banco:** rodar `supabase/rollback/20261117120000_cosmeticos_rollback.sql`. Ele apaga **só** as
-   escolhas de cosméticos; XP, ledger e contas ficam intactos. O checkpoint 1 volta a dar
-   `pronto_para_aplicar = true`.
+3. **Banco**, nesta ordem:
+   - `supabase/rollback/20261118120000_cosmeticos_mesa_rollback.sql` (tira só a toalha; as outras
+     escolhas ficam);
+   - `supabase/rollback/20261117120000_cosmeticos_rollback.sql` (tira o resto).
+
+   Os dois apagam **só** escolhas de cosméticos; XP, ledger e contas ficam intactos. Depois deles, o
+   checkpoint 1 volta a dar `pronto_para_aplicar = true`.
 
 ## Provas locais (Postgres 17 real, descartável)
 
-`node scripts/testar-cosmeticos-sql.mjs --provas` → **19/19 testes + 13 mutações**:
+`node scripts/testar-cosmeticos-sql.mjs --provas` → **24/24 testes + 22 mutações**:
 
 | Testes | O que provam |
 |---|---|
-| K1–K14 | regra, isolamento e privilégios |
-| R1 | o arquivo de rollout é a migração verbatim, com o sha256 no cabeçalho |
+| K1–K14 | regra, isolamento e privilégios (parte 1) |
+| K15–K19 | a toalha: bordas 1749/1750 e 2699/2700, catálogo fechado, mesa do anfitrião só para o servidor, não apaga as outras escolhas, rollback só da parte 2 |
+| R1 | o arquivo de rollout traz as duas migrações verbatim, na ordem, com o sha256 de cada uma |
 | R2 | o arquivo aplica pelo papel não superusuário do SQL Editor; os checkpoints 1 e 3 conferem, e o progresso fica idêntico |
 | R3 | colado duas vezes, ele recusa na parte 1 e não altera nada |
-| R4 | **9 defeitos** plausíveis na migração abortam nas conferências **sem gravar nada** |
+| R4 | **13 defeitos** plausíveis nas migrações abortam nas conferências **sem gravar nada** |
 | R5 | o rollback volta o banco **exatamente** ao de antes |
 
 Os 9 defeitos do R4:
@@ -112,7 +119,11 @@ Os 9 defeitos do R4:
 - porta da sala para `service_role`;
 - mexer no XP;
 - schema `public` não fechado;
-- sem cascade.
+- sem cascade;
+- `equipar_toalha` liberado para `anon`;
+- catálogo da toalha errado;
+- a mesa do anfitrião para `service_role`;
+- coluna da toalha sem o catálogo.
 
 ## Homologação isolada — iPhone ponta a ponta, sem banco real
 
@@ -126,7 +137,8 @@ Os 9 defeitos do R4:
 - **Web desta branch.**
 
 Tudo isso numa **única porta HTTPS** (`https://<IP do Wi-Fi>:8443`). O painel
-`https://<IP>:8443/homolog` dá **XP sintético** (100 / 450 / 1000) a cada conta, só nesse banco. O
+`https://<IP>:8443/homolog` dá **XP sintético** (100 / 450 / 1000 / 1750 / 2700 = níveis 2 / 4 / 6 / 8 / 10) a
+cada conta, só nesse banco. O
 Ctrl+C apaga tudo.
 
 **No iPhone** (mesmo Wi-Fi que o PC):
@@ -135,18 +147,32 @@ Ctrl+C apaga tudo.
 2. Se mesmo assim o jogo não conectar, instalar a CA impressa no console como perfil e ativá-la em
    Ajustes → Geral → Sobre → Ajustes de Confiança de Certificados. É só para o teste; remover depois.
 3. Jogar com amigos → Criar uma sala, para criar a conta anônima no banco local.
-4. No painel `/homolog`, dar 1000 XP à conta.
-5. Voltar para a Home. A celebração "NOVO ITEM DESBLOQUEADO!" aparece; abrir "Ver itens" e
-   equipar os três.
+4. No painel `/homolog`, dar 2700 XP à conta (nível 10: todos os itens).
+5. Voltar para a Home. A celebração "NOVO ITEM DESBLOQUEADO!" aparece; abrir "Ver itens",
+   equipar moldura, baralho e coroa e tocar "Usar" na Esmeralda Real.
 6. Criar uma sala e abrir o mesmo endereço noutro aparelho (ou no PC). Confirmar:
-   - a moldura nos dois;
+   - a sala nasce na Esmeralda Real, a mesma nos dois;
+   - a moldura nos dois, e o realce dela na sua vez;
    - a coroa no balão;
    - o baralho só no iPhone.
 
 **O Windows pode pedir para liberar o Node.js na rede privada.** Essa liberação é do Tito; eu não
 mexo em firewall.
 
-**Ensaio automatizado** do mesmo ambiente (Playwright, fora do repositório; o resultado está em
+**Ensaio da rodada premium (18/11)**, no mesmo ambiente com as duas migrações: **14/15 PASS** em
+`artifacts/web/cosmeticos/premium-v2/evidencias.txt` (checkout principal), com 10 capturas:
+- celebração no nível 10;
+- vitrine por categoria;
+- a sala nascendo na toalha equipada do anfitrião;
+- moldura premium no lobby e na mesa, com o realce na vez (no WebKit iPhone);
+- cadeado das mesas de nível para o anfitrião nível 1;
+- a mesma toalha nos dois aparelhos;
+- o baralho só no aparelho de quem equipou;
+- a coroa.
+
+O único FAIL é o `Wrong protocol` do WebKit, preexistente.
+
+**Ensaio automatizado** da rodada anterior (Playwright, fora do repositório; o resultado está em
 `artifacts/web/cosmeticos/entrega-b/homologacao/homologacao.txt` no checkout principal): 14/15 PASS.
 Os aparelhos:
 - A: WebKit iPhone 13, web nova;
@@ -183,3 +209,5 @@ mesmo erro aparece na main `b87f02c`, num teste lado a lado.
 | 7 | Quem joga no app antigo não vê a moldura dos outros nem tem a vitrine | ⚠️ esperado: os itens são da web nova; o app só ganha com um AAB novo (fora do escopo) |
 | 8 | O XP ganho no app antigo conta para os desbloqueios | ✅ mesmo `creditar_partida`, sem mudança |
 | 9 | Nenhum AAB/APK novo e nenhuma mudança na Google Play | ✅ nada gerado nem enviado |
+| 10 | Sala com a Vinho ou a Esmeralda: o app antigo não conhece essas mesas | ⚠️ esperado: ele desenha a Noite Imperial (o leitor cai no padrão); joga normalmente |
+| 11 | Anfitrião no app antigo | ✅ só oferece as duas mesas livres, que o servidor sempre aceita |
