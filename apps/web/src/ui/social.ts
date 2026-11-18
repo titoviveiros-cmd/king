@@ -44,17 +44,44 @@ export const MENSAGENS: readonly FraseSocial[] = [
 ];
 
 /**
- * A REAÇÃO DA COROA (Entrega B, nível 6). Fora de `MENSAGENS` de propósito: ela não entra nos
- * atalhos nem no painel de todo mundo — só aparece, no topo do painel, para quem o SERVIDOR
- * liberou (`assento.coroa`), e o servidor ainda aceita no máximo uma por mão. Mas o balão dela
- * precisa ser desenhado em TODOS os aparelhos, por isso `fraseDe` a conhece.
+ * AS REAÇÕES (Entregas B e C): um BALÃO DE EMOJI GRANDE, pelo mesmo canal das frases. Fora de
+ * `MENSAGENS` de propósito: não entram nos atalhos nem nas categorias — moram numa fileira própria no
+ * topo do painel, com as que o SERVIDOR liberou para o assento (as duas livres são de todo mundo).
+ * O servidor aceita cada uma no máximo uma vez por mão. O balão precisa ser desenhado em TODOS os
+ * aparelhos, por isso `fraseDe` as conhece.
  */
-export const COROA: FraseSocial = { id: "coroa", texto: "Viva o Rei! 👑", categoria: "rei" };
+export interface ReacaoSocial extends FraseSocial {
+  /** O emoji grande do balão e do botão. */
+  emoji: string;
+  /** O texto curto ao lado do emoji (o `texto` inteiro é o rótulo acessível). */
+  curto: string;
+  nome: string;
+}
 
-/** Todas as etiquetas que o servidor aceita, inclusive a especial. */
-export const ETIQUETAS_SOCIAIS: readonly string[] = [...MENSAGENS.map((m) => m.id), COROA.id];
+export const REACOES_SOCIAIS: readonly ReacaoSocial[] = [
+  { id: "risada",  texto: "Kkkkk! 😂",       emoji: "😂", curto: "Kkkkk!",       nome: "Risada",         categoria: "provocacao" },
+  { id: "choro",   texto: "Chorei! 😭",      emoji: "😭", curto: "Chorei!",      nome: "Choro",          categoria: "provocacao" },
+  { id: "fogo",    texto: "Pegou fogo! 🔥",  emoji: "🔥", curto: "Pegou fogo!",  nome: "Fogo",           categoria: "positiva" },
+  { id: "coroa",   texto: "Viva o Rei! 👑",  emoji: "👑", curto: "Viva o Rei!",  nome: "Coroa",          categoria: "rei" },
+  { id: "caveira", texto: "Que azar! 💀",    emoji: "💀", curto: "Que azar!",    nome: "Caveira / Azar", categoria: "provocacao" },
+  { id: "aplauso", texto: "Aplausos! 👏",    emoji: "👏", curto: "Aplausos!",    nome: "Aplauso",        categoria: "elogio" },
+];
+/** As reações de todo mundo — não passam pelo banco. Espelha `REACOES_LIVRES` do servidor. */
+export const REACOES_LIVRES: readonly string[] = ["risada", "choro"];
 
-const POR_ID = new Map([...MENSAGENS, COROA].map((m) => [m.id, m]));
+/** A Reação da Coroa (Entrega B), que continua com o mesmo id e o mesmo texto. */
+export const COROA: ReacaoSocial = REACOES_SOCIAIS.find((r) => r.id === "coroa")!;
+
+const REACAO_POR_ID = new Map(REACOES_SOCIAIS.map((r) => [r.id, r]));
+/** A reação de uma etiqueta, ou `null` (frase comum ou desconhecida). */
+export function reacaoDe(id: string | undefined): ReacaoSocial | null {
+  return REACAO_POR_ID.get(id ?? "") ?? null;
+}
+
+/** Todas as etiquetas que o servidor aceita, inclusive as reações. */
+export const ETIQUETAS_SOCIAIS: readonly string[] = [...MENSAGENS.map((m) => m.id), ...REACOES_SOCIAIS.map((r) => r.id)];
+
+const POR_ID = new Map<string, FraseSocial>([...MENSAGENS, ...REACOES_SOCIAIS].map((m) => [m.id, m]));
 
 /** `null` para etiqueta desconhecida: a tela ignora em vez de desenhar um balão vazio. */
 export function fraseDe(id: string | undefined): FraseSocial | null {

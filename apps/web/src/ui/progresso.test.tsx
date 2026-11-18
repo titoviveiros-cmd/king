@@ -231,8 +231,8 @@ describe("o cliente é SÓ LEITURA de progresso", () => {
    * exceção é a chamada exata, nomeada, e só em `auth/cosmeticos.ts`; qualquer outro `.rpc(`,
    * ou esta mesma em outro arquivo, continua reprovando.
    */
-  // As DUAS portas de escrita dos cosméticos (item e toalha), num arquivo só. Nenhuma fala de XP.
-  const ESCRITA_PERMITIDA = { arquivo: join("auth", "cosmeticos.ts"), chamadas: ['c.rpc("equipar_cosmetico", ', 'c.rpc("equipar_toalha", '] };
+  // A porta de escrita dos cosméticos (Entrega C: UMA para o catálogo inteiro), num arquivo só. Não fala de XP.
+  const ESCRITA_PERMITIDA = { arquivo: join("auth", "cosmeticos.ts"), chamadas: ['c.rpc("equipar_item", '] };
 
   it("nenhum arquivo do app escreve em progresso, ledger ou chama a função de crédito", () => {
     const culpados = fontes(RAIZ).filter((f) => {
@@ -243,12 +243,12 @@ describe("o cliente é SÓ LEITURA de progresso", () => {
     expect(culpados).toEqual([]);
   });
 
-  it("a exceção do equipar são DUAS chamadas (item e toalha), num arquivo só, e não falam de XP", () => {
+  it("a exceção do equipar é UMA chamada (equipar_item), num arquivo só, e não fala de XP", () => {
     const todos = fontes(RAIZ).map((f) => ({ f, t: semComentarios(readFileSync(f, "utf8")) }));
     const comRpc = todos.filter(({ t }) => /\.rpc\s*\(/.test(t));
     expect(comRpc.map(({ f }) => f.endsWith(ESCRITA_PERMITIDA.arquivo))).toEqual([true]);
     const t = comRpc[0].t;
-    expect(t.split(".rpc(").length - 1, "chamadas rpc além das duas portas de equipar").toBe(2);
+    expect(t.split(".rpc(").length - 1, "chamadas rpc além da porta de equipar").toBe(1);
     for (const c of ESCRITA_PERMITIDA.chamadas) expect(t).toContain(c);
     expect(t).not.toMatch(/xp_total|xp_delta|xp_eventos|nivel_de|creditar/);
   });

@@ -16,7 +16,7 @@ import type { Seat } from "@king/engine";
 import { deveAlertar, lerRelogio } from "./relogio.js";
 import { sfxTap, sfxSocial, sfxTempoAcabando } from "../audio/sounds.js";
 import {
-  atalhosDe, COROA, fraseDe, porCategoria, ROTULO_DA_CATEGORIA, type MomentoSocial,
+  atalhosDe, COROA, fraseDe, porCategoria, reacaoDe, REACOES_LIVRES, REACOES_SOCIAIS, ROTULO_DA_CATEGORIA, type MomentoSocial,
 } from "./social.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao, RelogioRecebido } from "../game/useKingOnline.js";
@@ -241,26 +241,42 @@ export function ConsensoDaProximaMao({
 export function BalaoSocial({ mensagem }: { mensagem?: { id: string; nonce: number } }) {
   const frase = fraseDe(mensagem?.id);
   if (!frase) return null;
-  // A Reação da Coroa usa o MESMO balão, no MESMO lugar (ao lado de quem mandou) e pelo MESMO
-  // tempo — só ganha o acabamento de ouro. Nenhum segundo canal, nenhuma tela à parte.
-  const coroa = frase.id === COROA.id;
+  // AS REAÇÕES usam o MESMO balão, no MESMO lugar (ao lado de quem mandou) e pelo MESMO tempo — só
+  // ganham o emoji grande, a cor de cada uma e a entrada com estouro. Nenhum segundo canal, nenhuma
+  // tela à parte, nada no meio da mesa: quem está jogando não perde carta de vista.
+  const r = reacaoDe(frase.id);
+  if (!r) return <span key={mensagem!.nonce} className="balao" role="status">{frase.texto}</span>;
   return (
-    <span key={mensagem!.nonce} className={`balao${coroa ? " coroa" : ""}`} role="status">{frase.texto}</span>
+    <span key={mensagem!.nonce} className={`balao reacao r-${r.id}${r.id === COROA.id ? " coroa" : ""}`} role="status" aria-label={r.texto}>
+      <i className="rc-emoji" aria-hidden>{r.emoji}</i><span className="rc-txt" aria-hidden>{r.curto}</span>
+    </span>
   );
 }
 
 /**
- * A REAÇÃO DA COROA NESTE APARELHO: liberada para o MEU assento pelo servidor? A `chave` é a mão
- * corrente desta sala — o servidor aceita uma coroa por mão, e o botão se apaga depois de usada
- * para ninguém tocar à toa. Quem decide continua sendo o servidor: o botão é só a cortesia.
+ * AS REAÇÕES NESTE APARELHO: as que o servidor liberou para o MEU assento (as de nível) e as livres.
+ * A `chave` é a mão corrente desta sala — o servidor aceita cada reação uma vez por mão, e o botão se
+ * apaga depois de usado para ninguém tocar à toa. Quem decide continua sendo o servidor.
+ *
+ * Servidor da Entrega B (sem o campo `reacoes`): só a coroa, se ele a liberou — as livres ele não
+ * conhece e recusaria.
  */
-export function coroaDaMesa(mp: MesaMultiplayer, mao: number): { chave: string } | undefined {
-  if (!mp.sala?.seats[mp.eu]?.coroa) return undefined;
-  return { chave: `${mp.sala.roomCode}:${mao}` };
+export function reacoesDaMesa(mp: MesaMultiplayer, mao: number): { chave: string; liberadas: readonly string[] } | undefined {
+  const a = mp.sala?.seats[mp.eu];
+  if (!mp.sala || !a) return undefined;
+  const deNivel: readonly string[] = a.reacoes ?? (a.coroa ? [COROA.id] : []);
+  const livres = a.reacoes !== undefined ? REACOES_LIVRES : [];
+  const liberadas = REACOES_SOCIAIS.map((r) => r.id).filter((id) => livres.includes(id) || deNivel.includes(id));
+  if (liberadas.length === 0) return undefined;
+  return { chave: `${mp.sala.roomCode}:${mao}`, liberadas };
 }
 
-/** A última mão em que ESTE aparelho mandou a coroa. Fora do React: Mesa e Placar dividem. */
-let coroaUsadaEm: string | null = null;
+/** As reações que ESTE aparelho já mandou na mão corrente. Fora do React: Mesa e Placar dividem. */
+let reacoesUsadas: { chave: string; ids: Set<string> } = { chave: "", ids: new Set() };
+const usadasNa = (chave: string): Set<string> => {
+  if (reacoesUsadas.chave !== chave) reacoesUsadas = { chave, ids: new Set() };
+  return reacoesUsadas.ids;
+};
 
 /**
  * O botão de falar e o painel.
@@ -277,7 +293,7 @@ let coroaUsadaEm: string | null = null;
  *
  * Não existe campo de texto. Não é limitação de implementação: é a decisão de produto.
  */
-export function BotaoSocial({ status, onEnviar, variante = "mesa", coroa }: {
+export function BotaoSocial({ status, onEnviar, variante = "mesa", reacoes }: {
   status: MomentoSocial;
   onEnviar: (id: string) => void;
   /**
@@ -289,20 +305,20 @@ export function BotaoSocial({ status, onEnviar, variante = "mesa", coroa }: {
    * se quer. O que muda entre os dois é só ONDE o gatilho se ancora, e isso é CSS.
    */
   variante?: "mesa" | "placar" | "fim";
-  /** A Reação da Coroa, quando o SERVIDOR a liberou para este assento (ver `coroaDaMesa`). */
-  coroa?: { chave: string };
+  /** As reações liberadas para este assento nesta mão (ver `reacoesDaMesa`). */
+  reacoes?: { chave: string; liberadas: readonly string[] };
 }) {
   const [aberto, setAberto] = useState(false);
   const [tudo, setTudo] = useState(false);
 
   const mandar = (id: string) => {
     sfxSocial();
-    if (id === COROA.id && coroa) coroaUsadaEm = coroa.chave;
+    if (reacoes && reacaoDe(id)) usadasNa(reacoes.chave).add(id);
     onEnviar(id);
     setAberto(false);
     setTudo(false);
   };
-  const coroaGasta = !!coroa && coroaUsadaEm === coroa.chave;
+  const usadas = reacoes ? usadasNa(reacoes.chave) : new Set<string>();
 
   return (
     <>
@@ -318,15 +334,28 @@ export function BotaoSocial({ status, onEnviar, variante = "mesa", coroa }: {
       {aberto && <div className="socscrim" onClick={() => setAberto(false)} aria-hidden />}
       {aberto && (
         <div className={`socpanel socpanel-${variante}`} role="dialog" aria-modal="true" aria-label="Mensagens rápidas">
-          {coroa && (
-            <button
-              className="socbtn soccoroa"
-              disabled={coroaGasta}
-              onClick={() => mandar(COROA.id)}
-              aria-label={coroaGasta ? "Reação da Coroa: já usada nesta mão" : "Reação da Coroa"}
-            >
-              {COROA.texto}{coroaGasta && <small> · já usada nesta mão</small>}
-            </button>
+          {/* AS REAÇÕES: uma fileira de emojis grandes no topo — um toque, e cada uma se apaga depois
+              de usada na mão. */}
+          {reacoes && (
+            <div className="socreacoes" role="group" aria-label="Reações">
+              {reacoes.liberadas.map((id) => {
+                const r = reacaoDe(id);
+                if (!r) return null;
+                const gasta = usadas.has(id);
+                return (
+                  <button
+                    key={id}
+                    className={`socbtn socreacao r-${id}${id === COROA.id ? " soccoroa" : ""}`}
+                    disabled={gasta}
+                    onClick={() => mandar(id)}
+                    aria-label={gasta ? `Reação ${r.nome}: já usada nesta mão` : `Reação ${r.nome}`}
+                    title={gasta ? `${r.nome} · já usada nesta mão` : r.nome}
+                  >
+                    <i aria-hidden>{r.emoji}</i>
+                  </button>
+                );
+              })}
+            </div>
           )}
           {tudo ? (
             porCategoria().map(({ categoria, frases }) => (

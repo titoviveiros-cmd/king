@@ -247,9 +247,11 @@ test("SOCIAL: o painel cabe na tela e o fechar nunca some", async ({ browser }) 
     await anfitriao.locator(".soc").click();
     await expect(anfitriao.locator(".socpanel")).toBeVisible();
 
-    // painel expandido: as dezoito frases são o pior caso
+    // painel expandido: as dezoito frases são o pior caso — e, por cima delas, a fileira de reações
+    // (as duas livres, de todo mundo: Entrega C)
     await anfitriao.locator(".socmais", { hasText: "mais mensagens" }).click();
-    await expect(anfitriao.locator(".socbtn")).toHaveCount(18);
+    await expect(anfitriao.locator(".socbtn:not(.socreacao)")).toHaveCount(18);
+    await expect(anfitriao.locator(".socreacoes .socreacao")).toHaveCount(2);
 
     const painel = await caixa(anfitriao, ".socpanel");
     expect(painel.t >= 0 && painel.b <= vp.height, `painel fora da tela: ${fmt(painel)}`).toBe(true);

@@ -14,7 +14,7 @@ import { TEMPOS } from "../game/timings.js";
 import { adversariosDe, slotDe } from "./assentos.js";
 import {
   BalaoSocial, BotaoSocial, ChipDoRelogio, FaixaDaConexao, SeloDeAssistencia, SeloDeBot,
-  AvisoDeRecusa, coroaDaMesa, type MesaMultiplayer,
+  AvisoDeRecusa, reacoesDaMesa, type MesaMultiplayer,
 } from "./MesaOnline.js";
 import { Insignia, etiquetaDoAvatar } from "./Insignia.js";
 import { DezMaos } from "./DezMaos.js";
@@ -451,7 +451,7 @@ export function Mesa({
         <BotaoSocial
           status={mp.sala?.status === "finished" ? "finished" : "playing"}
           onEnviar={mp.onEnviarMensagem}
-          coroa={coroaDaMesa(mp, maoAtual)}
+          reacoes={reacoesDaMesa(mp, maoAtual)}
         />
       )}
 
@@ -486,7 +486,7 @@ export function Mesa({
             onClick={() => { sfxTap(); setVendoPerfil(s); }}
             aria-label={`Ver o perfil de ${oppName(s)}`}
           >
-            <Insignia seat={s} avatar={avatarDe(s)} nome={oppName(s)} moldura={assento?.moldura} />
+            <Insignia seat={s} avatar={avatarDe(s)} nome={oppName(s)} moldura={assento?.estiloMoldura} />
             <div>
               <div className="n">
                 {oppName(s)}<SeloDeBot assento={assento} /><SeloDeAssistencia assento={assento} />
@@ -523,7 +523,7 @@ export function Mesa({
         onClick={() => { sfxTap(); setVendoPerfil(eu); }}
         aria-label={`Ver o seu perfil, ${players[eu]}`}
       >
-        <Insignia seat={eu} avatar={avatarDe(eu)} nome={players[eu]} moldura={mp?.sala?.seats[eu]?.moldura} />
+        <Insignia seat={eu} avatar={avatarDe(eu)} nome={players[eu]} moldura={mp?.sala?.seats[eu]?.estiloMoldura} />
         <div>
           <div className="n">{players[eu]}<SeloDeAssistencia assento={mp?.sala?.seats[eu]} /></div>
           <div className="m">
