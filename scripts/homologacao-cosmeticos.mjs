@@ -104,8 +104,12 @@ const conectar = async (database, user = "postgres", password = SENHA.admin) => 
   const r = await editor.query(ler("supabase/rollout/cosmeticos-aplicar.sql"));
   const ultima = Array.isArray(r) ? r[r.length - 1] : r;
   if (ultima.rows[0]?.resultado !== "COSMÉTICOS (ENTREGA B) APLICADA E CONFERIDA") throw new Error("o rollout não conferiu");
+  // e os recordes (Entrega D), também pelo arquivo exato do SQL Editor
+  const rr = await editor.query(ler("supabase/rollout/recordes-aplicar.sql"));
+  const ur = Array.isArray(rr) ? rr[rr.length - 1] : rr;
+  if (ur.rows[0]?.resultado !== "RECORDES (ENTREGA D) APLICADA E CONFERIDA") throw new Error("o rollout dos recordes não conferiu");
   await editor.end();
-  log("banco: todas as migrações + rollout dos cosméticos APLICADO E CONFERIDO");
+  log("banco: todas as migrações + rollouts dos cosméticos e dos recordes APLICADOS E CONFERIDOS");
 }
 const admin = new pg.Pool({ host: "127.0.0.1", port: PORTA_PG, database: "king", user: "postgres", password: SENHA.admin, max: 6 });
 
@@ -203,9 +207,22 @@ async function rest(q, res, url) {
       return devolver(await comoCliente(c, "select moldura, baralho, reacoes, toalha from public.cosmeticos_equipados"));
     }
     if (q.method === "GET" && url.pathname === "/rest/v1/xp_eventos") {
+      // sem filtro de partida: o HISTÓRICO RECENTE (Entrega D) — as últimas cinco do próprio jogador (RLS)
+      if (!url.searchParams.has("partida_id")) {
+        return devolver(await comoCliente(c, "select partida_id, posicao, xp_delta, criado_em from public.xp_eventos order by criado_em desc limit 5"));
+      }
       const id = /^eq\.(.+)$/.exec(url.searchParams.get("partida_id") ?? "")?.[1] ?? "";
       if (!UUID.test(id)) return json(res, 400, { code: "22P02", message: "partida_id" });
       return devolver(await comoCliente(c, "select xp_delta, posicao from public.xp_eventos where partida_id = $1", [id]));
+    }
+    // RECORDES (Entrega D): o Top 3 Online (RLS: só os próprios) e o XP de um nível
+    if (q.method === "GET" && url.pathname === "/rest/v1/placares_online") {
+      return devolver(await comoCliente(c, "select partida_id, pontos, terminada_em from public.placares_online order by pontos desc, terminada_em, partida_id limit 3"));
+    }
+    if (q.method === "GET" && url.pathname === "/rest/v1/xp_por_nivel") {
+      const n = Number(/^eq\.(\d+)$/.exec(url.searchParams.get("nivel") ?? "")?.[1]);
+      if (!Number.isInteger(n)) return json(res, 400, { code: "22P02", message: "nivel" });
+      return devolver(await comoCliente(c, "select xp from public.xp_por_nivel where nivel = $1", [n]));
     }
     if (q.method === "POST" && url.pathname === "/rest/v1/rpc/equipar_item") {
       const b = await corpo(q);
