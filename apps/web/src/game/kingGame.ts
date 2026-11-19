@@ -21,6 +21,11 @@ export type { Phase } from "./leituraDaPartida.js";
  * continua sendo o motor; a única coisa escolhida aqui é POR QUAL MÃO COMEÇAR. Vale só no modo
  * local contra bots.
  */
+function idLocal(): string {
+  const c = globalThis.crypto as { randomUUID?: () => string } | undefined;
+  return c?.randomUUID ? c.randomUUID() : "l" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
 function partidaNova(players: string[], seed: number, maoInicial = 1): MatchState {
   const m = createMatch(players, seed);
   m.handNumber = Math.max(1, maoInicial) - 1;
@@ -37,11 +42,23 @@ export class KingGame extends LeituraDaPartida {
   /** O bicho que o jogador escolheu para ESTA partida. Ausente = a mesa local decide. */
   readonly #avatarDoHumano?: string;
 
+  /**
+   * RECORDES (Entrega D): o id desta partida local (o Top 3 Solo nunca registra a mesma duas vezes) e
+   * se ela CONTA para recorde. Só conta a partida inteira, das 10 mãos, que a Home começou — nunca a
+   * de depuração (`?seed=`, `?mao=`) nem a montada por teste. O padrão é NÃO contar: quem quer contar
+   * diz isso explicitamente.
+   */
+  readonly idDaPartida: string;
+  readonly contaParaRecordes: boolean;
+
   constructor(
     players: string[], seed: number, humanSeat: Seat = 0, maoInicial = 1, avatarDoHumano?: string,
+    opcoes: { recordes?: boolean } = {},
   ) {
     super(partidaNova(players, seed, maoInicial), humanSeat);
     this.#avatarDoHumano = avatarDoHumano;
+    this.idDaPartida = idLocal();
+    this.contaParaRecordes = opcoes.recordes === true && maoInicial === 1;
   }
 
   /**

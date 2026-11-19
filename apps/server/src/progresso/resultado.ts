@@ -3,7 +3,7 @@
 // Puro: não conhece sala, socket nem banco. Recebe o que a sala sabia no instante em que o motor
 // declarou a partida encerrada e devolve o resultado do crédito — ou `null`, quando não há de quem
 // gravar.
-import type { Posicao, ResultadoDaPartida } from "./tipos.js";
+import { PONTOS_MAX, PONTOS_MIN, type Posicao, type ResultadoDaPartida } from "./tipos.js";
 
 /** Um assento, como estava no fim. Contadores são só de JOGADAS DE CARTA — trunfo não entra. */
 export interface AssentoAoFim {
@@ -25,6 +25,8 @@ export interface PartidaEncerrada {
   assentos: AssentoAoFim[];
   /** Posição final por assento, do ranking do motor. Empate = mesma posição. */
   posicoes: Record<number, Posicao>;
+  /** RECORDES (Entrega D): a pontuação final de cada assento, do motor (`MatchState.cumulative`). */
+  pontos?: Record<number, number>;
 }
 
 /**
@@ -45,6 +47,8 @@ export function participou(a: AssentoAoFim): boolean {
  * sala, e não existe `auth.users.id` para receber XP. Bots nunca entram — nem como entrada
  * ignorada: o banco recebe só humanos, e a contagem de bots vai à parte.
  */
+const pontosValidos = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= PONTOS_MIN && (x as number) <= PONTOS_MAX;
+
 export function resultadoParaCredito(p: PartidaEncerrada): ResultadoDaPartida | null {
   const humanos = p.assentos.filter((a) => !a.bot);
   if (humanos.length < 2) return null;
@@ -58,6 +62,8 @@ export function resultadoParaCredito(p: PartidaEncerrada): ResultadoDaPartida | 
       playerId: a.playerId,
       posicao: p.posicoes[a.seat],
       participou: participou(a),
+      // A pontuação final vai SÓ de quem participou de verdade: é ela que vira recorde no banco.
+      ...(participou(a) && pontosValidos(p.pontos?.[a.seat]) ? { pontos: p.pontos![a.seat] } : {}),
     })),
   };
 }

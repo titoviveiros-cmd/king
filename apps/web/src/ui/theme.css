@@ -2720,3 +2720,92 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
   .balao.coroa{animation:none;background-position:50% 0;}
   .novoitem,.novoitem.saindo,.ni-cartao,.ni-coroa{animation:none;}
 }
+
+/* ══════════════════ MEUS RECORDES (Entrega D) ══════════════════
+   Top 3 em ouro, prata e bronze; a evolução com a MESMA barra do card de progresso; o próximo item
+   com a MESMA amostra da vitrine. O cartão rola por dentro (título e "Voltar" sempre à vista). */
+.ovcard.recordes{width:min(94vw,560px);text-align:left;display:flex;flex-direction:column;max-height:calc(100dvh - 16px);}
+.ovcard.recordes h2{text-align:center;}
+.rec-lista{margin:0;padding:0 2px;display:flex;flex-direction:column;gap:clamp(8px,1.6vh,14px);overflow-y:auto;min-height:0;overscroll-behavior:contain;}
+.rec-secao{flex:none;display:flex;flex-direction:column;gap:6px;padding:clamp(8px,1.4vh,12px) 12px;border-radius:14px;
+  background:rgba(255,255,255,.05);border:1px solid var(--line);}
+.rec-titulo{margin:0;font-family:var(--disp);font-weight:800;font-size:clamp(.62rem,1.5vh,.74rem);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--gold);}
+.rec-cabeca{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+.rec-nivel{display:flex;align-items:baseline;gap:6px;font-family:var(--disp);font-weight:800;color:var(--muted);}
+.rec-nivel b{font-size:clamp(1.3rem,4vh,1.9rem);color:#fff;line-height:1;}
+.rec-nivel .rec-total{margin-left:auto;font-size:clamp(.7rem,1.8vh,.85rem);color:var(--gold);}
+.rec-barra{display:block;height:8px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;}
+.rec-barra.fina{height:6px;margin-top:4px;}
+.rec-barra i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--turq),var(--violet));transition:width .6s ease;}
+.rec-proximo .rec-barra i{background:linear-gradient(90deg,#c88a1e,#f4c542,#fff3c4);}
+.rec-linha-txt,.rec-vazio,.rec-nota{margin:0;color:var(--muted);font-size:clamp(.68rem,1.7vh,.82rem);line-height:1.35;}
+.rec-linha-txt b{color:#fff;}
+.rec-nota{color:var(--faint);font-size:clamp(.62rem,1.5vh,.74rem);}
+.rec-item{display:flex;align-items:center;gap:12px;}
+.rec-item .it-amostra{width:56px;}
+.rec-item-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:clamp(.68rem,1.7vh,.82rem);}
+.rec-item-txt b{font-family:var(--disp);font-weight:800;color:#fff;font-size:clamp(.82rem,2.1vh,1rem);}
+.rec-abas{display:inline-flex;border:1px solid rgba(244,197,66,.45);border-radius:999px;overflow:hidden;flex:none;}
+.rec-aba{min-height:32px;min-width:64px;padding:2px 12px;border:0;background:transparent;color:var(--muted);cursor:pointer;
+  font-family:var(--disp);font-weight:800;font-size:clamp(.68rem,1.7vh,.8rem);}
+.rec-aba.on{background:rgba(244,197,66,.18);color:var(--gold);}
+.rec-aba:focus-visible{outline:2px solid var(--gold);outline-offset:-2px;}
+.rec-top{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;}
+.rec-linha{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:12px;background:rgba(0,0,0,.18);
+  border:1px solid rgba(255,255,255,.06);}
+.rec-medalha{flex:none;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;font-family:var(--disp);
+  font-weight:800;font-size:.85rem;color:#231206;box-shadow:inset 0 -2px 0 rgba(0,0,0,.25),0 0 10px var(--rec-brilho);}
+.rec-linha.ouro{--rec-brilho:rgba(244,197,66,.55);border-color:rgba(244,197,66,.45);background:linear-gradient(90deg,rgba(244,197,66,.14),rgba(0,0,0,.15));}
+.rec-linha.ouro .rec-medalha{background:radial-gradient(circle at 35% 30%,#fff3c4,#f4c542 45%,#b07a1c);}
+.rec-linha.prata{--rec-brilho:rgba(214,222,236,.4);}
+.rec-linha.prata .rec-medalha{background:radial-gradient(circle at 35% 30%,#ffffff,#cfd6e2 45%,#7f889a);}
+.rec-linha.bronze{--rec-brilho:rgba(214,140,80,.4);}
+.rec-linha.bronze .rec-medalha{background:radial-gradient(circle at 35% 30%,#ffd9b0,#cd7f45 45%,#7a4220);}
+.rec-linha.vazia{opacity:.5;}
+.rec-linha.vazia .rec-medalha{box-shadow:none;filter:grayscale(.6);}
+.rec-pontos{font-family:var(--disp);font-weight:800;color:#fff;font-size:clamp(1rem,2.8vh,1.3rem);font-variant-numeric:tabular-nums;}
+.rec-pontos small{font-size:.6em;color:var(--muted);}
+.rec-meta{margin-left:auto;color:var(--muted);font-size:clamp(.66rem,1.6vh,.8rem);white-space:nowrap;}
+.rec-recentes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;}
+.rec-recente{display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:10px;background:rgba(0,0,0,.15);
+  font-size:clamp(.7rem,1.7vh,.84rem);color:var(--muted);}
+.rec-recente .rec-resultado{font-family:var(--disp);font-weight:800;color:#fff;}
+.rec-recente.p1 .rec-resultado{color:var(--gold);}
+.rec-recente .rec-xp{margin-left:auto;font-family:var(--disp);font-weight:800;color:var(--turq);font-variant-numeric:tabular-nums;}
+.rec-fechar{display:block;margin:clamp(8px,1.6vh,14px) auto 0;}
+@media (max-height: 360px){
+  .ovcard.recordes{padding-top:10px;padding-bottom:10px;}
+  .ovcard.recordes h2{font-size:1rem;}
+  .rec-secao{padding:6px 10px;}
+  .rec-medalha{width:28px;height:28px;font-size:.75rem;}
+  .rec-linha{padding:3px 8px;}
+  .rec-fechar{margin-top:6px;}
+}
+@media (prefers-reduced-motion: reduce){ .rec-barra i{transition:none;} }
+
+/* ── "NOVO RECORDE!": sobre o Placar Final, depois da encenação. Coroa que pousa, um brilho que passa
+   UMA vez, a medalha da posição; um toque fecha. Mesma família de "NOVO ITEM DESBLOQUEADO!". */
+.novorecorde{position:fixed;inset:0;z-index:60;display:grid;place-items:center;cursor:pointer;
+  background:radial-gradient(ellipse at 50% 45%,rgba(122,24,64,.6),rgba(10,5,20,.84) 70%);animation:niVeu .25s ease-out both;}
+.novorecorde.saindo{animation:niSai .3s ease-in both;}
+.nr-cartao{position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;gap:clamp(4px,1.1vh,10px);
+  padding:clamp(12px,2.6vh,24px) clamp(22px,4vw,40px);border-radius:24px;max-width:min(92vw,440px);text-align:center;
+  background:linear-gradient(180deg,var(--surface),var(--night2));border:1.5px solid var(--nr-cor);
+  box-shadow:0 24px 60px -12px #000,0 0 34px var(--nr-brilho);animation:niEntra .45s cubic-bezier(.22,1.4,.4,1) both;}
+.nr-cartao.ouro{--nr-cor:#f4c542;--nr-brilho:rgba(244,197,66,.45);}
+.nr-cartao.prata{--nr-cor:#d6deec;--nr-brilho:rgba(214,222,236,.35);}
+.nr-cartao.bronze{--nr-cor:#cd7f45;--nr-brilho:rgba(214,140,80,.4);}
+.nr-coroa{color:var(--gold);line-height:0;animation:niCoroa .9s .1s ease-out both;}
+.nr-brilho{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(110deg,transparent 35%,rgba(255,243,196,.28) 50%,transparent 65%);transform:translateX(-120%);
+  animation:nrBrilho 1.2s .45s ease-in-out 1 both;}
+@keyframes nrBrilho{to{transform:translateX(120%);}}
+.nr-titulo{font-family:var(--disp);font-weight:800;color:var(--gold);letter-spacing:.06em;font-size:clamp(1.05rem,3.6vh,1.6rem);}
+.nr-posicao{font-family:var(--disp);font-weight:800;color:var(--nr-cor);font-size:clamp(.78rem,2.2vh,1rem);}
+.nr-pontos{font-family:var(--disp);font-weight:800;color:#fff;font-size:clamp(1.8rem,7vh,3rem);line-height:1;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 18px var(--nr-brilho);}
+.nr-pontos small{font-size:.4em;color:var(--muted);}
+.nr-toque{color:var(--faint);font-size:clamp(.62rem,1.5vh,.74rem);}
+@media (max-height: 360px){ .nr-coroa{display:none;} }
+@media (prefers-reduced-motion: reduce){ .novorecorde,.novorecorde.saindo,.nr-cartao,.nr-coroa,.nr-brilho{animation:none;} .nr-brilho{display:none;} }
