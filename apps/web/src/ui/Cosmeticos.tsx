@@ -8,6 +8,8 @@
 import { useEffect, useRef, useState } from "react";
 import { sfxTap } from "../audio/sounds.js";
 import { Crown } from "./Crown.js";
+import { classeDaMoldura } from "./Insignia.js";
+import { reacaoDe } from "./social.js";
 import {
   CATALOGO, CATEGORIAS, DESBLOQUEAVEIS, estadoDoItem, liberadosNo, proximoDesbloqueio,
   type Equipados, type ItemDoCatalogo, type ItemId,
@@ -24,25 +26,35 @@ const ROTULO: Record<ReturnType<typeof estadoDoItem>, string> = {
 
 /** A amostra de cada item — o mesmo desenho que ele terá na partida. */
 export function AmostraDoItem({ id }: { id: ItemId }) {
-  const toalha = CATALOGO.find((i) => i.id === id)?.toalha;
+  const item = CATALOGO.find((i) => i.id === id);
+  if (!item) return null;
   // a MESA: um pedaço oval da toalha, com os MESMOS tokens do pano da partida
-  if (toalha) return <span className="it-amostra" aria-hidden><span className="it-mesa tema-amostra" data-tema={toalha}><i /></span></span>;
-  if (id === "moldura-real") return <span className="it-amostra" aria-hidden><span className="sl-av s0 moldura-real">🦁</span></span>;
-  if (id === "baralho-imperial") {
+  if (item.toalha) return <span className="it-amostra" aria-hidden><span className="it-mesa tema-amostra" data-tema={item.toalha}><i /></span></span>;
+  if (item.categoria === "moldura") {
+    return <span className="it-amostra" aria-hidden><span className={`sl-av s0${classeDaMoldura(item.valor)}`}>🦁</span></span>;
+  }
+  if (item.categoria === "baralho") {
+    // as MESMAS classes do baralho na partida (`.card.baralho-<estilo>`), num verso e num Ás
     return (
       <span className="it-amostra it-baralho" aria-hidden>
-        <span className="card back imperial" />
-        <span className="card red imperial"><span className="idx"><b>A</b><span>♥</span></span><span className="pip">♥</span></span>
+        <span className={`card back baralho-${item.valor}`} />
+        <span className={`card red baralho-${item.valor}`}><span className="idx"><b>A</b><span>♥</span></span><span className="pip">♥</span></span>
       </span>
     );
   }
-  // Só a coroa no balão: a frase inteira não cabe na coluna da amostra e cobriria o nome do item.
-  return <span className="it-amostra" aria-hidden><span className="balao coroa amostra">👑</span></span>;
+  // A REAÇÃO: só o emoji no balão dela — a frase inteira não cabe na coluna da amostra.
+  const r = reacaoDe(item.valor);
+  return (
+    <span className="it-amostra" aria-hidden>
+      <span className={`balao reacao amostra r-${item.valor}${item.valor === "coroa" ? " coroa" : ""}`}><i className="rc-emoji">{r?.emoji}</i></span>
+    </span>
+  );
 }
 
 /**
  * Um cartão da vitrine. Nas categorias EXCLUSIVAS (a mesa), o item em uso não tem botão — escolher
- * outro é que troca —, e os de nível 1 aparecem como "Livre".
+ * outro é que troca —, e os de nível 1 aparecem como "Livre". Nas outras, o de nível 1 (as reações
+ * livres) é "Livre" e não tem botão: é de todo mundo, sempre.
  */
 function ItemDaVitrine({ item, exclusiva, nivel, equipados, ocupado, onEquipar }: {
   item: ItemDoCatalogo;
@@ -53,10 +65,12 @@ function ItemDaVitrine({ item, exclusiva, nivel, equipados, ocupado, onEquipar }
   onEquipar: (item: ItemId, equipado: boolean) => void;
 }) {
   const estado = estadoDoItem(item, nivel, equipados);
+  const livreSempre = !exclusiva && item.nivel <= 1;
   const rotulo = estado === "bloqueado" ? `🔒 Nível ${item.nivel}`
+    : livreSempre ? "Livre"
     : exclusiva ? (estado === "equipado" ? "Em uso" : item.nivel <= 1 ? "Livre" : "Desbloqueado")
     : ROTULO[estado];
-  const comBotao = estado !== "bloqueado" && !(exclusiva && estado === "equipado");
+  const comBotao = estado !== "bloqueado" && !livreSempre && !(exclusiva && estado === "equipado");
   return (
     <li className={`it-item ${estado}`} data-item={item.id}>
       <AmostraDoItem id={item.id} />
@@ -120,6 +134,9 @@ export function VitrineDeItens({ nivel, equipados, ocupado, aviso, onEquipar, on
   );
 }
 
+/** Quantos itens a celebração mostra de uma vez. */
+export const MAX_NA_CELEBRACAO = 4;
+
 /** Quanto a celebração fica sozinha na tela, se ninguém tocar. */
 export const DURACAO_DA_CELEBRACAO_MS = 4_500;
 
@@ -151,11 +168,16 @@ export function NovoItemDesbloqueado({ itens, onVer, onFechar }: {
       <div className="ni-cartao" onClick={(e) => e.stopPropagation()}>
         <span className="ni-coroa" aria-hidden><Crown size={44} /></span>
         <b className="ni-titulo">NOVO ITEM DESBLOQUEADO!</b>
+        {/* No máximo QUATRO na celebração (os mais altos, os mais novos); o resto vira "e mais N" —
+            quem sobe vários níveis de uma vez não ganha uma lista que passa da tela. */}
         <ul className="ni-itens">
-          {itens.map((i) => (
+          {itens.slice(-MAX_NA_CELEBRACAO).map((i) => (
             <li key={i.id}><AmostraDoItem id={i.id} /><span>{i.nome}</span></li>
           ))}
         </ul>
+        {itens.length > MAX_NA_CELEBRACAO && (
+          <p className="ni-mais">e mais {itens.length - MAX_NA_CELEBRACAO} {itens.length - MAX_NA_CELEBRACAO === 1 ? "item" : "itens"}</p>
+        )}
         <div className="ni-acoes">
           <button className="btn gold" onClick={() => { sfxTap(); onVer(); }}>Ver itens</button>
           <button className="btn ghost" onClick={() => { sfxTap(); setSaindo(true); }}>Fechar</button>

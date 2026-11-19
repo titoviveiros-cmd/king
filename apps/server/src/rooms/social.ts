@@ -27,13 +27,22 @@ export const MENSAGENS_SOCIAIS = [
   "revanche", "por-pouco", "mesa-minha",
   // cortesia — as duas únicas que servem para combinar algo, e por isso não podem faltar
   "ja-volto", "desculpa",
-  // A REAÇÃO DA COROA (Entrega B, nível 6). Etiqueta válida para o formato, mas a sala só a aceita
-  // de quem o banco liberou, e no máximo uma por mão — ver o handler em `KingRoom.ts`.
-  "coroa",
+  // AS REAÇÕES (Entregas B e C). Etiquetas válidas para o formato; a sala aceita as de NÍVEL só de
+  // quem o banco liberou, e CADA reação no máximo uma vez por mão — ver o handler em `KingRoom.ts`.
+  "coroa", "fogo", "caveira", "aplauso", "risada", "choro",
 ] as const;
 
-/** A etiqueta da Reação da Coroa: a única que exige desbloqueio. */
+/** A etiqueta da Reação da Coroa. */
 export const REACAO_DA_COROA = "coroa";
+
+/**
+ * AS REAÇÕES: um balão especial, de emoji grande, por cima do mesmo canal das frases. As LIVRES são de
+ * todo mundo (até de quem joga sem conta); as outras exigem o nível, que só o BANCO informa.
+ */
+export const REACOES_LIVRES = ["risada", "choro"] as const;
+export const REACOES = ["risada", "choro", "fogo", "coroa", "caveira", "aplauso"] as const;
+export const ehReacao = (id: unknown): boolean => typeof id === "string" && (REACOES as readonly string[]).includes(id);
+export const ehReacaoLivre = (id: unknown): boolean => typeof id === "string" && (REACOES_LIVRES as readonly string[]).includes(id);
 
 export type MensagemSocial = (typeof MENSAGENS_SOCIAIS)[number];
 

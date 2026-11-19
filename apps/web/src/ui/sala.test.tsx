@@ -254,7 +254,7 @@ describe("o Convidar do lobby", () => {
   });
 });
 
-describe("a MESA da sala: quatro toalhas, as de nível trancadas para o anfitrião que não as liberou", () => {
+describe("a MESA da sala: seis toalhas, as de nível trancadas para o anfitrião que não as liberou", () => {
   const renderComTema = (tema: string, souAnfitriao = true): HTMLElement => {
     const sala: EstadoDaSalaLido = {
       protocolVersion: 1, roomCode: "0315", roomId: "0315", status: "lobby", tableTheme: tema,
@@ -270,34 +270,36 @@ describe("a MESA da sala: quatro toalhas, as de nível trancadas para o anfitri�
   };
   const op = (r: HTMLElement, id: string) => r.querySelector(`.sl-mesa-op.${id}`)!;
 
-  it("as quatro aparecem como amostra do pano, com o nome no rótulo; o nome da escolhida aparece uma vez", async () => {
+  it("as seis aparecem como amostra do pano, com o nome no rótulo; o nome da escolhida aparece uma vez", async () => {
     const { lembrarNivel } = await import("../auth/cosmeticos.js");
-    lembrarNivel(10);
+    lembrarNivel(12);
     const r = renderComTema("esmeralda");
     expect(r.querySelectorAll(".sl-mesa-op").map((b) => b.getAttribute("aria-label")))
-      .toEqual(["Noite Imperial", "Verde Clássica", "Vinho Clássica", "Esmeralda Real"]);
+      .toEqual(["Noite Imperial", "Verde Clássica", "Vinho Imperial", "Azul Royal", "Esmeralda Real", "Preta Premium"]);
     expect(r.querySelector(".sl-mesa-nome")!.text).toBe("Esmeralda Real");
     expect(op(r, "esmeralda").getAttribute("aria-checked")).toBe("true");
     expect(r.querySelectorAll(".sl-mesa-op.trancada")).toHaveLength(0);
     lembrarNivel(null);
   });
 
-  it("anfitrião no nível 6: Vinho e Esmeralda trancadas (com o nível); sem nível lido, só as livres abrem", async () => {
+  it("anfitrião no nível 6: Vinho liberada; Azul, Esmeralda e Preta trancadas (com o nível); sem nível lido, só as livres abrem", async () => {
     const { lembrarNivel } = await import("../auth/cosmeticos.js");
     lembrarNivel(6);
     let r = renderComTema("imperial");
-    expect(op(r, "vinho").getAttribute("aria-label")).toBe("Vinho Clássica — libera no nível 8");
-    expect(op(r, "vinho").hasAttribute("disabled")).toBe(true);
-    expect(op(r, "esmeralda").hasAttribute("disabled")).toBe(true);
+    expect(op(r, "vinho").hasAttribute("disabled")).toBe(false);
+    expect(op(r, "azul").getAttribute("aria-label")).toBe("Azul Royal — libera no nível 8");
+    expect(op(r, "preta").getAttribute("aria-label")).toBe("Preta Premium — libera no nível 12");
+    for (const t of ["azul", "esmeralda", "preta"]) expect(op(r, t).hasAttribute("disabled"), t).toBe(true);
     expect(op(r, "verde").hasAttribute("disabled")).toBe(false);
     lembrarNivel(null);
     r = renderComTema("imperial");
-    expect(r.querySelectorAll(".sl-mesa-op.trancada").map((b) => b.classList.contains("vinho") || b.classList.contains("esmeralda"))).toEqual([true, true]);
+    expect(r.querySelectorAll(".sl-mesa-op.trancada").map((b) => ["vinho", "azul", "esmeralda", "preta"].find((t) => b.classList.contains(t))))
+      .toEqual(["vinho", "azul", "esmeralda", "preta"]);
   });
 
   it("quem NÃO é anfitrião vê a mesa escolhida (mesmo uma de nível) sem cadeado — só não mexe", async () => {
     const r = renderComTema("vinho", false);
-    expect(r.querySelector(".sl-mesa-nome")!.text).toBe("Vinho Clássica");
+    expect(r.querySelector(".sl-mesa-nome")!.text).toBe("Vinho Imperial");
     expect(r.querySelectorAll(".sl-mesa-op.trancada")).toHaveLength(0);
     expect(r.querySelectorAll(".sl-mesa-op").every((b) => b.hasAttribute("disabled"))).toBe(true);
   });

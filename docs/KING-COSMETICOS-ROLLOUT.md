@@ -1,4 +1,10 @@
-# KING — Roteiro de ativação dos cosméticos (Entrega B)
+# KING — Roteiro de ativação dos cosméticos (Entregas B e C)
+
+> **Entrega C (catálogo, PR em rascunho sobre `feat/cosmeticos-premium`)** — 20 itens de nível/livres em
+> quatro categorias, curva N2–N15 (+ N16–N18 para os três que ficaram fora dela). Uma migração a mais,
+> `20261119120000_cosmeticos_catalogo.sql`, que **só acrescenta** e mantém as portas das partes 1 e 2
+> respondendo (`equipar_cosmetico`, `equipar_toalha`, `cosmeticos_da_sala`): o banco pode ir antes do
+> servidor e da web. Detalhes na seção "Entrega C" no fim deste arquivo.
 
 > **NADA DESTE ROTEIRO FOI EXECUTADO.** Production não tem a tabela, as funções, o servidor nem a web
 > dos cosméticos. Cada passo abaixo exige **autorização própria** do Tito, e cada um tem um critério
@@ -55,8 +61,8 @@ jogo.
    O arquivo é **uma transação**:
    - recusas iniciais;
    - retrato do "antes";
-   - as **duas** migrações (parte 1: moldura, baralho e reação; parte 2: a toalha), cada uma idêntica
-     ao arquivo oficial (o sha256 de cada uma está no cabeçalho);
+   - as **três** migrações (parte 1: moldura, baralho e reação; parte 2: a toalha; parte 3: o catálogo
+     da Entrega C), cada uma idêntica ao arquivo oficial (o sha256 de cada uma está no cabeçalho);
    - **7 conferências**;
    - `commit`.
 
@@ -89,25 +95,29 @@ jogo.
 1. **Web:** promover o deploy anterior na Vercel.
 2. **Servidor:** fazer o rollback automático do `king_deploy`, ou implantar o commit anterior.
 3. **Banco**, nesta ordem:
+   - `supabase/rollback/20261119120000_cosmeticos_catalogo_rollback.sql` (tira o catálogo da Entrega C:
+     volta as portas antigas e as colunas booleanas graváveis; Moldura Real, Baralho Imperial e Coroa
+     ficam; Azul e Preta voltam à Noite Imperial);
    - `supabase/rollback/20261118120000_cosmeticos_mesa_rollback.sql` (tira só a toalha; as outras
      escolhas ficam);
    - `supabase/rollback/20261117120000_cosmeticos_rollback.sql` (tira o resto).
 
-   Os dois apagam **só** escolhas de cosméticos; XP, ledger e contas ficam intactos. Depois deles, o
+   Os três apagam **só** escolhas de cosméticos; XP, ledger e contas ficam intactos. Depois deles, o
    checkpoint 1 volta a dar `pronto_para_aplicar = true`.
 
 ## Provas locais (Postgres 17 real, descartável)
 
-`node scripts/testar-cosmeticos-sql.mjs --provas` → **24/24 testes + 22 mutações**:
+`node scripts/testar-cosmeticos-sql.mjs --provas` → **30/30 testes + 32 mutações** (com a parte 3):
 
 | Testes | O que provam |
 |---|---|
 | K1–K14 | regra, isolamento e privilégios (parte 1) |
-| K15–K19 | a toalha: bordas 1749/1750 e 2699/2700, catálogo fechado, mesa do anfitrião só para o servidor, não apaga as outras escolhas, rollback só da parte 2 |
-| R1 | o arquivo de rollout traz as duas migrações verbatim, na ordem, com o sha256 de cada uma |
+| K15–K19 | a toalha: bordas da curva nova (vinho 249/250, azul 1749/1750, esmeralda 2699/2700, preta 3849/3850), catálogo fechado, mesa do anfitrião só para o servidor, não apaga as outras escolhas, rollback das partes 3 e 2 |
+| K20–K25 | o catálogo C: os 18 itens nas bordas exatas da curva; um por vez (moldura/baralho) e reações que se somam; catálogo fechado (inclusive pelo admin) e espelhos não graváveis; o servidor lê só o efeito; privilégios exatos; rollback só da parte 3 com os valores certos |
+| R1 | o arquivo de rollout traz as três migrações verbatim, na ordem, com o sha256 de cada uma |
 | R2 | o arquivo aplica pelo papel não superusuário do SQL Editor; os checkpoints 1 e 3 conferem, e o progresso fica idêntico |
 | R3 | colado duas vezes, ele recusa na parte 1 e não altera nada |
-| R4 | **13 defeitos** plausíveis nas migrações abortam nas conferências **sem gravar nada** |
+| R4 | **18 defeitos** plausíveis nas migrações abortam nas conferências **sem gravar nada** |
 | R5 | o rollback volta o banco **exatamente** ao de antes |
 
 Os 9 defeitos do R4:
@@ -123,7 +133,12 @@ Os 9 defeitos do R4:
 - `equipar_toalha` liberado para `anon`;
 - catálogo da toalha errado;
 - a mesa do anfitrião para `service_role`;
-- coluna da toalha sem o catálogo.
+- coluna da toalha sem o catálogo;
+- `equipar_item` liberado para `anon`;
+- a leitura dos assentos para `service_role`;
+- curva do catálogo C errada;
+- coluna das reações sem o catálogo;
+- espelho da parte 1 gravável.
 
 ## Homologação isolada — iPhone ponta a ponta, sem banco real
 
@@ -137,8 +152,8 @@ Os 9 defeitos do R4:
 - **Web desta branch.**
 
 Tudo isso numa **única porta HTTPS** (`https://<IP do Wi-Fi>:8443`). O painel
-`https://<IP>:8443/homolog` dá **XP sintético** (100 / 450 / 1000 / 1750 / 2700 = níveis 2 / 4 / 6 / 8 / 10) a
-cada conta, só nesse banco. O
+`https://<IP>:8443/homolog` dá **XP sintético** a cada conta, só nesse banco: um botão por NÍVEL (N1 a N18),
+com o XP exato em que ele começa (N2 = 100, N3 = 250, … N10 = 2700, … N15 = 5950, N18 = 8500). O
 Ctrl+C apaga tudo.
 
 **No iPhone** (mesmo Wi-Fi que o PC):
@@ -211,3 +226,34 @@ mesmo erro aparece na main `b87f02c`, num teste lado a lado.
 | 9 | Nenhum AAB/APK novo e nenhuma mudança na Google Play | ✅ nada gerado nem enviado |
 | 10 | Sala com a Vinho ou a Esmeralda: o app antigo não conhece essas mesas | ⚠️ esperado: ele desenha a Noite Imperial (o leitor cai no padrão); joga normalmente |
 | 11 | Anfitrião no app antigo | ✅ só oferece as duas mesas livres, que o servidor sempre aceita |
+
+## Entrega C — o catálogo (parte 3)
+
+**Curva** (o banco é a fonte: `king_private.nivel_do_item` / `nivel_da_toalha`; o app só desenha):
+
+| Nível | Item | | Nível | Item |
+|---|---|---|---|---|
+| 2 | Moldura Real | | 11 | Moldura Ônix Imperial |
+| 3 | Mesa Vinho Imperial (era 8) | | 12 | Mesa Preta Premium |
+| 4 | Baralho Imperial | | 13 | Baralho Ouro Negro |
+| 5 | Reação Fogo | | 14 | Reação Aplauso |
+| 6 | Reação Coroa | | 15 | Moldura Diamante do Rei |
+| 7 | Moldura Rubi Real | | 16 | Moldura Esmeralda Suprema * |
+| 8 | Mesa Azul Royal | | 17 | Baralho Imperial Rubi * |
+| 9 | Baralho Safira Noturna | | 18 | Baralho Marfim Real * |
+| 10 | Reação Caveira / Azar + Mesa Esmeralda Real (já era do 10) | | livres | Mesas Noite Imperial e Verde Clássica; reações Risada e Choro |
+
+\* fora da curva pedida: decisão de produto a confirmar (estão depois do 15 para cada nível ter um desbloqueio só).
+
+**Regras.** Moldura e baralho: **um por vez, ou nenhum** (o banco troca). Reações de nível: liga/desliga
+cada uma; as livres são de todo mundo (inclusive sem conta). Mesa: sempre uma, a do ANFITRIÃO vale para a
+sala. Baralho: só no aparelho de quem equipou. Cada reação: **uma por mão** por jogador, por cima do ritmo
+social de sempre (3 s de intervalo, 4 em 15 s); o servidor só entrega a reação a quem declarou saber
+mostrá-la (`recursos`), então o Android 0.1.1 não recebe som sem balão.
+
+**Compatibilidade na ordem banco → servidor → web:**
+- banco novo + servidor/web antigos: as portas antigas respondem igual (as colunas booleanas viram
+  espelhos gerados das novas);
+- servidor novo + web antiga: a web da Entrega B lê `moldura`/`coroa` (continuam sendo enviados);
+- web nova + servidor antigo: sem o campo `reacoes`, o painel só oferece a coroa (se liberada); a
+  moldura vira a Real.

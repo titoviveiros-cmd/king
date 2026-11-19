@@ -24,7 +24,7 @@ import { liberarCodigo, reservarCodigo } from "./codigos.js";
 import {
   AVATAR_PADRAO, AVATARES, TEMA_PADRAO, TEMAS_DA_MESA, TEMAS_LIVRES, avatarDeBot, avatarValido, nomeDeBotLivre,
 } from "./identidade.js";
-import { DURACAO_MS, REACAO_DA_COROA, RitmoSocial, mensagemValida } from "./social.js";
+import { DURACAO_MS, REACAO_DA_COROA, RitmoSocial, ehReacao, ehReacaoLivre, mensagemValida } from "./social.js";
 import { cosmeticosEmUso } from "../progresso/cosmeticos.js";
 import { ArraySchema, schema } from "@colyseus/schema";
 import { TOTAL_HANDS, rankings, type Seat } from "@king/engine";
@@ -104,6 +104,13 @@ export const AssentoPublico = schema({
   moldura: "boolean",
   /** A Reação da Coroa está liberada para este assento (equipada e com nível, segundo o banco). */
   coroa: "boolean",
+  /**
+   * ENTREGA C. A moldura escolhida (`real`, `rubi`, `onix`, `diamante`, `esmeralda`) ou `""`; e as
+   * reações de NÍVEL liberadas, separadas por vírgula, na ordem do catálogo. `moldura`/`coroa` acima
+   * continuam valendo para o cliente da Entrega B (que só conhece a Moldura Real e a coroa).
+   */
+  estiloMoldura: "string",
+  reacoes: "string",
 }, "AssentoPublico");
 export type AssentoPublico = InstanceType<typeof AssentoPublico>;
 
@@ -279,17 +286,17 @@ export class KingRoom extends Room<{
   /** Ritmo das mensagens sociais, por assento. Conferido AQUI — no cliente seria sugestão. */
   readonly #ritmoSocial = new RitmoSocial();
   /**
-   * REAÇÃO DA COROA: a mão em que cada assento já a usou. Um teto PRÓPRIO, de uma por mão, por cima
-   * do ritmo geral — a reação especial não pode virar a frase de todo lance.
+   * AS REAÇÕES: a mão em que cada assento já usou CADA uma (chave `assento:reação`). Um teto PRÓPRIO,
+   * de uma por mão por reação, por cima do ritmo geral — a reação especial não vira a frase de todo lance.
    */
-  readonly #coroaNaMao = new Map<number, number>();
+  readonly #reacaoNaMao = new Map<string, number>();
   /**
-   * Sessões cujo cliente SABE MOSTRAR a coroa (declarou `recursos: ["coroa"]` ao entrar). O cliente
-   * antigo — inclusive o que vai dentro do Android 0.1.1 — toca o som social para qualquer
-   * SOCIAL_MESSAGE e só desenha frases que conhece: receber a coroa seria som sem balão. Para ele a
-   * coroa simplesmente não é enviada. Por `sessionId`, que a reconexão preserva.
+   * O que cada sessão SABE MOSTRAR (o que declarou em `recursos` ao entrar). O cliente antigo — inclusive
+   * o que vai dentro do Android 0.1.1 — toca o som social para qualquer SOCIAL_MESSAGE e só desenha frases
+   * que conhece: receber uma reação nova seria som sem balão. Para ele a reação simplesmente não é
+   * enviada. Por `sessionId`, que a reconexão preserva.
    */
-  readonly #veemCoroa = new Set<string>();
+  readonly #mostra = new Map<string, ReadonlySet<string>>();
   /**
    * A TOALHA COMO COSMÉTICO: as toalhas que o anfitrião ATUAL liberou, pelo banco
    * (`toalhas_do_anfitriao`). As livres (`TEMAS_LIVRES`) valem sempre, sem banco. Quem passa a ser
@@ -502,26 +509,28 @@ export class KingRoom extends Room<{
       if (this.state.status === "lobby") {
         return this.#recusar(client, "", "WRONG_PHASE", "A partida ainda não começou");
       }
-      // A REAÇÃO DA COROA (Entrega B): mesma etiqueta, mesmo canal, mesmo anti-spam — e duas travas
-      // a mais, as duas aqui. Liberada é o que o BANCO disse ao sentar (`assento.coroa`); o cliente
-      // não tem como afirmar isso. E uma por mão, conferida ANTES do ritmo: uma coroa recusada não
-      // gasta o fôlego das frases comuns.
-      const coroa = id === REACAO_DA_COROA;
+      // AS REAÇÕES (Entregas B e C): mesma etiqueta, mesmo canal, mesmo anti-spam — e duas travas a
+      // mais, as duas aqui. A de NÍVEL só passa se o BANCO a liberou ao sentar (`assento.reacoes`); o
+      // cliente não tem como afirmar isso. E cada reação uma vez por mão, conferida ANTES do ritmo:
+      // uma reação recusada não gasta o fôlego das frases comuns.
+      const reacao = ehReacao(id);
       const mao = this.autoridade.estadoAutoritativo()?.hand?.handNumber ?? 0;
-      if (coroa && !this.state.seats[dados.seat].coroa) {
+      if (reacao && !ehReacaoLivre(id) && !reacoesDoAssento(this.state.seats[dados.seat]).includes(id)) {
         return this.#recusar(client, "", "INVALID_PAYLOAD", "Reação ainda não desbloqueada");
       }
-      if (coroa && this.#coroaNaMao.get(dados.seat) === mao) {
-        return this.#recusar(client, "", "RATE_LIMITED", "A coroa já foi usada nesta mão");
+      const chave = `${dados.seat}:${id}`;
+      if (reacao && this.#reacaoNaMao.get(chave) === mao) {
+        return this.#recusar(client, "", "RATE_LIMITED",
+          id === REACAO_DA_COROA ? "A coroa já foi usada nesta mão" : "Esta reação já foi usada nesta mão");
       }
       const veredicto = this.#ritmoSocial.permitir(dados.seat, Date.now());
       if (!veredicto.ok) return this.#recusar(client, "", veredicto.code, veredicto.message);
-      if (coroa) this.#coroaNaMao.set(dados.seat, mao);
+      if (reacao) this.#reacaoNaMao.set(chave, mao);
 
       const social = { seat: dados.seat, messageId: id, duracaoMs: DURACAO_MS };
-      if (!coroa) return difundir(this, "SOCIAL_MESSAGE", social);
-      // A coroa vai só a quem sabe mostrá-la (ver `#veemCoroa`); o cliente antigo não a recebe.
-      for (const c of this.clients) if (this.#veemCoroa.has(c.sessionId)) enviar(c, "SOCIAL_MESSAGE", social);
+      if (!reacao) return difundir(this, "SOCIAL_MESSAGE", social);
+      // A reação vai só a quem sabe mostrá-la (ver `#mostra`); o cliente antigo não a recebe.
+      for (const c of this.clients) if (this.#mostra.get(c.sessionId)?.has(id)) enviar(c, "SOCIAL_MESSAGE", social);
     });
   }
 
@@ -871,6 +880,9 @@ export class KingRoom extends Room<{
     if (!m || !this.#iniciadaEm || this.#elenco.length !== ASSENTOS) return;
     const posicoes: Record<number, Posicao> = {};
     for (const linha of rankings(m)) posicoes[linha.seat] = linha.position as Posicao;
+    // RECORDES (Entrega D): a pontuação FINAL de cada assento, do motor — nunca do cliente.
+    const pontos: Record<number, number> = {};
+    m.cumulative.forEach((total, seat) => { pontos[seat] = total; });
     const assentos: AssentoAoFim[] = this.#elenco.map((e, seat) => ({
       seat,
       playerId: e.playerId,
@@ -887,6 +899,7 @@ export class KingRoom extends Room<{
         terminadaEm: new Date(),
         assentos,
         posicoes,
+        pontos,
       });
     } catch (e) {
       console.error(`[progresso] registrador falhou ao receber o fim da partida: ${(e as Error)?.name ?? "erro"}`);
@@ -1077,7 +1090,11 @@ export class KingRoom extends Room<{
     };
     client.userData = dados;
     this.#sessoes.set(client.sessionId, dados);
-    if (Array.isArray(options?.recursos) && options.recursos.includes(REACAO_DA_COROA)) this.#veemCoroa.add(client.sessionId);
+    // O que este cliente sabe mostrar: só etiquetas de reação conhecidas, e no máximo as seis.
+    if (Array.isArray(options?.recursos)) {
+      const sabe = new Set(options.recursos.slice(0, 16).filter((r) => ehReacao(r)));
+      if (sabe.size > 0) this.#mostra.set(client.sessionId, sabe);
+    }
     this.#conexaoAtiva.set(dados.playerId, client);
     this.#timerOrfa?.clear();
     this.#timerOrfa = null;
@@ -1112,8 +1129,7 @@ export class KingRoom extends Room<{
     const ocupado = this.#avataresEmUso(seat).includes(pedido);
     assento.avatar = ocupado ? AVATAR_PENDENTE : pedido;
     // Cosméticos começam DESLIGADOS e só acendem com a resposta do banco, depois de sentar.
-    assento.moldura = false;
-    assento.coroa = false;
+    apagarCosmeticos(assento);
     if (dados.identidadePermanente) void this.#lerCosmeticos(dados.playerId, seat);
 
     enviar(client, "SERVER_WELCOME", {
@@ -1246,7 +1262,7 @@ export class KingRoom extends Room<{
     const evento = { seat: dados.seat, playerId: dados.playerId, nick: assento.nick };
     this.#esvaziarAssento(assento);
     for (const [sid, d] of this.#sessoes) {
-      if (d.playerId === dados.playerId) { this.#sessoes.delete(sid); this.#veemCoroa.delete(sid); }
+      if (d.playerId === dados.playerId) { this.#sessoes.delete(sid); this.#mostra.delete(sid); }
     }
     this.#conexaoAtiva.delete(dados.playerId);
     if (this.#host === dados.playerId) this.#passarAnfitriao();
@@ -1263,11 +1279,10 @@ export class KingRoom extends Room<{
     assento.bot = false;
     assento.host = false;
     assento.avatar = AVATAR_PADRAO;
-    assento.moldura = false;
-    assento.coroa = false;
+    apagarCosmeticos(assento);
     // o histórico de mensagens não pode punir quem sentar aqui depois
     this.#ritmoSocial.esquecer(assento.seat);
-    this.#coroaNaMao.delete(assento.seat);
+    for (const k of [...this.#reacaoNaMao.keys()]) if (k.startsWith(`${assento.seat}:`)) this.#reacaoNaMao.delete(k);
   }
 
   /**
@@ -1279,8 +1294,11 @@ export class KingRoom extends Room<{
     const c = await cosmeticosEmUso().doJogador(playerId).catch(() => null);
     const assento = this.state.seats[seat];
     if (!c || assento.playerId !== playerId) return;
-    assento.moldura = c.moldura;
-    assento.coroa = c.coroa;
+    assento.estiloMoldura = c.moldura;
+    assento.reacoes = c.reacoes.join(",");
+    // os dois campos da Entrega B, para o cliente que só os conhece: "tem moldura" e "tem a coroa"
+    assento.moldura = c.moldura !== "";
+    assento.coroa = c.reacoes.includes(REACAO_DA_COROA);
   }
 
   /**
@@ -1387,7 +1405,19 @@ function assentoVazio(seat: number): AssentoPublico {
   a.bot = false;
   a.host = false;
   a.avatar = AVATAR_PADRAO;
+  apagarCosmeticos(a);
+  return a;
+}
+
+/** Sem cosmético nenhum: o estado de quem acabou de sentar (até o banco responder) e do assento vazio. */
+function apagarCosmeticos(a: AssentoPublico): void {
   a.moldura = false;
   a.coroa = false;
-  return a;
+  a.estiloMoldura = "";
+  a.reacoes = "";
+}
+
+/** As reações de nível que o banco liberou para este assento. */
+function reacoesDoAssento(a: AssentoPublico): string[] {
+  return a.reacoes ? a.reacoes.split(",") : [];
 }

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// HOMOLOGAÇÃO ISOLADA DA ENTREGA B — para testar no iPhone (e em qualquer aparelho do mesmo Wi-Fi)
+// HOMOLOGAÇÃO ISOLADA DAS ENTREGAS B e C — para testar no iPhone (e em qualquer aparelho do mesmo Wi-Fi)
 // SEM banco real, sem Supabase real, sem a VPS. Tudo nasce neste PC e morre ao sair (Ctrl+C).
 //
 //   Postgres 17 local, com TLS (CA própria) ── todas as migrações + o ROLLOUT dos cosméticos,
 //      │                                         aplicado pelo arquivo exato de Production
 //      ├── "mini Supabase" (/auth/v1, /rest/v1): só os endpoints que a web usa, sobre o banco
-//      │     REAL desta máquina — RLS, GRANTs e a porta `equipar_cosmetico` de verdade, com o JWT
+//      │     REAL desta máquina — RLS, GRANTs e a porta `equipar_item` de verdade, com o JWT
 //      │     de cada aparelho (ES256, JWKS local)
 //      ├── servidor de jogo DESTA branch (apps/server/dist), identidade `permanent` + progresso
 //      │     `database` pelo papel `king_server`, com TLS verificado contra a CA própria
@@ -16,9 +16,9 @@
 //
 //   node scripts/homologacao-cosmeticos.mjs [--ip 192.168.x.y] [--porta 8443] [--sem-build]
 //
-// O painel https://IP:PORTA/homolog lista as contas que entraram e dá XP SINTÉTICO a cada uma (100,
-// 450, 1000, 1750, 2700) — só neste banco descartável — para ver os desbloqueios dos níveis 2, 4, 6, 8
-// (Vinho Clássica) e 10 (Esmeralda Real).
+// O painel https://IP:PORTA/homolog lista as contas que entraram e dá XP SINTÉTICO a cada uma — o XP
+// EXATO de cada nível de 1 a 18 — só neste banco descartável, para ver cada desbloqueio da curva do
+// catálogo (Entrega C) na hora em que ele acontece.
 // Pré-requisitos: `npm run build` já rodado nesta árvore (o servidor compilado) e `openssl` no PATH.
 import EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
@@ -104,8 +104,12 @@ const conectar = async (database, user = "postgres", password = SENHA.admin) => 
   const r = await editor.query(ler("supabase/rollout/cosmeticos-aplicar.sql"));
   const ultima = Array.isArray(r) ? r[r.length - 1] : r;
   if (ultima.rows[0]?.resultado !== "COSMÉTICOS (ENTREGA B) APLICADA E CONFERIDA") throw new Error("o rollout não conferiu");
+  // e os recordes (Entrega D), também pelo arquivo exato do SQL Editor
+  const rr = await editor.query(ler("supabase/rollout/recordes-aplicar.sql"));
+  const ur = Array.isArray(rr) ? rr[rr.length - 1] : rr;
+  if (ur.rows[0]?.resultado !== "RECORDES (ENTREGA D) APLICADA E CONFERIDA") throw new Error("o rollout dos recordes não conferiu");
   await editor.end();
-  log("banco: todas as migrações + rollout dos cosméticos APLICADO E CONFERIDO");
+  log("banco: todas as migrações + rollouts dos cosméticos e dos recordes APLICADOS E CONFERIDOS");
 }
 const admin = new pg.Pool({ host: "127.0.0.1", port: PORTA_PG, database: "king", user: "postgres", password: SENHA.admin, max: 6 });
 
@@ -200,13 +204,31 @@ async function rest(q, res, url) {
   try {
     if (q.method === "GET" && url.pathname === "/rest/v1/meu_progresso") return devolver(await comoCliente(c, "select * from public.meu_progresso"));
     if (q.method === "GET" && url.pathname === "/rest/v1/cosmeticos_equipados") {
-      return devolver(await comoCliente(c, "select moldura_real, baralho_imperial, reacao_coroa, toalha from public.cosmeticos_equipados"));
+      return devolver(await comoCliente(c, "select moldura, baralho, reacoes, toalha from public.cosmeticos_equipados"));
     }
     if (q.method === "GET" && url.pathname === "/rest/v1/xp_eventos") {
+      // sem filtro de partida: o HISTÓRICO RECENTE (Entrega D) — as últimas cinco do próprio jogador (RLS)
+      if (!url.searchParams.has("partida_id")) {
+        return devolver(await comoCliente(c, "select partida_id, posicao, xp_delta, criado_em from public.xp_eventos order by criado_em desc limit 5"));
+      }
       const id = /^eq\.(.+)$/.exec(url.searchParams.get("partida_id") ?? "")?.[1] ?? "";
       if (!UUID.test(id)) return json(res, 400, { code: "22P02", message: "partida_id" });
       return devolver(await comoCliente(c, "select xp_delta, posicao from public.xp_eventos where partida_id = $1", [id]));
     }
+    // RECORDES (Entrega D): o Top 3 Online (RLS: só os próprios) e o XP de um nível
+    if (q.method === "GET" && url.pathname === "/rest/v1/placares_online") {
+      return devolver(await comoCliente(c, "select partida_id, pontos, terminada_em from public.placares_online order by pontos desc, terminada_em, partida_id limit 3"));
+    }
+    if (q.method === "GET" && url.pathname === "/rest/v1/xp_por_nivel") {
+      const n = Number(/^eq\.(\d+)$/.exec(url.searchParams.get("nivel") ?? "")?.[1]);
+      if (!Number.isInteger(n)) return json(res, 400, { code: "22P02", message: "nivel" });
+      return devolver(await comoCliente(c, "select xp from public.xp_por_nivel where nivel = $1", [n]));
+    }
+    if (q.method === "POST" && url.pathname === "/rest/v1/rpc/equipar_item") {
+      const b = await corpo(q);
+      return devolver(await comoCliente(c, "select * from public.equipar_item($1, $2)", [b.p_item ?? null, b.p_equipado ?? null]));
+    }
+    // as portas das partes 1 e 2 continuam respondendo (o cliente da Entrega B ainda as usaria)
     if (q.method === "POST" && url.pathname === "/rest/v1/rpc/equipar_cosmetico") {
       const b = await corpo(q);
       return devolver(await comoCliente(c, "select * from public.equipar_cosmetico($1, $2)", [b.p_item ?? null, b.p_equipado ?? null]));
@@ -241,12 +263,16 @@ async function auth(q, res, url) {
   return json(res, 404, { code: 404, msg: `não existe nesta homologação: ${url.pathname}` });
 }
 
+/** O XP em que cada nível começa, do 1 ao 18 (a curva de `public.xp_para_nivel`): 0, 100, 250, …, 8500. */
+const XP_DOS_NIVEIS = Array.from({ length: 18 }, (_, i) => (i === 0 ? 0 : 25 * (i + 1) * (i + 2) - 50));
+
 const PAINEL = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Homologação — XP sintético</title><style>body{font:16px system-ui;margin:16px;background:#111;color:#eee}button{font-size:15px;margin:2px;padding:8px}td{padding:6px}</style>
-<h1>Homologação isolada (banco descartável)</h1><p>XP <b>sintético</b>: só existe neste PC. Nível 2 = 100, 4 = 450, 6 = 1000, 8 = 1750, 10 = 2700.</p>
+<h1>Homologação isolada (banco descartável)</h1><p>XP <b>sintético</b>: só existe neste PC. Cada botão é o NÍVEL (N2 a N18), com o XP exato de onde ele começa.</p>
 <table id="t"></table><script>
+const NIVEIS=${JSON.stringify(XP_DOS_NIVEIS)};
 async function carregar(){const r=await fetch("/homolog/contas");const l=await r.json();
-document.getElementById("t").innerHTML=l.map(c=>"<tr><td>"+c.id.slice(0,8)+"</td><td>"+c.xp+" XP · nível "+c.nivel+"</td><td>"+[0,100,450,1000,1750,2700].map(x=>"<button onclick=dar('"+c.id+"',"+x+")>"+x+"</button>").join("")+"</td><td>"+c.equipados+"</td></tr>").join("")||"<tr><td>nenhuma conta ainda: abra o jogo e entre numa sala online</td></tr>";}
+document.getElementById("t").innerHTML=l.map(c=>"<tr><td>"+c.id.slice(0,8)+"</td><td>"+c.xp+" XP · nível "+c.nivel+"</td><td>"+NIVEIS.map((x,i)=>"<button onclick=dar('"+c.id+"',"+x+")>N"+(i+1)+"</button>").join("")+"</td><td>"+c.equipados+"</td></tr>").join("")||"<tr><td>nenhuma conta ainda: abra o jogo e entre numa sala online</td></tr>";}
 async function dar(id,xp){await fetch("/homolog/xp",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({id,xp})});carregar();}
 carregar();setInterval(carregar,3000);</script>`;
 
@@ -254,13 +280,13 @@ async function painel(q, res, url) {
   if (url.pathname === "/homolog") { res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); return res.end(PAINEL); }
   if (url.pathname === "/homolog/contas") {
     const r = await admin.query(`select p.id::text, coalesce(g.xp_total, 0) as xp, public.nivel_de(coalesce(g.xp_total, 0)) as nivel,
-      concat_ws(' ', case when c.moldura_real then 'moldura' end, case when c.baralho_imperial then 'baralho' end, case when c.reacao_coroa then 'coroa' end, 'mesa ' || c.toalha) as equipados
+      concat_ws(' · ', 'moldura ' || c.moldura, 'baralho ' || c.baralho, 'reações ' || nullif(array_to_string(c.reacoes, ','), ''), 'mesa ' || c.toalha) as equipados
       from public.players p left join public.progresso g on g.player_id = p.id left join public.cosmeticos_equipados c on c.player_id = p.id order by p.id`);
     return json(res, 200, r.rows);
   }
   if (url.pathname === "/homolog/xp" && q.method === "POST") {
     const b = await corpo(q);
-    if (!UUID.test(b.id ?? "") || ![0, 100, 450, 1000, 1750, 2700].includes(b.xp)) return json(res, 400, { erro: "id/xp" });
+    if (!UUID.test(b.id ?? "") || !XP_DOS_NIVEIS.includes(b.xp)) return json(res, 400, { erro: "id/xp" });
     await admin.query(`insert into public.progresso (player_id, xp_total) values ($1, $2)
       on conflict (player_id) do update set xp_total = excluded.xp_total`, [b.id, b.xp]);
     log(`XP sintético: ${b.id.slice(0, 8)} → ${b.xp}`);

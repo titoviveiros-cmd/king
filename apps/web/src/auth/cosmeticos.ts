@@ -1,10 +1,9 @@
-// OS COSMÉTICOS VISTOS PELO CLIENTE (Entrega B) — catálogo fechado, por categoria, nenhuma decisão.
+// OS COSMÉTICOS VISTOS PELO CLIENTE (Entregas B e C) — catálogo fechado, por categoria, nenhuma decisão.
 //
 // O que este módulo NÃO faz é o que importa: não decide se um item está liberado para o servidor,
 // não escreve na tabela e não informa nível a ninguém. Equipar é UM pedido ao banco
-// (`equipar_cosmetico`, ou `equipar_toalha` para a mesa), que confere o nível lá dentro e recusa se
-// não alcançar. A moldura, a reação e a mesa que os outros veem vêm do SERVIDOR DO JOGO, que lê o
-// banco por conta própria.
+// (`equipar_item`), que confere o nível lá dentro e recusa se não alcançar. A moldura, as reações e
+// a mesa que os outros veem vêm do SERVIDOR DO JOGO, que lê o banco por conta própria.
 //
 // O nível usado aqui para desenhar "bloqueado/desbloqueado" é o de `meu_progresso` — o MESMO número
 // que o banco usa para recusar. A tabela de níveis abaixo existe só para desenhar a vitrine; um
@@ -19,18 +18,20 @@ import { marcadorDeSessao } from "./sessaoNativa.js";
 
 // ───────────────────────── as categorias ─────────────────────────
 //
-// PREPARADO PARA CRESCER, SEM CRESCER AGORA. Uma categoria nova (avatares, por exemplo) é: uma
-// entrada em `Categoria`, uma linha em `CATEGORIAS` e os itens dela no `CATALOGO` — mais a coluna e a
-// porta no banco, com o nível conferido lá. A vitrine, a celebração e o contador da Home já leem
-// tudo daqui, por categoria. `exclusiva` = um item por vez (a mesa); senão, liga/desliga por item.
+// PREPARADO PARA CRESCER. Uma categoria nova (avatares, por exemplo) é: uma entrada em `Categoria`,
+// uma linha em `CATEGORIAS` e os itens dela no `CATALOGO` — mais a coluna e a porta no banco, com o
+// nível conferido lá. A vitrine, a celebração e o contador da Home já leem tudo daqui.
 //
-// Hoje existem só as quatro abaixo. "avatar" está no tipo para marcar o lugar, e NÃO tem item.
+// Hoje existem as quatro abaixo. "avatar" está no tipo para marcar o lugar, e NÃO tem item.
 export type Categoria = "moldura" | "baralho" | "mesa" | "reacao" | "avatar";
 
 export interface DescricaoDaCategoria {
   id: Categoria;
   nome: string;
-  /** Um item por vez (escolher um troca o outro). */
+  /**
+   * SEMPRE UM item (a mesa): escolher outro troca, e não existe "nenhum". As outras categorias têm
+   * botão de equipar/desequipar por item — e o BANCO garante que moldura e baralho são um por vez.
+   */
   exclusiva: boolean;
 }
 
@@ -45,63 +46,98 @@ export const CATEGORIAS: readonly DescricaoDaCategoria[] = [
 // ───────────────────────── o catálogo ─────────────────────────
 
 /** As toalhas, com o MESMO id que a sala sincroniza (`tableTheme`) e que o banco guarda. */
-export type Toalha = "imperial" | "verde" | "vinho" | "esmeralda";
+export const TOALHAS = ["imperial", "verde", "vinho", "azul", "esmeralda", "preta"] as const;
+export type Toalha = (typeof TOALHAS)[number];
 export const TOALHA_PADRAO: Toalha = "imperial";
 
+/** As molduras (o texto de `cosmeticos_equipados.moldura` e de `assento.estiloMoldura`). */
+export const MOLDURAS = ["real", "rubi", "onix", "diamante", "esmeralda"] as const;
+export type EstiloDeMoldura = (typeof MOLDURAS)[number];
+
+/** Os baralhos (o texto de `cosmeticos_equipados.baralho` e de `html[data-baralho]`). */
+export const BARALHOS = ["imperial", "safira", "ouro-negro", "rubi", "marfim"] as const;
+export type EstiloDeBaralho = (typeof BARALHOS)[number];
+
+/** As reações, na ordem do painel. As duas primeiras são LIVRES; as outras, de nível. */
+export const REACOES = ["risada", "choro", "fogo", "coroa", "caveira", "aplauso"] as const;
+export type Reacao = (typeof REACOES)[number];
+export const REACOES_LIVRES: readonly Reacao[] = ["risada", "choro"];
+
 export type ItemId =
-  | "moldura-real" | "baralho-imperial" | "reacao-coroa"
-  | "mesa-imperial" | "mesa-verde" | "mesa-vinho" | "mesa-esmeralda";
+  | `moldura-${EstiloDeMoldura}` | `baralho-${EstiloDeBaralho}` | `mesa-${Toalha}` | `reacao-${Reacao}`;
 
 export interface ItemDoCatalogo {
   id: ItemId;
   categoria: Categoria;
-  /** Nível em que o item libera. Espelho de `king_private.nivel_do_cosmetico` / `nivel_da_toalha`. */
+  /** Nível em que o item libera. Espelho de `king_private.nivel_do_item` / `nivel_da_toalha`. */
   nivel: number;
   nome: string;
   descricao: string;
+  /** O estilo/toalha/reação que o item representa (o texto depois da categoria no id). */
+  valor: string;
   /** Só na categoria `mesa`: a toalha que o item representa. */
   toalha?: Toalha;
 }
 
+const item = (categoria: Exclude<Categoria, "avatar">, valor: string, nivel: number, nome: string, descricao: string): ItemDoCatalogo => ({
+  id: `${categoria}-${valor}` as ItemId, categoria, nivel, nome, descricao, valor,
+  ...(categoria === "mesa" ? { toalha: valor as Toalha } : {}),
+});
+
 /**
- * O catálogo FECHADO, na ordem de cada categoria. Nível 1 = livre (as duas mesas de sempre): está
- * na vitrine para ser escolhido, mas não conta como "desbloqueio" nem é celebrado.
+ * O catálogo FECHADO, na ordem de cada categoria (do nível menor para o maior). Nível 1 = livre (as
+ * duas mesas de sempre e as reações Risada e Choro): está na vitrine, mas não conta como
+ * "desbloqueio" nem é celebrado.
  */
 export const CATALOGO: readonly ItemDoCatalogo[] = [
-  { id: "moldura-real", categoria: "moldura", nivel: 2, nome: "Moldura Real",
-    descricao: "Aro de ouro, filete vinho e o selo da coroa no seu avatar. Os quatro da mesa veem." },
-  { id: "baralho-imperial", categoria: "baralho", nivel: 4, nome: "Baralho Imperial",
-    descricao: "Verso real com brasão da coroa e faces em marfim com filete de ouro. Só no seu aparelho." },
-  { id: "mesa-imperial", categoria: "mesa", nivel: 1, toalha: "imperial", nome: "Noite Imperial",
-    descricao: "A mesa da casa, em violeta profundo." },
-  { id: "mesa-verde", categoria: "mesa", nivel: 1, toalha: "verde", nome: "Verde Clássica",
-    descricao: "A mesa clássica de baralho." },
-  { id: "mesa-vinho", categoria: "mesa", nivel: 8, toalha: "vinho", nome: "Vinho Clássica",
-    descricao: "Vinho escuro com o aro dourado. Na sua sala, os quatro jogam nela." },
-  { id: "mesa-esmeralda", categoria: "mesa", nivel: 10, toalha: "esmeralda", nome: "Esmeralda Real",
-    descricao: "Esmeralda com filete duplo de ouro. Na sua sala, os quatro jogam nela." },
-  { id: "reacao-coroa", categoria: "reacao", nivel: 6, nome: "Reação da Coroa",
-    descricao: "“Viva o Rei! 👑” entre as mensagens rápidas. Uma por mão." },
+  item("moldura", "real", 2, "Moldura Real", "Aro de ouro, filete vinho e o selo da coroa no seu avatar. Os quatro da mesa veem."),
+  item("moldura", "rubi", 7, "Moldura Rubi Real", "Ouro cravejado de rubis e a coroa com gema vermelha. Os quatro da mesa veem."),
+  item("moldura", "onix", 11, "Moldura Ônix Imperial", "Ônix negro polido com veios de ouro e a coroa imperial. Os quatro da mesa veem."),
+  item("moldura", "diamante", 15, "Moldura Diamante do Rei", "Diamante lapidado, com um brilho que gira, e a coroa do Rei. Os quatro da mesa veem."),
+  item("moldura", "esmeralda", 16, "Moldura Esmeralda Suprema", "Esmeralda e ouro em aro duplo, com brilho vivo. A mais rara. Os quatro da mesa veem."),
+  item("baralho", "imperial", 4, "Baralho Imperial", "Verso real com brasão da coroa e faces em marfim com filete de ouro. Só no seu aparelho."),
+  item("baralho", "safira", 9, "Baralho Safira Noturna", "Verso azul-noite estrelado com aro de prata. Só no seu aparelho."),
+  item("baralho", "ouro-negro", 13, "Baralho Ouro Negro", "Verso negro com arte em ouro e faces douradas. Só no seu aparelho."),
+  item("baralho", "rubi", 17, "Baralho Imperial Rubi", "Verso rubi com treliça de ouro e brasão. Só no seu aparelho."),
+  item("baralho", "marfim", 18, "Baralho Marfim Real", "Verso marfim com filigrana de ouro e selo vinho. Só no seu aparelho."),
+  item("mesa", "imperial", 1, "Noite Imperial", "A mesa da casa, em violeta profundo."),
+  item("mesa", "verde", 1, "Verde Clássica", "A mesa clássica de baralho."),
+  item("mesa", "vinho", 3, "Vinho Imperial", "Vinho escuro com o aro dourado. Na sua sala, os quatro jogam nela."),
+  item("mesa", "azul", 8, "Azul Royal", "Azul real profundo com filete de ouro. Na sua sala, os quatro jogam nela."),
+  item("mesa", "esmeralda", 10, "Esmeralda Real", "Esmeralda com filete duplo de ouro. Na sua sala, os quatro jogam nela."),
+  item("mesa", "preta", 12, "Preta Premium", "Preto acetinado com aro de ouro. Na sua sala, os quatro jogam nela."),
+  item("reacao", "risada", 1, "Risada", "😂 no balão grande. De todo mundo. Uma por mão."),
+  item("reacao", "choro", 1, "Choro", "😭 no balão grande. De todo mundo. Uma por mão."),
+  item("reacao", "fogo", 5, "Fogo", "🔥 “Pegou fogo!” no balão grande. Uma por mão."),
+  item("reacao", "coroa", 6, "Coroa", "“Viva o Rei! 👑” no balão de ouro. Uma por mão."),
+  item("reacao", "caveira", 10, "Caveira / Azar", "💀 “Que azar!” no balão grande. Uma por mão."),
+  item("reacao", "aplauso", 14, "Aplauso", "👏 “Aplausos!” no balão grande. Uma por mão."),
 ];
 
 /** O item de uma toalha. */
 export const itemDaToalha = (t: Toalha): ItemDoCatalogo => CATALOGO.find((i) => i.toalha === t)!;
-export const ehToalha = (t: unknown): t is Toalha =>
-  typeof t === "string" && CATALOGO.some((i) => i.toalha === t);
+export const ehToalha = (t: unknown): t is Toalha => typeof t === "string" && (TOALHAS as readonly string[]).includes(t);
+export const ehMoldura = (m: unknown): m is EstiloDeMoldura => typeof m === "string" && (MOLDURAS as readonly string[]).includes(m);
+export const ehBaralho = (b: unknown): b is EstiloDeBaralho => typeof b === "string" && (BARALHOS as readonly string[]).includes(b);
+export const ehReacao = (r: unknown): r is Reacao => typeof r === "string" && (REACOES as readonly string[]).includes(r);
+const nivelDe = (id: ItemId): number => CATALOGO.find((i) => i.id === id)?.nivel ?? Infinity;
 
 /**
- * O que está equipado: por item. Na mesa, exatamente UM item é `true` (a toalha escolhida). Assim
- * a vitrine pergunta a mesma coisa a qualquer categoria.
+ * O que está equipado: por item. Na mesa, exatamente UM item é `true`; em moldura e baralho, no
+ * máximo um; nas reações, as livres sempre `true` e as de nível conforme o banco. Assim a vitrine
+ * pergunta a mesma coisa a qualquer categoria.
  */
 export type Equipados = Record<ItemId, boolean>;
-export const NADA_EQUIPADO: Equipados = Object.freeze({
-  "moldura-real": false, "baralho-imperial": false, "reacao-coroa": false,
-  "mesa-imperial": true, "mesa-verde": false, "mesa-vinho": false, "mesa-esmeralda": false,
-});
+export const NADA_EQUIPADO: Equipados = Object.freeze(Object.fromEntries(
+  CATALOGO.map((i) => [i.id, i.id === `mesa-${TOALHA_PADRAO}` || (i.categoria === "reacao" && i.nivel <= 1)]),
+) as Equipados);
 
 /** A toalha escolhida, lida dos equipados. */
 export const toalhaEquipada = (e: Equipados): Toalha =>
   CATALOGO.find((i) => i.toalha && e[i.id])?.toalha ?? TOALHA_PADRAO;
+/** O baralho escolhido, ou `null`. */
+export const baralhoEquipado = (e: Equipados): EstiloDeBaralho | null =>
+  (CATALOGO.find((i) => i.categoria === "baralho" && e[i.id])?.valor as EstiloDeBaralho | undefined) ?? null;
 
 export type EstadoDoItem = "bloqueado" | "desbloqueado" | "equipado";
 
@@ -110,15 +146,14 @@ export function estadoDoItem(item: ItemDoCatalogo, nivel: number, equipados: Equ
   return equipados[item.id] ? "equipado" : "desbloqueado";
 }
 
-/** O que conta como DESBLOQUEIO: os itens de nível (os livres não). */
-export const DESBLOQUEAVEIS: readonly ItemDoCatalogo[] = CATALOGO.filter((i) => i.nivel > 1);
+/** O que conta como DESBLOQUEIO: os itens de nível (os livres não), do nível menor para o maior. */
+export const DESBLOQUEAVEIS: readonly ItemDoCatalogo[] = [...CATALOGO.filter((i) => i.nivel > 1)].sort((a, b) => a.nivel - b.nivel);
 
-/** Desbloqueios alcançados neste nível, na ordem do catálogo. */
+/** Desbloqueios alcançados neste nível, na ordem da curva. */
 export const liberadosNo = (nivel: number): ItemDoCatalogo[] => DESBLOQUEAVEIS.filter((i) => nivel >= i.nivel);
 
 /** O próximo desbloqueio acima deste nível — o que a vitrine aponta como "o próximo". */
-export const proximoDesbloqueio = (nivel: number): ItemDoCatalogo | null =>
-  [...DESBLOQUEAVEIS].sort((a, b) => a.nivel - b.nivel).find((i) => i.nivel > nivel) ?? null;
+export const proximoDesbloqueio = (nivel: number): ItemDoCatalogo | null => DESBLOQUEAVEIS.find((i) => i.nivel > nivel) ?? null;
 
 // ───────────────────────── o nível conhecido NESTE aparelho ─────────────────────────
 //
@@ -131,11 +166,11 @@ export function nivelLembrado(): number | null { return nivelConhecido; }
 
 // ───────────────────────── leitura e escrita no banco ─────────────────────────
 
-/** A linha de `cosmeticos_equipados` (ou do retorno de `equipar_cosmetico`). */
+/** A linha de `cosmeticos_equipados` (ou do retorno de `equipar_item`). */
 export interface LinhaDosCosmeticos {
-  moldura_real?: unknown;
-  baralho_imperial?: unknown;
-  reacao_coroa?: unknown;
+  moldura?: unknown;
+  baralho?: unknown;
+  reacoes?: unknown;
   toalha?: unknown;
 }
 
@@ -144,20 +179,22 @@ type Resposta<T> = Promise<{ data: T | null; error: unknown }>;
 export interface PortaDeCosmeticos {
   meus(): Resposta<LinhaDosCosmeticos>;
   equipar(item: ItemId, equipado: boolean): Resposta<LinhaDosCosmeticos[]>;
-  equiparToalha(toalha: Toalha): Resposta<Array<{ toalha?: unknown }>>;
 }
-
-const comToalha = (e: Omit<Equipados, `mesa-${Toalha}`>, t: Toalha): Equipados => ({
-  ...e,
-  "mesa-imperial": t === "imperial", "mesa-verde": t === "verde", "mesa-vinho": t === "vinho", "mesa-esmeralda": t === "esmeralda",
-});
 
 /** A linha só passa se vier INTEIRA e bem formada; senão, é como se a vitrine não existisse. */
 function lerLinha(l: LinhaDosCosmeticos | null | undefined): Equipados | null {
   if (!l) return null;
-  const { moldura_real: m, baralho_imperial: b, reacao_coroa: c, toalha: t } = l;
-  if (typeof m !== "boolean" || typeof b !== "boolean" || typeof c !== "boolean" || !ehToalha(t)) return null;
-  return comToalha({ "moldura-real": m, "baralho-imperial": b, "reacao-coroa": c }, t);
+  const { moldura: m, baralho: b, reacoes: r, toalha: t } = l;
+  if ((m !== null && !ehMoldura(m)) || (b !== null && !ehBaralho(b)) || !ehToalha(t)) return null;
+  if (!Array.isArray(r) || !r.every((x) => ehReacao(x) && !REACOES_LIVRES.includes(x))) return null;
+  const e = { ...NADA_EQUIPADO } as Equipados;
+  for (const i of CATALOGO) {
+    e[i.id] = i.categoria === "moldura" ? i.valor === m
+      : i.categoria === "baralho" ? i.valor === b
+      : i.categoria === "mesa" ? i.valor === t
+      : i.nivel <= 1 || (r as string[]).includes(i.valor);
+  }
+  return e;
 }
 
 export type ResultadoDoEquipar =
@@ -186,28 +223,20 @@ export function criarCosmeticos(porta: () => Promise<PortaDeCosmeticos | null>, 
     },
 
     /**
-     * Equipa ou desequipa. Quem confere o nível é o banco; aqui só se lê a resposta. Na MESA,
-     * "equipar" escolhe a toalha e "desequipar" volta para a padrão; `atual` é o que já estava, para
-     * as outras categorias ficarem como estão.
+     * Equipa ou desequipa. Quem confere o nível — e quem garante "uma moldura por vez" — é o banco;
+     * aqui só se lê a linha INTEIRA que ele devolve. Nas reações livres não há o que pedir: são de
+     * todo mundo, sempre.
      */
-    async equipar(item: ItemId, equipado: boolean, atual: Equipados = NADA_EQUIPADO): Promise<ResultadoDoEquipar> {
+    async equipar(item: ItemId, equipado: boolean): Promise<ResultadoDoEquipar> {
       const doCatalogo = CATALOGO.find((i) => i.id === item);
       if (!doCatalogo || !temSessao()) return { ok: false, motivo: "falha" };
+      if (doCatalogo.categoria === "reacao" && doCatalogo.nivel <= 1) return { ok: false, motivo: "falha" };
       try {
         const p = await porta();
         if (!p) return { ok: false, motivo: "falha" };
-        if (doCatalogo.toalha) {
-          const pedida = equipado ? doCatalogo.toalha : TOALHA_PADRAO;
-          const { data, error } = await p.equiparToalha(pedida);
-          if (error) return { ok: false, motivo: motivoDoErro(error) };
-          const t = Array.isArray(data) ? data[0]?.toalha : undefined;
-          return ehToalha(t) ? { ok: true, equipados: comToalha(atual, t) } : { ok: false, motivo: "falha" };
-        }
         const { data, error } = await p.equipar(item, equipado);
         if (error) return { ok: false, motivo: motivoDoErro(error) };
-        const linha = Array.isArray(data) ? data[0] : null;
-        // `equipar_cosmetico` devolve só as três colunas dela: a toalha é a que já estava.
-        const e = lerLinha(linha ? { ...linha, toalha: toalhaEquipada(atual) } : null);
+        const e = lerLinha(Array.isArray(data) ? data[0] : null);
         return e ? { ok: true, equipados: e } : { ok: false, motivo: "falha" };
       } catch {
         return { ok: false, motivo: "falha" };
@@ -238,16 +267,15 @@ export function cosmeticosConfigurados(): CosmeticosDoJogador | null {
     if (!c) return null;
     return {
       meus: async () => await c.from("cosmeticos_equipados")
-        .select("moldura_real, baralho_imperial, reacao_coroa, toalha").maybeSingle<LinhaDosCosmeticos>(),
-      equipar: async (item, equipado) => await c.rpc("equipar_cosmetico", { p_item: item, p_equipado: equipado }),
-      equiparToalha: async (toalha) => await c.rpc("equipar_toalha", { p_toalha: toalha }),
+        .select("moldura, baralho, reacoes, toalha").maybeSingle<LinhaDosCosmeticos>(),
+      equipar: async (item, equipado) => await c.rpc("equipar_item", { p_item: item, p_equipado: equipado }),
     };
   }, () => sessaoGuardada(r.url));
   unico = { url: r.url, api };
   return api;
 }
 
-// ───────────────────────── o Baralho Imperial, no aparelho ─────────────────────────
+// ───────────────────────── o BARALHO, no aparelho ─────────────────────────
 //
 // É o único item que não passa pela sala: cada aparelho desenha as PRÓPRIAS cartas. A escolha vem
 // do banco (a mesma em todos os aparelhos da conta) e fica guardada aqui só para valer também numa
@@ -256,24 +284,34 @@ export function cosmeticosConfigurados(): CosmeticosDoJogador | null {
 
 const CHAVE_DO_BARALHO = "king:baralho";
 
-export function baralhoGuardado(): boolean {
-  try { return globalThis.localStorage?.getItem(CHAVE_DO_BARALHO) === "imperial"; } catch { return false; }
+/** O baralho guardado neste aparelho (o "imperial" da Entrega B continua valendo), ou `null`. */
+export function baralhoGuardado(): EstiloDeBaralho | null {
+  try {
+    const b = globalThis.localStorage?.getItem(CHAVE_DO_BARALHO);
+    return ehBaralho(b) ? b : null;
+  } catch { return null; }
 }
 
-/** Liga ou desliga o Baralho Imperial neste aparelho. Só CSS: faces, valores e alvos ficam iguais. */
-export function aplicarBaralho(imperial: boolean, guardar = true): void {
+/** Troca o baralho deste aparelho. Só CSS: faces, valores, cores e alvos ficam iguais. */
+export function aplicarBaralho(estilo: EstiloDeBaralho | null, guardar = true): void {
   try {
     const raiz = globalThis.document?.documentElement;
     if (raiz) {
-      if (imperial) raiz.dataset.baralho = "imperial";
+      if (estilo) raiz.dataset.baralho = estilo;
       else delete raiz.dataset.baralho;
     }
   } catch { /* sem DOM (teste de render): nada a desenhar */ }
   if (!guardar) return;
   try {
-    if (imperial) globalThis.localStorage?.setItem(CHAVE_DO_BARALHO, "imperial");
+    if (estilo) globalThis.localStorage?.setItem(CHAVE_DO_BARALHO, estilo);
     else globalThis.localStorage?.removeItem(CHAVE_DO_BARALHO);
   } catch { /* sem armazenamento: vale até fechar */ }
+}
+
+/** O baralho que vale neste aparelho: o equipado, se o nível alcança. */
+export function baralhoQueVale(e: Equipados, nivel: number): EstiloDeBaralho | null {
+  const b = baralhoEquipado(e);
+  return b && nivel >= nivelDe(`baralho-${b}`) ? b : null;
 }
 
 // ───────────────────────── a mesa CONTRA OS BOTS ─────────────────────────

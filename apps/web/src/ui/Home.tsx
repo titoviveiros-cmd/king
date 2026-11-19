@@ -60,7 +60,7 @@ export interface OnlineDaHome {
 }
 
 export function Home({
-  onStart, onOpenAudio, online, tutorial, conta, progresso, onAbrirConta, itens,
+  onStart, onOpenAudio, online, tutorial, conta, progresso, onAbrirConta, itens, onAbrirRecordes,
 }: {
   onStart: (avatar: Avatar) => void;
   onOpenAudio: () => void;
@@ -79,6 +79,8 @@ export function Home({
    * nesta publicação (sem identidade, ou web sem conta neste navegador) — e o botão não aparece.
    */
   onAbrirConta?: () => void;
+  /** MEUS RECORDES (Entrega D): o Top 3 e a evolução. Ausente = sem o botão. */
+  onAbrirRecordes?: () => void;
   /**
    * Os ITENS DA COROA (Entrega B): quantos estão liberados e como abrir a vitrine. Ausente = vitrine
    * indisponível (sem sessão, banco sem a migração, leitura falhou) — e o card é o de sempre.
@@ -102,6 +104,19 @@ export function Home({
     if (codigo.length !== TAMANHO_CODIGO || !entrar) return;
     entrar.scrollIntoView?.({ block: "nearest" });
     entrar.focus({ preventScroll: true });
+    // As FONTES chegam depois e crescem o conteúdo (~12px a 852x300): o "Entrar" desce, a rolagem o
+    // acompanha e a fileira de ações saía pelo topo. Refeita a conta com a altura final: rola de volta o
+    // necessário para a fileira caber, sem tirar o "Entrar" da tela.
+    const manterAcoes = () => {
+      const home = entrar.closest(".home") as HTMLElement | null;
+      const fileira = home?.querySelector(".row");
+      if (!home || !fileira) return;
+      const topo = home.getBoundingClientRect().top;
+      const acima = topo - fileira.getBoundingClientRect().top;
+      const folga = home.clientHeight - (entrar.getBoundingClientRect().bottom - topo);
+      if (acima > 0 && folga > 0) home.scrollTop -= Math.min(acima, folga);
+    };
+    void globalThis.document?.fonts?.ready.then(manterAcoes);
   }, []);
   /**
    * NENHUM AVATAR VEM ESCOLHIDO, e a escolha é pedida quando faz falta.
@@ -151,6 +166,11 @@ export function Home({
         )}
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
+        {onAbrirRecordes && (
+          <button className="audiobtn recordesbtn" onClick={() => { sfxTap(); onAbrirRecordes(); }} aria-label="Meus Recordes" title="Meus Recordes">
+            🏆
+          </button>
+        )}
         {onAbrirConta && (
           <button className="audiobtn contabtn" onClick={() => { sfxTap(); onAbrirConta(); }} aria-label="Conta" title="Conta">
             👤

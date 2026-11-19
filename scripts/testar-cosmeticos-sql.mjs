@@ -36,12 +36,16 @@ const ANTERIORES = [
   "supabase/migrations/20261025130000_credito_com_conta_excluida.sql",
   "supabase/migrations/20261026120000_retencao_das_lapides.sql",
 ].map(ler);
-// As duas migrações dos cosméticos, na ordem (parte 1: moldura/baralho/reação; parte 2: a toalha), e
-// os dois rollbacks na ordem INVERSA. Uma mutação troca um trecho que existe UMA vez no conjunto.
+// As três migrações dos cosméticos, na ordem (parte 1: moldura/baralho/reação; parte 2: a toalha; parte 3:
+// o catálogo da Entrega C), e os três rollbacks na ordem INVERSA. Uma mutação troca um trecho que existe
+// UMA vez no conjunto.
 const MIGRACOES = lerMigracoes();
 const MIGRACAO = MIGRACOES.join("\n");
 const ROLLBACK_DA_MESA = ler("supabase/rollback/20261118120000_cosmeticos_mesa_rollback.sql");
-const ROLLBACK = ROLLBACK_DA_MESA + "\n" + ler("supabase/rollback/20261117120000_cosmeticos_rollback.sql");
+const ROLLBACK_DO_CATALOGO = ler("supabase/rollback/20261119120000_cosmeticos_catalogo_rollback.sql");
+const ROLLBACK = ROLLBACK_DO_CATALOGO + "\n" + ROLLBACK_DA_MESA + "\n" + ler("supabase/rollback/20261117120000_cosmeticos_rollback.sql");
+/** Só o rollback da parte 3 (o primeiro dos três), do texto desta execução (a mutação pode tê-lo trocado). */
+const soOCatalogo = (rollback) => rollback.slice(0, rollback.indexOf("-- ROLLBACK DA TOALHA DA MESA (20261118120000"));
 /** As migrações com UM trecho trocado — na migração que o contém (exatamente uma vez no conjunto). */
 function migracoesCom(de, para) {
   afirmar(MIGRACAO.split(de).length === 2, `trecho não encontrado exatamente 1 vez: ${de.slice(0, 60)}`);
@@ -151,6 +155,26 @@ const salaDe = async (c, ids) => (await c.query(
   "select player_id, moldura_real, reacao_coroa from king_private.cosmeticos_da_sala($1::uuid[])", [ids])).rows;
 const toalha = (c, t) => c.query("select toalha from public.equipar_toalha($1)", [t]);
 const mesaDe = async (c, id) => (await c.query("select toalha, liberadas from king_private.toalhas_do_anfitriao($1::uuid)", [id])).rows;
+// parte 3 (o catálogo da Entrega C)
+const item = (c, i, sim = true) => c.query("select moldura, baralho, reacoes, toalha from public.equipar_item($1, $2)", [i, sim]);
+const assentosDe = async (c, ids) => (await c.query(
+  "select player_id, moldura, reacoes from king_private.cosmeticos_dos_assentos($1::uuid[])", [ids])).rows;
+/** XP total em que o nível `n` começa (a curva de `public.xp_para_nivel`): 2 = 100, 10 = 2700, 18 = 8500. */
+const xpDoNivel = (n) => 25 * n * (n + 1) - 50;
+/** A curva combinada da Entrega C: [item, nível, onde o efeito aparece na linha]. */
+const CATALOGO_C = [
+  ["moldura-real", 2], ["moldura-rubi", 7], ["moldura-onix", 11], ["moldura-diamante", 15], ["moldura-esmeralda", 16],
+  ["baralho-imperial", 4], ["baralho-safira", 9], ["baralho-ouro-negro", 13], ["baralho-rubi", 17], ["baralho-marfim", 18],
+  ["reacao-fogo", 5], ["reacao-coroa", 6], ["reacao-caveira", 10], ["reacao-aplauso", 14],
+  ["mesa-vinho", 3], ["mesa-azul", 8], ["mesa-esmeralda", 10], ["mesa-preta", 12],
+];
+/** O item está em efeito nesta linha de `equipar_item`? */
+function temNaLinha(l, i) {
+  const [tipo, ...resto] = i.split("-");
+  const v = resto.join("-");
+  return tipo === "moldura" ? l.moldura === v : tipo === "baralho" ? l.baralho === v
+    : tipo === "reacao" ? l.reacoes.includes(v) : l.toalha === v;
+}
 async function retratoDoXp(admin) {
   const r = await admin.query(`select (select coalesce(sum(xp_total),0) from public.progresso)::bigint as total,
     (select count(*) from public.xp_eventos)::bigint as lancamentos,
@@ -206,12 +230,13 @@ const TESTES = [
     const [eu] = await b.jogadores(5000);
     const c = await b.como(eu);
     await equipar(c, "moldura-real", false); // cria a linha pelo caminho legítimo
-    await reprova(c.query("insert into public.cosmeticos_equipados (player_id, reacao_coroa) values ($1, true)", [eu]), "42501", "insert direto");
-    await reprova(c.query("update public.cosmeticos_equipados set reacao_coroa = true where player_id = $1", [eu]), "42501", "update direto");
+    await reprova(c.query("insert into public.cosmeticos_equipados (player_id, reacoes) values ($1, '{coroa}')", [eu]), "42501", "insert direto");
+    await reprova(c.query("update public.cosmeticos_equipados set reacoes = '{coroa}' where player_id = $1", [eu]), "42501", "update direto");
+    await reprova(c.query("update public.cosmeticos_equipados set moldura = 'diamante', baralho = 'marfim' where player_id = $1", [eu]), "42501", "update direto do catálogo");
     await reprova(c.query("delete from public.cosmeticos_equipados where player_id = $1", [eu]), "42501", "delete direto");
     const [pobre] = await b.jogadores(0);
     await reprova((await b.como(pobre)).query(
-      "insert into public.cosmeticos_equipados (player_id, moldura_real) values ($1, true)", [pobre]), "42501", "insert direto sem nível");
+      "insert into public.cosmeticos_equipados (player_id, moldura) values ($1, 'real')", [pobre]), "42501", "insert direto sem nível");
   } },
   { id: "K5", nome: "isolamento: cada um lê só a PRÓPRIA linha; ninguém equipa por outro", async fn(b) {
     const [a, outro] = await b.jogadores(1000, 1000);
@@ -243,7 +268,7 @@ const TESTES = [
     await equipar(await b.como(a), "reacao-coroa");
     await equipar(await b.como(c2), "moldura-real");
     // linha forjada pelo admin: equipada sem nível. O efeito precisa sair FALSO.
-    await b.admin.query("insert into public.cosmeticos_equipados (player_id, moldura_real, reacao_coroa) values ($1, true, true)", [d]);
+    await b.admin.query("insert into public.cosmeticos_equipados (player_id, moldura, reacoes) values ($1, 'real', '{coroa}')", [d]);
     const srv = await b.servidor();
     const linhas = await salaDe(srv, [a, c2, d, e]);
     const de = (id) => linhas.find((l) => l.player_id === id);
@@ -325,8 +350,8 @@ const TESTES = [
   } },
 
   // ══ A TOALHA DA MESA (parte 2) ══════════════════════════════════════════════════════════════
-  { id: "K15", nome: "toalhas nas BORDAS da curva: vinho 1749/1750 (nível 8), esmeralda 2699/2700 (nível 10); as duas de sempre LIVRES no nível 1", async fn(b) {
-    for (const [t, abaixo, exato] of [["vinho", 1749, 1750], ["esmeralda", 2699, 2700]]) {
+  { id: "K15", nome: "toalhas nas BORDAS da curva: vinho 249/250 (3), azul 1749/1750 (8), esmeralda 2699/2700 (10), preta 3849/3850 (12); as duas de sempre LIVRES", async fn(b) {
+    for (const [t, abaixo, exato] of [["vinho", 249, 250], ["azul", 1749, 1750], ["esmeralda", 2699, 2700], ["preta", 3849, 3850]]) {
       const [quase, ja] = await b.jogadores(abaixo, exato);
       await reprova(toalha(await b.como(quase), t), "42501", `${t} com ${abaixo} XP`);
       afirmar((await toalha(await b.como(ja), t)).rows[0].toalha === t, `${t} com ${exato} XP não ficou escolhida`);
@@ -339,7 +364,7 @@ const TESTES = [
   { id: "K16", nome: "toalha: catálogo FECHADO (22023), o banco recusa valor fora dele mesmo pelo admin, e o padrão é a Noite Imperial", async fn(b) {
     const [eu] = await b.jogadores(99999);
     const c = await b.como(eu);
-    for (const t of ["roxa", "", "VINHO", "vinho ", null]) await reprova(toalha(c, t), "22023", `toalha ${JSON.stringify(t)}`);
+    for (const t of ["roxa", "", "VINHO", "vinho ", "Azul", null]) await reprova(toalha(c, t), "22023", `toalha ${JSON.stringify(t)}`);
     await equipar(c, "moldura-real", false); // nasce a linha por outro item
     const r = await b.admin.query("select toalha from public.cosmeticos_equipados where player_id = $1", [eu]);
     afirmar(r.rows[0].toalha === "imperial", `padrão: ${r.rows[0].toalha}`);
@@ -348,14 +373,14 @@ const TESTES = [
   { id: "K17", nome: "a MESA DO ANFITRIÃO: o servidor lê só o efeito (escolhida E com nível) e as liberadas; ninguém da API lê", async fn(b) {
     const [alto, medio, forjado, nunca] = await b.jogadores(2700, 1750, 100, null);
     await toalha(await b.como(alto), "esmeralda");
-    await toalha(await b.como(medio), "vinho");
+    await toalha(await b.como(medio), "azul");
     // linha forjada pelo admin: esmeralda sem nível. O efeito precisa ser a mesa padrão.
     await b.admin.query("insert into public.cosmeticos_equipados (player_id, toalha) values ($1, 'esmeralda')", [forjado]);
     const srv = await b.servidor();
     const ver = async (id) => (await mesaDe(srv, id))[0];
     const a = await ver(alto), m = await ver(medio), f = await ver(forjado), n = await ver(nunca);
-    afirmar(a.toalha === "esmeralda" && a.liberadas.join() === "imperial,verde,vinho,esmeralda", `nível 10: ${JSON.stringify(a)}`);
-    afirmar(m.toalha === "vinho" && m.liberadas.join() === "imperial,verde,vinho", `nível 8: ${JSON.stringify(m)}`);
+    afirmar(a.toalha === "esmeralda" && a.liberadas.join() === "imperial,verde,vinho,azul,esmeralda", `nível 10: ${JSON.stringify(a)}`);
+    afirmar(m.toalha === "azul" && m.liberadas.join() === "imperial,verde,vinho,azul", `nível 8: ${JSON.stringify(m)}`);
     afirmar(f.toalha === "imperial" && f.liberadas.join() === "imperial,verde", `forjada sem nível teve efeito: ${JSON.stringify(f)}`);
     afirmar(n.toalha === "imperial" && n.liberadas.join() === "imperial,verde", `quem nunca escolheu: ${JSON.stringify(n)}`);
     await reprova(mesaDe(srv, null), "22023", "sem jogador");
@@ -394,7 +419,7 @@ const TESTES = [
     await equipar(await b.como(eu), "moldura-real");
     await toalha(await b.como(eu), "esmeralda");
     const s = await b.supabase();
-    // o rollback da parte 2 é o PRIMEIRO dos dois (o desta execução, que a mutação pode ter trocado)
+    // os rollbacks das partes 3 e 2 são os DOIS primeiros (os desta execução, que a mutação pode ter trocado)
     await s.query(rollback.slice(0, rollback.indexOf("-- ROLLBACK DOS COSMÉTICOS (20261117120000")));
     const sobrou = (await b.admin.query(`select to_regprocedure('public.equipar_toalha(text)') as e,
       to_regprocedure('king_private.toalhas_do_anfitriao(uuid)') as m, to_regprocedure('king_private.nivel_da_toalha(text)') as n,
@@ -404,6 +429,140 @@ const TESTES = [
     afirmar(linha?.moldura_real === true, "o rollback da mesa apagou a moldura");
     await s.query(MIGRACOES[1]);
     afirmar((await toalha(await b.como(eu), "vinho")).rows[0].toalha === "vinho", "reaplicada, não escolhe");
+  } },
+
+  // ══ O CATÁLOGO DA ENTREGA C (parte 3) ═══════════════════════════════════════════════════════
+  { id: "K20", nome: "catálogo C: cada um dos 18 itens de nível nas BORDAS exatas da curva (um XP abaixo recusa, o exato equipa)", async fn(b) {
+    for (const [i, nivel] of CATALOGO_C) {
+      const [quase, ja] = await b.jogadores(xpDoNivel(nivel) - 1, xpDoNivel(nivel));
+      await reprova(item(await b.como(quase), i), "42501", `${i} com ${xpDoNivel(nivel) - 1} XP`);
+      const l = (await item(await b.como(ja), i)).rows[0];
+      afirmar(temNaLinha(l, i), `${i} com ${xpDoNivel(nivel)} XP não ficou equipado: ${JSON.stringify(l)}`);
+    }
+    const [novo] = await b.jogadores(null);
+    const c = await b.como(novo);
+    afirmar((await item(c, "mesa-verde")).rows[0].toalha === "verde", "Verde Clássica não é livre pela porta nova");
+    afirmar((await item(c, "mesa-imperial")).rows[0].toalha === "imperial", "Noite Imperial não é livre pela porta nova");
+  } },
+  { id: "K21", nome: "catálogo C: moldura e baralho são UM por vez (ou nenhum); reações se somam na ordem do catálogo; mesa volta à padrão; categorias independentes; XP intacto", async fn(b) {
+    const [eu] = await b.jogadores(99999);
+    const c = await b.como(eu);
+    const xp = await retratoDoXp(b.admin);
+    const l = async (i, sim = true) => (await item(c, i, sim)).rows[0];
+    afirmar((await l("moldura-rubi")).moldura === "rubi", "rubi");
+    afirmar((await l("moldura-diamante")).moldura === "diamante", "equipar outra moldura não trocou");
+    afirmar((await l("moldura-rubi", false)).moldura === "diamante", "desequipar a que NÃO está em uso tirou a que está");
+    afirmar((await l("moldura-diamante", false)).moldura === null, "desequipar a em uso não tirou");
+    afirmar((await l("baralho-safira")).baralho === "safira", "safira");
+    afirmar((await l("baralho-marfim")).baralho === "marfim", "equipar outro baralho não trocou");
+    afirmar((await l("baralho-safira", false)).baralho === "marfim", "desequipar o baralho que não está em uso tirou o outro");
+    afirmar((await l("reacao-aplauso")).reacoes.join() === "aplauso", "aplauso");
+    afirmar((await l("reacao-fogo")).reacoes.join() === "fogo,aplauso", "as reações não somaram na ordem do catálogo");
+    afirmar((await l("reacao-coroa")).reacoes.join() === "fogo,coroa,aplauso", "coroa");
+    afirmar((await l("reacao-coroa")).reacoes.join() === "fogo,coroa,aplauso", "equipar de novo duplicou");
+    afirmar((await l("reacao-fogo", false)).reacoes.join() === "coroa,aplauso", "desligar uma reação mexeu nas outras");
+    afirmar((await l("mesa-preta")).toalha === "preta", "preta");
+    afirmar((await l("mesa-azul", false)).toalha === "preta", "desequipar outra mesa trocou a em uso");
+    const fim = await l("mesa-preta", false);
+    afirmar(fim.toalha === "imperial" && fim.baralho === "marfim" && fim.moldura === null && fim.reacoes.join() === "coroa,aplauso",
+      `uma categoria mexeu na outra: ${JSON.stringify(fim)}`);
+    // os espelhos da parte 1 acompanham, e a porta antiga escreve nas colunas novas
+    const e = (await equipar(c, "moldura-real")).rows[0];
+    afirmar(e.moldura_real === true && e.reacao_coroa === true && e.baralho_imperial === false, `espelho: ${JSON.stringify(e)}`);
+    afirmar((await c.query("select moldura from public.cosmeticos_equipados")).rows[0].moldura === "real", "a porta antiga não escreveu na coluna nova");
+    afirmar(await retratoDoXp(b.admin) === xp, "equipar mexeu no XP");
+  } },
+  { id: "K22", nome: "catálogo C FECHADO: item fora dele, reação livre e vazio são recusados (22023); o banco recusa valor fora do catálogo mesmo pelo admin; espelho não é gravável", async fn(b) {
+    const [eu] = await b.jogadores(99999);
+    const c = await b.como(eu);
+    for (const i of ["moldura-dourada", "moldura-", "moldura", "", "MOLDURA-RUBI", "moldura-rubi ", "reacao-risada", "reacao-choro",
+      "mesa-roxa", "mesa-", "baralho-ouro", "x-real", "real", null]) {
+      await reprova(item(c, i), "22023", `item ${JSON.stringify(i)}`);
+    }
+    await reprova(c.query("select * from public.equipar_item('moldura-rubi', null)"), "22023", "equipado nulo");
+    await reprova(equipar(c, "moldura-rubi"), "22023", "a porta antiga aceitou item novo");
+    await item(c, "moldura-rubi");
+    for (const [sql, nome] of [["update public.cosmeticos_equipados set moldura = 'dourada'", "moldura"],
+      ["update public.cosmeticos_equipados set baralho = 'azul'", "baralho"],
+      ["update public.cosmeticos_equipados set reacoes = '{risada}'", "reação livre"],
+      ["update public.cosmeticos_equipados set toalha = 'roxa'", "toalha"]]) {
+      await reprova(b.admin.query(sql), "23514", `admin gravou ${nome} fora do catálogo`);
+    }
+    await reprova(b.admin.query("update public.cosmeticos_equipados set reacoes = array['fogo', null]"), null, "admin gravou reação nula");
+    await reprova(b.admin.query("update public.cosmeticos_equipados set moldura_real = true"), null, "espelho gravável");
+  } },
+  { id: "K23", nome: "catálogo C: o SERVIDOR lê só o efeito (escolhido E com nível) de até 4 ids; a porta antiga da sala responde igual; ninguém da API lê", async fn(b) {
+    const [alto, forjado, medio, nunca] = await b.jogadores(99999, 1000, 450, null);
+    const c = await b.como(alto);
+    for (const i of ["moldura-diamante", "reacao-fogo", "reacao-aplauso", "baralho-ouro-negro"]) await item(c, i);
+    await item(await b.como(medio), "moldura-real");
+    // forjada pelo admin no nível 6: moldura do 11 e uma reação do 10 — sem efeito; fogo e coroa valem
+    await b.admin.query("insert into public.cosmeticos_equipados (player_id, moldura, reacoes) values ($1, 'onix', '{fogo,coroa,caveira}')", [forjado]);
+    const srv = await b.servidor();
+    const linhas = await assentosDe(srv, [alto, forjado, medio, nunca]);
+    const de = (id) => linhas.find((l) => l.player_id === id);
+    afirmar(de(alto)?.moldura === "diamante" && de(alto)?.reacoes.join() === "fogo,aplauso", `alto: ${JSON.stringify(de(alto))}`);
+    afirmar(de(forjado)?.moldura === null && de(forjado)?.reacoes.join() === "fogo,coroa", `forjada teve efeito: ${JSON.stringify(de(forjado))}`);
+    afirmar(de(medio)?.moldura === "real" && de(medio)?.reacoes.length === 0, `médio: ${JSON.stringify(de(medio))}`);
+    afirmar(!de(nunca), "quem nunca equipou apareceu");
+    afirmar(Object.keys(linhas[0]).join() === "player_id,moldura,reacoes", "a leitura da sala devolve mais que o efeito");
+    const antiga = await salaDe(srv, [alto, forjado, medio]);
+    const da = (id) => antiga.find((l) => l.player_id === id);
+    afirmar(da(alto)?.moldura_real === false && da(alto)?.reacao_coroa === false, "porta antiga: alto");
+    afirmar(da(forjado)?.moldura_real === false && da(forjado)?.reacao_coroa === true, "porta antiga: forjada");
+    afirmar(da(medio)?.moldura_real === true, "porta antiga: médio");
+    await reprova(assentosDe(srv, [alto, forjado, medio, nunca, randomUUID()]), "22023", "5 ids");
+    await reprova(assentosDe(c, [alto]), "42501", "authenticated leu os assentos");
+    await reprova(assentosDe(await b.anonimo(), [alto]), "42501", "anon leu os assentos");
+    await reprova(item(srv, "mesa-verde"), "42501", "servidor equipou");
+  } },
+  { id: "K24", nome: "catálogo C: privilégios exatos das três funções novas; dono dedicado; SECURITY DEFINER só nas duas portas", async fn(b) {
+    const esperado = [
+      ["public.equipar_item(text,boolean)", { authenticated: true, anon: false, service_role: false, king_server: false }],
+      ["king_private.cosmeticos_dos_assentos(uuid[])", { authenticated: false, anon: false, service_role: false, king_server: true }],
+      ["king_private.nivel_do_item(text)", { authenticated: false, anon: false, service_role: false, king_server: false }],
+    ];
+    for (const [f, papeis] of esperado) {
+      for (const [papel, pode] of Object.entries(papeis)) {
+        const r = await b.admin.query("select has_function_privilege($1, $2, 'execute') as ok", [papel, f]);
+        afirmar(r.rows[0].ok === pode, `${papel} ${pode ? "não executa" : "executa"} ${f}`);
+      }
+    }
+    const r = (await b.admin.query(`select p.proname, pg_get_userbyid(p.proowner) as dono, p.prosecdef, p.proconfig from pg_proc p
+      where p.proname in ('equipar_item', 'cosmeticos_dos_assentos', 'nivel_do_item') order by p.proname`)).rows;
+    afirmar(r.length === 3, "faltou função");
+    for (const f of r) {
+      afirmar(f.dono === "king_progress_owner" && f.proconfig?.join() === 'search_path=""', `${f.proname}: dono ${f.dono}, ${f.proconfig}`);
+      afirmar(f.prosecdef === (f.proname !== "nivel_do_item"), `${f.proname}: SECURITY DEFINER ${f.prosecdef}`);
+    }
+  } },
+  { id: "K25", nome: "rollback SÓ da parte 3: as colunas antigas voltam graváveis com o valor certo, as portas antigas funcionam, o XP fica; reaplica", async fn(b, { rollback }) {
+    const [a, d] = await b.jogadores(99999, 99999);
+    for (const i of ["moldura-real", "reacao-coroa", "reacao-fogo", "mesa-azul"]) await item(await b.como(a), i);
+    for (const i of ["moldura-rubi", "baralho-imperial", "mesa-esmeralda"]) await item(await b.como(d), i);
+    const xp = await retratoDoXp(b.admin);
+    const s = await b.supabase();
+    await s.query(soOCatalogo(rollback));
+    const sobrou = (await b.admin.query(`select to_regprocedure('public.equipar_item(text,boolean)') as e,
+      to_regprocedure('king_private.cosmeticos_dos_assentos(uuid[])') as s, to_regprocedure('king_private.nivel_do_item(text)') as n,
+      (select count(*)::int from pg_attribute where attrelid = 'public.cosmeticos_equipados'::regclass and not attisdropped
+         and attname in ('moldura', 'baralho', 'reacoes')) as cols,
+      (select count(*)::int from pg_attribute where attrelid = 'public.cosmeticos_equipados'::regclass and not attisdropped
+         and attgenerated <> '') as geradas`)).rows[0];
+    afirmar(!sobrou.e && !sobrou.s && !sobrou.n && sobrou.cols === 0 && sobrou.geradas === 0, `o rollback do catálogo deixou: ${JSON.stringify(sobrou)}`);
+    const linha = async (id) => (await b.admin.query("select moldura_real, baralho_imperial, reacao_coroa, toalha from public.cosmeticos_equipados where player_id = $1", [id])).rows[0];
+    const la = await linha(a), ld = await linha(d);
+    afirmar(la.moldura_real === true && la.reacao_coroa === true && la.baralho_imperial === false && la.toalha === "imperial", `A: ${JSON.stringify(la)}`);
+    afirmar(ld.moldura_real === false && ld.baralho_imperial === true && ld.toalha === "esmeralda", `D: ${JSON.stringify(ld)}`);
+    // as portas antigas, com o texto delas: gravam nas colunas comuns e o catálogo de toalhas é o de quatro
+    afirmar((await equipar(await b.como(d), "reacao-coroa")).rows[0].reacao_coroa === true, "a porta antiga não grava depois do rollback");
+    await reprova(toalha(await b.como(d), "azul"), "22023", "a Azul ficou no catálogo");
+    afirmar((await salaDe(await b.servidor(), [a]))[0]?.moldura_real === true, "a sala antiga não lê depois do rollback");
+    afirmar(await retratoDoXp(b.admin) === xp, "o rollback do catálogo mexeu no XP");
+    await s.query(MIGRACOES[2]);
+    const volta = (await b.admin.query("select moldura, baralho, reacoes from public.cosmeticos_equipados where player_id = $1", [d])).rows[0];
+    afirmar(volta.moldura === null && volta.baralho === "imperial" && volta.reacoes.join() === "coroa", `reaplicada, não migrou: ${JSON.stringify(volta)}`);
+    afirmar((await item(await b.como(d), "moldura-onix")).rows[0].moldura === "onix", "reaplicada, não equipa");
   } },
 ];
 
@@ -452,7 +611,9 @@ async function retratoDoBanco(admin) {
 const semCosmeticos = async (admin) => (await admin.query(`select to_regclass('public.cosmeticos_equipados') is null
   and to_regprocedure('public.equipar_cosmetico(text,boolean)') is null and to_regprocedure('king_private.cosmeticos_da_sala(uuid[])') is null
   and to_regprocedure('king_private.nivel_do_cosmetico(text)') is null and to_regprocedure('public.equipar_toalha(text)') is null
-  and to_regprocedure('king_private.toalhas_do_anfitriao(uuid)') is null and to_regprocedure('king_private.nivel_da_toalha(text)') is null as ok`)).rows[0].ok;
+  and to_regprocedure('king_private.toalhas_do_anfitriao(uuid)') is null and to_regprocedure('king_private.nivel_da_toalha(text)') is null
+  and to_regprocedure('public.equipar_item(text,boolean)') is null and to_regprocedure('king_private.cosmeticos_dos_assentos(uuid[])') is null
+  and to_regprocedure('king_private.nivel_do_item(text)') is null as ok`)).rows[0].ok;
 
 /** Defeitos plausíveis na migração: o arquivo do rollout com cada um precisa ABORTAR sem gravar nada. */
 const DEFEITOS = [
@@ -460,7 +621,8 @@ const DEFEITOS = [
     "grant execute on function public.equipar_cosmetico(text, boolean) to authenticated, anon;"],
   ["sem-rls", "alter table public.cosmeticos_equipados enable row level security;\n", ""],
   ["politica-aberta", "for select to authenticated using ((select auth.uid()) = player_id);", "for select to authenticated using (true);"],
-  ["catalogo-errado", "when 'baralho-imperial' then 4", "when 'baralho-imperial' then 3"],
+  // (o catálogo da parte 1 pergunta ao da parte 3: o defeito mira o texto que vale)
+  ["catalogo-errado", "when p_item = 'baralho-imperial'   then  4", "when p_item = 'baralho-imperial'   then  3"],
   ["cliente-escreve", "grant select on table public.cosmeticos_equipados to authenticated;",
     "grant select, update on table public.cosmeticos_equipados to authenticated;"],
   ["sala-para-o-servico", "grant execute on function king_private.cosmeticos_da_sala(uuid[]) to king_server;",
@@ -468,18 +630,28 @@ const DEFEITOS = [
   // (as duas migrações abrem e fecham o schema: cada trecho abaixo é único no conjunto)
   ["mexe-no-xp", "   order by c.player_id;\nend $$;\n\nreset role;",
     "   order by c.player_id;\nend $$;\n\nupdate public.progresso set xp_total = xp_total + 100;\nreset role;"],
-  // o ÚLTIMO fechamento (o da parte 2): é ele que deixaria o schema aberto
-  ["esquece-de-fechar-o-schema", "order by ordem);\nend $$;\n\nreset role;\nrevoke create on schema public from king_progress_owner;\n",
-    "order by ordem);\nend $$;\n\nreset role;\n"],
+  // o ÚLTIMO fechamento (o da parte 3): é ele que deixaria o schema aberto
+  ["esquece-de-fechar-o-schema", "order by n);\nend $$;\n\nreset role;\nrevoke create on schema public from king_progress_owner;\n",
+    "order by n);\nend $$;\n\nreset role;\n"],
   ["sem-cascade", "references public.players (id) on delete cascade,", "references public.players (id),"],
   // os da parte 2 (a toalha)
   ["toalha-para-anon", "grant execute on function public.equipar_toalha(text) to authenticated;",
     "grant execute on function public.equipar_toalha(text) to authenticated, anon;"],
-  ["catalogo-da-toalha-errado", "when 'vinho'     then 8", "when 'vinho'     then 7"],
+  ["catalogo-da-toalha-errado", "when p_toalha = 'vinho'     then  3", "when p_toalha = 'vinho'     then  4"],
   ["mesa-para-o-servico", "grant execute on function king_private.toalhas_do_anfitriao(uuid) to king_server;",
     "grant execute on function king_private.toalhas_do_anfitriao(uuid) to king_server, service_role;"],
   ["toalha-sem-catalogo-na-coluna",
-    "\n    constraint cosmeticos_toalha_do_catalogo check (toalha in ('imperial', 'verde', 'vinho', 'esmeralda'))", ""],
+    "alter table public.cosmeticos_equipados\n  add constraint cosmeticos_toalha_do_catalogo\n    check (toalha in ('imperial', 'verde', 'vinho', 'azul', 'esmeralda', 'preta'));", ""],
+  // os da parte 3 (o catálogo da Entrega C)
+  ["item-para-anon", "grant execute on function public.equipar_item(text, boolean) to authenticated;",
+    "grant execute on function public.equipar_item(text, boolean) to authenticated, anon;"],
+  ["assentos-para-o-servico", "grant execute on function king_private.cosmeticos_dos_assentos(uuid[]) to king_server;",
+    "grant execute on function king_private.cosmeticos_dos_assentos(uuid[]) to king_server, service_role;"],
+  ["catalogo-c-errado", "when p_item = 'moldura-diamante'   then 15", "when p_item = 'moldura-diamante'   then 14"],
+  ["reacoes-sem-catalogo-na-coluna",
+    "\n    constraint cosmeticos_reacoes_do_catalogo check (reacoes <@ array['fogo', 'coroa', 'caveira', 'aplauso']::text[])", ""],
+  ["espelho-gravavel", "  add column reacao_coroa boolean not null generated always as ('coroa' = any (reacoes)) stored;",
+    "  add column reacao_coroa boolean not null default false;"],
 ];
 
 const TESTES_DO_ROLLOUT = [
@@ -513,7 +685,12 @@ const TESTES_DO_ROLLOUT = [
     await reprova(equipar(await b.como(zero), "moldura-real"), "42501", "0 XP equipou");
     // e a toalha: 1000 XP (nível 6) tem as duas livres, não a do nível 8
     afirmar((await toalha(await b.como(mil), "verde")).rows[0].toalha === "verde", "a Verde não é livre depois do rollout");
-    await reprova(toalha(await b.como(mil), "vinho"), "42501", "nível 6 escolheu a Vinho");
+    // (a curva nova: Vinho Imperial no 3, Azul Royal no 8)
+    afirmar((await toalha(await b.como(mil), "vinho")).rows[0].toalha === "vinho", "nível 6 não escolheu a Vinho (nível 3)");
+    await reprova(toalha(await b.como(mil), "azul"), "42501", "nível 6 escolheu a Azul");
+    // e a porta do catálogo C: o nível 6 tem o Fogo, não a Moldura Rubi (7)
+    afirmar((await item(await b.como(mil), "reacao-fogo")).rows[0].reacoes.join() === "fogo,coroa", "1000 XP não ligou o Fogo");
+    await reprova(item(await b.como(mil), "moldura-rubi"), "42501", "nível 6 equipou a Moldura Rubi");
   } },
   { id: "R3", nome: "colado DUAS vezes: a segunda recusa na parte 1 e não altera nada", async fn(b) {
     await semear(b);
@@ -560,24 +737,26 @@ const TESTES_DO_ROLLOUT = [
 
 /** Cada mutação remove UMA proteção; `alvos` são os testes que precisam reprovar sem ela. */
 const MUTACOES = [
-  { id: "sem-conferencia-de-nivel", alvos: ["K1", "K2", "K3"],
-    // (as duas migrações conferem o nível; este trecho é o da parte 1, único no conjunto)
-    de: "  if p_equipado then\n    v_xp", para: "  if false then\n    v_xp" },
-  { id: "nivel-errado-no-catalogo", alvos: ["K1"], de: "when 'baralho-imperial' then 4", para: "when 'baralho-imperial' then 3" },
-  { id: "sem-conferencia-de-identidade", alvos: ["K6"], de: "  if v_uid is null then\n    raise exception 'sem identidade' using errcode = '42501';\n  end if;\n  if v_exige is null or p_equipado",
-    para: "  if v_exige is null or p_equipado" },
+  // (a parte 3 substitui as portas da parte 1: `equipar_cosmetico` passa a chamar `equipar_item`, e o
+  // catálogo da parte 1 pergunta ao da parte 3. As mutações miram o texto que VALE depois das três.)
+  { id: "sem-conferencia-de-nivel", alvos: ["K1", "K2", "K3", "K20"],
+    de: "  if p_equipado and v_nivel > 1 then", para: "  if false then" },
+  { id: "nivel-errado-no-catalogo", alvos: ["K1", "K20"], de: "when p_item = 'baralho-imperial'   then  4", para: "when p_item = 'baralho-imperial'   then  3" },
+  { id: "sem-conferencia-de-identidade", alvos: ["K6"], de: "  if v_quem is null then\n    raise exception 'sem identidade' using errcode = '42501';\n  end if;\n",
+    para: "" },
   // O defeito que esta suíte achou: `auth.uid()` dentro da função SECURITY DEFINER, como o dono, que
   // no Supabase não tem acesso ao schema `auth`. Toda chamada legítima falharia.
-  { id: "auth-uid-como-dono", alvos: ["K1", "K10"],
-    de: "  v_uid   uuid := nullif(coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''),\n                                  nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'), '')::uuid;\n  v_exige integer := king_private.nivel_do_cosmetico(p_item);",
-    para: "  v_uid   uuid := auth.uid();\n  v_exige integer := king_private.nivel_do_cosmetico(p_item);" },
-  { id: "aceita-item-fora-do-catalogo", alvos: ["K7"], de: "  if v_exige is null or p_equipado is null then", para: "  if false then" },
+  { id: "auth-uid-como-dono", alvos: ["K1", "K10", "K20"],
+    de: "  v_quem  uuid := nullif(coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''),\n                                  nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'), '')::uuid;\n  v_nivel integer := king_private.nivel_do_item(p_item);",
+    para: "  v_quem  uuid := auth.uid();\n  v_nivel integer := king_private.nivel_do_item(p_item);" },
+  { id: "aceita-item-fora-do-catalogo", alvos: ["K7", "K22"], de: "  if v_nivel is null or p_equipado is null then", para: "  if false then" },
   { id: "rls-le-todo-mundo", alvos: ["K5"], de: "for select to authenticated using ((select auth.uid()) = player_id);", para: "for select to authenticated using (true);" },
   { id: "cliente-escreve-direto", alvos: ["K4", "K13"], de: "grant select on table public.cosmeticos_equipados to authenticated;",
     para: "grant select, insert, update on table public.cosmeticos_equipados to authenticated;\ncreate policy cosmeticos_gravo_os_meus on public.cosmeticos_equipados for all to authenticated using (true) with check (true);" },
-  { id: "sala-sem-efeito", alvos: ["K8"], de: "         c.moldura_real and public.nivel_de(coalesce(g.xp_total, 0)) >= king_private.nivel_do_cosmetico('moldura-real'),",
-    para: "         c.moldura_real," },
-  { id: "sala-sem-limite", alvos: ["K8"], de: "  if cardinality(p_ids) > 4 then", para: "  if false then" },
+  { id: "sala-sem-efeito", alvos: ["K8", "K23"],
+    de: "         case when public.nivel_de(coalesce(g.xp_total, 0)) >= king_private.nivel_do_item('moldura-' || c.moldura) then c.moldura end,",
+    para: "         c.moldura," },
+  { id: "sala-sem-limite", alvos: ["K8", "K23"], de: "  if 4 < cardinality(p_ids) then", para: "  if false then" },
   { id: "sala-para-o-cliente", alvos: ["K9", "K13"], de: "grant execute on function king_private.cosmeticos_da_sala(uuid[]) to king_server;",
     para: "grant execute on function king_private.cosmeticos_da_sala(uuid[]) to king_server, authenticated;\ngrant usage on schema king_private to authenticated;" },
   { id: "equipar-para-anon", alvos: ["K13"], de: "grant execute on function public.equipar_cosmetico(text, boolean) to authenticated;",
@@ -586,17 +765,34 @@ const MUTACOES = [
   { id: "rollback-esquece-a-tabela", alvos: ["K14"], rollback: true, de: "drop table public.cosmeticos_equipados;", para: "" },
   // os da parte 2 (a toalha)
   { id: "toalha-sem-nivel", alvos: ["K15"], de: "  if v_exige > 1 then", para: "  if false then" },
-  { id: "toalha-catalogo-errado", alvos: ["K15"], de: "when 'esmeralda' then 10", para: "when 'esmeralda' then 9" },
+  { id: "toalha-catalogo-errado", alvos: ["K15"], de: "when p_toalha = 'esmeralda' then 10", para: "when p_toalha = 'esmeralda' then  9" },
   { id: "toalha-aceita-fora-do-catalogo", alvos: ["K16"], de: "  if v_exige is null then\n    raise exception 'toalha fora do catálogo'",
     para: "  if false then\n    raise exception 'toalha fora do catálogo'" },
-  { id: "toalha-sem-catalogo-na-coluna", alvos: ["K16"],
-    de: "\n    constraint cosmeticos_toalha_do_catalogo check (toalha in ('imperial', 'verde', 'vinho', 'esmeralda'))", para: "" },
-  { id: "mesa-sem-efeito", alvos: ["K17"], de: "  select case when king_private.nivel_da_toalha(v_escolha) <= v_nivel then v_escolha else 'imperial' end,", para: "  select v_escolha," },
+  { id: "toalha-sem-catalogo-na-coluna", alvos: ["K16", "K22"],
+    de: "alter table public.cosmeticos_equipados\n  add constraint cosmeticos_toalha_do_catalogo\n    check (toalha in ('imperial', 'verde', 'vinho', 'azul', 'esmeralda', 'preta'));", para: "" },
+  { id: "mesa-sem-efeito", alvos: ["K17"], de: "  select case when v_nivel >= king_private.nivel_da_toalha(v_escolha) then v_escolha else 'imperial' end,", para: "  select v_escolha," },
   { id: "mesa-para-o-cliente", alvos: ["K17", "K19"], de: "grant execute on function king_private.toalhas_do_anfitriao(uuid) to king_server;",
     para: "grant execute on function king_private.toalhas_do_anfitriao(uuid) to king_server, authenticated;\ngrant usage on schema king_private to authenticated;" },
   { id: "toalha-para-anon", alvos: ["K19"], de: "grant execute on function public.equipar_toalha(text) to authenticated;", para: "grant execute on function public.equipar_toalha(text) to authenticated, anon;" },
-  { id: "toalha-apaga-as-outras", alvos: ["K18"], de: "    toalha        = p_toalha,\n", para: "    toalha        = p_toalha,\n    moldura_real  = false,\n" },
+  { id: "toalha-apaga-as-outras", alvos: ["K18"], de: "    toalha        = p_toalha,\n", para: "    toalha        = p_toalha,\n    moldura       = null,\n" },
   { id: "rollback-da-mesa-esquece-a-coluna", alvos: ["K19"], rollback: true, de: "alter table public.cosmeticos_equipados drop column toalha;", para: "" },
+  // os da parte 3 (o catálogo da Entrega C)
+  { id: "catalogo-c-errado", alvos: ["K20"], de: "when p_item = 'moldura-diamante'   then 15", para: "when p_item = 'moldura-diamante'   then 14" },
+  { id: "moldura-desequipa-a-outra", alvos: ["K21"], de: "                   when c.moldura = v_valor then null", para: "                   when true then null" },
+  { id: "reacao-apaga-as-outras", alvos: ["K21"], de: "where case when r = v_valor then p_equipado else r = any (c.reacoes) end",
+    para: "where case when r = v_valor then p_equipado else false end" },
+  { id: "item-mexe-em-outra-categoria", alvos: ["K21"], de: "    baralho = case when v_tipo <> 'baralho' then c.baralho", para: "    baralho = case when v_tipo <> 'baralho' then null" },
+  { id: "reacoes-sem-catalogo-na-coluna", alvos: ["K22"],
+    de: "\n    constraint cosmeticos_reacoes_do_catalogo check (reacoes <@ array['fogo', 'coroa', 'caveira', 'aplauso']::text[])", para: "" },
+  { id: "assentos-reacao-sem-efeito", alvos: ["K23"], de: "                where public.nivel_de(coalesce(g.xp_total, 0)) >= king_private.nivel_do_item('reacao-' || r)\n",
+    para: "                where true\n" },
+  { id: "assentos-para-o-cliente", alvos: ["K23", "K24"], de: "grant execute on function king_private.cosmeticos_dos_assentos(uuid[]) to king_server;",
+    para: "grant execute on function king_private.cosmeticos_dos_assentos(uuid[]) to king_server, authenticated;\ngrant usage on schema king_private to authenticated;" },
+  { id: "item-para-anon", alvos: ["K24"], de: "grant execute on function public.equipar_item(text, boolean) to authenticated;",
+    para: "grant execute on function public.equipar_item(text, boolean) to authenticated, anon;" },
+  { id: "rollback-do-catalogo-esquece-colunas", alvos: ["K25"], rollback: true, de: "  drop column baralho,\n  drop column reacoes;", para: "  drop column baralho;" },
+  { id: "rollback-do-catalogo-perde-a-toalha-nova", alvos: ["K25"], rollback: true,
+    de: "update public.cosmeticos_equipados set toalha = 'imperial' where toalha in ('azul', 'preta');", para: "update public.cosmeticos_equipados set toalha = 'imperial' where toalha in ('preta');" },
 ];
 
 async function rodar(migracao, rollback, testes) {

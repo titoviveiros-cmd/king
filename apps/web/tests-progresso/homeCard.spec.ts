@@ -48,7 +48,9 @@ async function abrir(page: Page, linha: Record<string, unknown>) {
     localStorage.setItem(k, v);
     // os itens já foram celebrados: a celebração não cobre a Home durante a medição
     localStorage.setItem("king:cosmeticos:celebrados", JSON.stringify({ "11111111-1111-4111-8111-111111111111":
-      ["moldura-real", "baralho-imperial", "reacao-coroa", "mesa-vinho", "mesa-esmeralda"] }));
+      ["moldura-real", "moldura-rubi", "moldura-onix", "moldura-diamante", "moldura-esmeralda", "baralho-imperial", "baralho-safira",
+        "baralho-ouro-negro", "baralho-rubi", "baralho-marfim", "reacao-fogo", "reacao-coroa", "reacao-caveira", "reacao-aplauso", "mesa-vinho",
+        "mesa-azul", "mesa-esmeralda", "mesa-preta"] }));
   }, [CHAVE_DA_SESSAO, JSON.stringify(sessaoGuardada())] as const);
   await page.route(`${HOST}/**`, async (route) => {
     const p = new URL(route.request().url()).pathname;

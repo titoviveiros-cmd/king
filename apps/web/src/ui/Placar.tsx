@@ -3,7 +3,7 @@ import {
   contractTitle, penaltyTextLong, trumpLabel, earlyEndText, unitsText, fmtSigned, ordinal,
 } from "./contractText.js";
 import {
-  BalaoSocial, BotaoSocial, ConsensoDaProximaMao, coroaDaMesa, type MesaMultiplayer,
+  BalaoSocial, BotaoSocial, ConsensoDaProximaMao, reacoesDaMesa, type MesaMultiplayer,
 } from "./MesaOnline.js";
 import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
 
@@ -131,7 +131,7 @@ export function Placar({
               seis atalhos são outros: no intervalo ninguém comenta a jogada que passou, comenta o
               resultado da mão e o que vem pela frente. */}
           {mp && !s.finished && (
-            <BotaoSocial status="placar" variante="placar" onEnviar={mp.onEnviarMensagem} coroa={coroaDaMesa(mp, game.handNumber())} />
+            <BotaoSocial status="placar" variante="placar" onEnviar={mp.onEnviarMensagem} reacoes={reacoesDaMesa(mp, game.handNumber())} />
           )}
 
           <div className="pl-actions">

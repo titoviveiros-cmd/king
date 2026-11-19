@@ -1,7 +1,8 @@
-// OS COSMÉTICOS DA SALA (Entrega B) — o que a mesa mostra, decidido pelo BANCO.
+// OS COSMÉTICOS DA SALA (Entregas B e C) — o que a mesa mostra, decidido pelo BANCO.
 //
-// Dois dos três itens aparecem para os outros jogadores: a Moldura Real e a Reação da Coroa. O
-// Baralho Imperial é só do aparelho de quem equipou, e por isso nem passa por aqui.
+// Aparecem para os outros jogadores: a MOLDURA escolhida (uma de cinco) e as REAÇÕES de nível ligadas
+// (fogo, coroa, caveira, aplauso). O baralho é só do aparelho de quem equipou, e por isso nem passa
+// por aqui; a mesa é a do anfitrião (`mesaDoJogador`).
 //
 // ══ QUEM DECIDE ══
 //
@@ -20,12 +21,19 @@
 // NENHUM log daqui carrega id inteiro, token ou dado da conexão.
 import { mascarar, UUID } from "./tipos.js";
 
+/** As molduras do catálogo (o MESMO texto que o banco guarda em `cosmeticos_equipados.moldura`). */
+export const MOLDURAS = ["real", "rubi", "onix", "diamante", "esmeralda"] as const;
+/** As reações que exigem nível (as livres — risada e choro — não passam pelo banco). */
+export const REACOES_DE_NIVEL = ["fogo", "coroa", "caveira", "aplauso"] as const;
+
 export interface CosmeticosDoAssento {
-  moldura: boolean;
-  coroa: boolean;
+  /** A moldura EFETIVA, ou `""` para nenhuma. */
+  moldura: string;
+  /** As reações de nível EFETIVAS, na ordem do catálogo. */
+  reacoes: readonly string[];
 }
 
-export const SEM_COSMETICOS: CosmeticosDoAssento = Object.freeze({ moldura: false, coroa: false });
+export const SEM_COSMETICOS: CosmeticosDoAssento = Object.freeze({ moldura: "", reacoes: Object.freeze([]) });
 
 /**
  * A MESA DO ANFITRIÃO (a toalha como cosmético): a toalha que ele equipou — já EFETIVA, decidida pelo
@@ -53,12 +61,21 @@ export function restaurarCosmeticos(): void { atual = COSMETICOS_DESLIGADOS; }
 export const PRAZO_MS = 3_000;
 
 export const CHAMADA_DOS_COSMETICOS =
-  "select player_id, moldura_real, reacao_coroa from king_private.cosmeticos_da_sala($1::uuid[])";
+  "select player_id, moldura, reacoes from king_private.cosmeticos_dos_assentos($1::uuid[])";
 
 export interface LinhaDeCosmeticos {
   player_id: string;
-  moldura_real: boolean;
-  reacao_coroa: boolean;
+  moldura: unknown;
+  reacoes: unknown;
+}
+
+/** Só passa o que é do catálogo: uma moldura estranha vira "nenhuma", uma reação estranha some. */
+function lerAssento(l: LinhaDeCosmeticos): CosmeticosDoAssento {
+  const moldura = typeof l.moldura === "string" && (MOLDURAS as readonly string[]).includes(l.moldura) ? l.moldura : "";
+  const reacoes = Array.isArray(l.reacoes)
+    ? REACOES_DE_NIVEL.filter((r) => (l.reacoes as unknown[]).includes(r))
+    : [];
+  return { moldura, reacoes };
 }
 
 export interface OpcoesDaFonte {
@@ -113,7 +130,7 @@ export function fonteDeCosmeticosPg(o: OpcoesDaFonte, catalogoDasMesas: readonly
       const linhas = await comPrazo(playerId, () => o.consultar([playerId]));
       const l = Array.isArray(linhas) ? linhas.find((x) => x?.player_id === playerId) : undefined;
       if (!l) return SEM_COSMETICOS;
-      return { moldura: l.moldura_real === true, coroa: l.reacao_coroa === true };
+      return lerAssento(l);
     },
     async mesaDoJogador(playerId) {
       const consultar = o.consultarMesa;

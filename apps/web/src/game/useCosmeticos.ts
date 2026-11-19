@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProgressoDoJogador } from "../auth/progresso.js";
 import {
-  aplicarBaralho, guardarMesa, itemDaToalha, lembrarNivel, marcarCelebrados, paraCelebrar, toalhaEquipada,
+  aplicarBaralho, baralhoQueVale, guardarMesa, itemDaToalha, lembrarNivel, marcarCelebrados, paraCelebrar, toalhaEquipada,
   type CosmeticosDoJogador, type Equipados, type ItemDoCatalogo, type ItemId,
 } from "../auth/cosmeticos.js";
 
@@ -23,11 +23,9 @@ export interface CosmeticosDaHome {
   dispensarCelebracao(): void;
 }
 
-const NIVEL_DO_BARALHO = 4;
-
-/** O que vale NESTE aparelho contra os bots: o baralho e a mesa equipados, se o nível alcança. */
+/** O que vale NESTE aparelho: o baralho e a mesa (contra os bots) equipados, se o nível alcança. */
 function aplicarNoAparelho(e: Equipados, nivel: number): void {
-  aplicarBaralho(e["baralho-imperial"] && nivel >= NIVEL_DO_BARALHO);
+  aplicarBaralho(baralhoQueVale(e, nivel));
   const t = toalhaEquipada(e);
   guardarMesa(nivel >= itemDaToalha(t).nivel ? t : "imperial");
 }
@@ -66,7 +64,7 @@ export function useCosmeticos(api: CosmeticosDoJogador | null, progresso: Progre
     if (!api || ocupado) return;
     setOcupado(true);
     setAviso(null);
-    const r = await api.equipar(item, sim, equipados ?? undefined);
+    const r = await api.equipar(item, sim);
     if (!vivo.current) return;
     setOcupado(false);
     if (r.ok) {
@@ -77,7 +75,7 @@ export function useCosmeticos(api: CosmeticosDoJogador | null, progresso: Progre
     setAviso(r.motivo === "nivel"
       ? "Este item ainda não foi liberado para a sua conta."
       : "Não foi possível salvar agora. Tente de novo em instantes.");
-  }, [api, ocupado, equipados, nivel]);
+  }, [api, ocupado, nivel]);
 
   const dispensarCelebracao = useCallback(() => {
     marcarCelebrados(conta, celebrar.map((i) => i.id));

@@ -18,7 +18,10 @@ with pre as (
                 and to_regprocedure('king_private.nivel_do_cosmetico(text)') is null
                 and to_regprocedure('public.equipar_toalha(text)') is null
                 and to_regprocedure('king_private.toalhas_do_anfitriao(uuid)') is null
-                and to_regprocedure('king_private.nivel_da_toalha(text)') is null                    as cosmeticos_ausentes),
+                and to_regprocedure('king_private.nivel_da_toalha(text)') is null
+                and to_regprocedure('public.equipar_item(text,boolean)') is null
+                and to_regprocedure('king_private.cosmeticos_dos_assentos(uuid[])') is null
+                and to_regprocedure('king_private.nivel_do_item(text)') is null                      as cosmeticos_ausentes),
      aplic as (
        select case when to_regrole('king_progress_owner') is not null then
                 pg_has_role(current_user, 'king_progress_owner', 'MEMBER')

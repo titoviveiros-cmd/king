@@ -1,6 +1,8 @@
 // O RESULTADO QUE VAI AO BANCO — participação, elenco e o que nunca vai.
 import { describe, expect, it } from "vitest";
 import { participou, resultadoParaCredito, type AssentoAoFim, type PartidaEncerrada } from "./resultado.js";
+import { ResultadoInvalido, validarResultado } from "./tipos.js";
+import { parametrosDoCredito, parametrosDosPlacares } from "./repositorio.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -93,5 +95,52 @@ describe("partida SOLO não chega ao banco (decisão de produto da Fase 6A)", ()
 
   it("dois humanos é o mínimo que chega ao crédito", () => {
     expect(resultadoParaCredito(partida([humano(0, A), assento(1), humano(2, B), assento(3)]))?.humanos).toHaveLength(2);
+  });
+});
+
+// ═══ RECORDES (Entrega D): a pontuação final vai junto, e NUNCA entra no contrato do XP ═══
+describe("a pontuação final (recordes)", () => {
+  const comPontos = (assentos: AssentoAoFim[], pontos: Record<number, number>) => ({ ...partida(assentos), pontos });
+
+  it("vai SÓ de quem participou — positiva, negativa ou zero — e nunca de bot", () => {
+    const r = resultadoParaCredito(comPontos(
+      [humano(0, A), assento(1), humano(2, B, { jogadasProprias: 10 }), assento(3)],
+      { 0: -135, 1: 400, 2: 300, 3: -565 },
+    ))!;
+    expect(r.humanos).toEqual([
+      { playerId: A, posicao: 1, participou: true, pontos: -135 },
+      { playerId: B, posicao: 3, participou: false }, // abaixo de 60%: sem pontuação, sem recorde
+    ]);
+    const zero = resultadoParaCredito(comPontos([humano(0, A), humano(1, B), assento(2), assento(3)], { 0: 0, 1: 0, 2: 0, 3: 0 }))!;
+    expect(zero.humanos.map((h) => h.pontos)).toEqual([0, 0]);
+  });
+
+  it("pontuação estranha (fração, fora da faixa, ausente) simplesmente não vai — o crédito segue igual", () => {
+    for (const p of [{ 0: 1.5, 1: 2 }, { 0: 9000, 1: -9000 }, {}]) {
+      const r = resultadoParaCredito(comPontos([humano(0, A), humano(1, B), assento(2), assento(3)], p as Record<number, number>))!;
+      for (const h of r.humanos) if (h.playerId === A) expect(h.pontos).toBeUndefined();
+    }
+  });
+
+  it("o CONTRATO DO XP não muda: creditar_partida recebe só player_id, posicao e participou", () => {
+    const r = resultadoParaCredito(comPontos([humano(0, A), humano(1, B), assento(2), assento(3)], { 0: 120, 1: -80 }))!;
+    const enviado = JSON.parse(parametrosDoCredito(r)[5] as string) as Record<string, unknown>[];
+    for (const h of enviado) expect(Object.keys(h).sort()).toEqual(["participou", "player_id", "posicao"]);
+    expect(JSON.parse(parametrosDosPlacares(r)![1])).toEqual([{ player_id: A, pontos: 120 }, { player_id: B, pontos: -80 }]);
+    expect(parametrosDosPlacares(resultadoParaCredito(partida([humano(0, A), humano(1, B), assento(2), assento(3)]))!)).toBeNull();
+  });
+
+  it("o OUTBOX aceita o resultado antigo (sem pontos) e o novo; recusa pontuação fora da faixa ou de quem não participou", () => {
+    const base = resultadoParaCredito(partida([humano(0, A), humano(1, B), assento(2), assento(3)]))!;
+    expect(validarResultado(JSON.parse(JSON.stringify(base)))).toBeTruthy();
+    const novo = { ...base, humanos: base.humanos.map((h) => ({ ...h, pontos: 35 })) };
+    expect(validarResultado(JSON.parse(JSON.stringify(novo)))).toBeTruthy();
+    for (const ruim of [
+      { ...base, humanos: base.humanos.map((h) => ({ ...h, pontos: 5001 })) },
+      { ...base, humanos: base.humanos.map((h) => ({ ...h, pontos: 2.5 })) },
+      { ...base, humanos: base.humanos.map((h) => ({ ...h, pontos: "10" })) },
+      { ...base, humanos: base.humanos.map((h) => ({ ...h, participou: false, pontos: 10 })) },
+      { ...base, humanos: base.humanos.map((h) => ({ ...h, pontos: 10, xp: 150 })) },
+    ]) expect(() => validarResultado(JSON.parse(JSON.stringify(ruim)))).toThrow(ResultadoInvalido);
   });
 });
