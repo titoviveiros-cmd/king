@@ -153,6 +153,9 @@ describe("o fim da partida chega ao progresso", () => {
     for (const c of clientes) expect(c.matchId).toBe(p.partidaId); // o cliente recebe o MESMO id
     expect(p.terminadaEm.getTime()).toBeGreaterThan(p.iniciadaEm.getTime());
     expect(Object.keys(p.posicoes).sort()).toEqual(["0", "1", "2", "3"]);
+    // RECORDES (Entrega D): a pontuação final de cada assento é a do MOTOR, no fim
+    const fim = room.autoridadeDaPartida().estadoAutoritativo()!;
+    expect(p.pontos).toEqual({ 0: fim.cumulative[0], 1: fim.cumulative[1], 2: fim.cumulative[2], 3: fim.cumulative[3] });
 
     const ultimaMao = cartasDaUltimaMao(room);
     for (const a of p.assentos) {

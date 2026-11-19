@@ -23,18 +23,19 @@ import { enviarConvite, linkDoConvite } from "../net/convite.js";
 import type { AssentoLido, EstadoDaSalaLido } from "../net/clienteKing.js";
 import type { EstadoDaConexao } from "../game/useKingOnline.js";
 import { AVATARES, desenhoDoAvatar } from "./avatares.js";
+import { classeDaMoldura } from "./Insignia.js";
+import { CATALOGO, nivelLembrado } from "../auth/cosmeticos.js";
 
 /**
- * As mesas disponíveis. Espelha `TEMAS_DA_MESA` do servidor, que é quem valida.
+ * As mesas disponíveis: as do CATÁLOGO de cosméticos (categoria `mesa`), que espelha `TEMAS_DA_MESA`
+ * do servidor — e é o servidor quem valida, perguntando ao banco o que o anfitrião liberou.
  *
- * O NOME é do produto, não da cor: "Noite Imperial" e "Verde de Cartas" pertencem ao KING, e é
- * assim que a escolha aparece para quem está na sala. O desenho de cada uma vive no `theme.css`,
- * em tokens — nenhum componente sabe qual mesa está no ar.
+ * O NOME é do produto, não da cor: "Noite Imperial", "Verde Clássica", "Vinho Imperial", "Azul
+ * Royal", "Esmeralda Real" e "Preta Premium" pertencem ao KING. A linha mostra as AMOSTRAS do pano e o
+ * nome da mesa escolhida uma vez só (cada botão leva o próprio nome no rótulo acessível). O desenho de cada
+ * uma vive no `theme.css`, em tokens — nenhum componente sabe qual mesa está no ar.
  */
-const MESAS = [
-  { id: "imperial", nome: "Noite Imperial" },
-  { id: "verde", nome: "Verde de Cartas" },
-] as const;
+const MESAS = CATALOGO.filter((i) => i.toalha).map((i) => ({ id: i.toalha!, nome: i.nome, nivel: i.nivel }));
 
 const LUGARES: Seat[] = [0, 1, 2, 3];
 
@@ -81,6 +82,9 @@ export function Sala({
   const codigo = sala?.roomCode ?? "";
   const podeMexer = souAnfitriao && conexao === "conectado";
   const temaAtual = sala?.tableTheme ?? "imperial";
+  const nomeDaMesa = MESAS.find((m) => m.id === temaAtual)?.nome ?? MESAS[0].nome;
+  /** O cadeado é APRESENTAÇÃO (o servidor recusa de verdade): sem nível lido, só as livres abrem. */
+  const meuNivel = nivelLembrado() ?? 1;
   /** Sem sala ainda (conectando), não há composição a explicar. */
   const situacao = sala ? situacaoDaSala(ocupados, humanos, souAnfitriao, pronto) : null;
 
@@ -207,11 +211,11 @@ export function Sala({
                   aria-label="Trocar o seu avatar"
                   title="Trocar o seu avatar"
                 >
-                  <Insignia vazio={false} bot={false} avatar={a?.avatar} moldura={a?.moldura} />
+                  <Insignia vazio={false} bot={false} avatar={a?.avatar} moldura={a?.estiloMoldura} />
                   <i aria-hidden>✎</i>
                 </button>
               ) : (
-                <Insignia vazio={vazio} bot={bot} avatar={a?.avatar} moldura={!vazio && !bot && a?.moldura} />
+                <Insignia vazio={vazio} bot={bot} avatar={a?.avatar} moldura={!vazio && !bot ? a?.estiloMoldura : undefined} />
               )}
               <span className="sl-nome">
                 {vazio ? (reservado ? "Lugar do 2º jogador…" : "Aguardando…") : a.nick}
@@ -291,22 +295,25 @@ export function Sala({
             autorização. Quem não é anfitrião lê a escolha e vê de quem ela é. */}
         <div className="sl-mesa">
           <span className="sl-mesa-lb">Mesa</span>
+          <span className="sl-mesa-nome" aria-hidden>{nomeDaMesa}</span>
           <div className="sl-mesa-ops" role="radiogroup" aria-label="Cor da mesa">
             {MESAS.map((m) => {
               const escolhida = temaAtual === m.id;
+              const trancada = souAnfitriao && meuNivel < m.nivel;
               return (
                 <button
                   key={m.id}
                   type="button"
                   role="radio"
                   aria-checked={escolhida}
-                  className={`sl-mesa-op ${m.id}${escolhida ? " on" : ""}`}
-                  disabled={!podeMexer}
+                  aria-label={trancada ? `${m.nome} — libera no nível ${m.nivel}` : m.nome}
+                  className={`sl-mesa-op ${m.id}${escolhida ? " on" : ""}${trancada ? " trancada" : ""}`}
+                  disabled={!podeMexer || trancada}
                   onClick={() => { sfxTap(); onEscolherMesa(m.id); }}
-                  title={m.nome}
+                  title={trancada ? `${m.nome} · nível ${m.nivel}` : m.nome}
                 >
-                  <i aria-hidden />
-                  <span>{m.nome}</span>
+                  <i aria-hidden className="tema-amostra" data-tema={m.id} />
+                  {trancada && <b aria-hidden>🔒</b>}
                 </button>
               );
             })}
@@ -396,15 +403,15 @@ export function avataresEmUso(assentos: readonly AssentoLido[], eu: Seat | null)
  * O círculo do lugar. Cor pelo assento, desenho pelo avatar autoritativo — e o robô continua
  * com cara de robô, porque agora ele tem nome de gente.
  */
-function Insignia({ vazio, bot, avatar, moldura }: { vazio: boolean; bot: boolean; avatar?: string; moldura?: boolean }) {
+function Insignia({ vazio, bot, avatar, moldura }: { vazio: boolean; bot: boolean; avatar?: string; moldura?: string }) {
   if (vazio) return <span className="sl-av" aria-label="lugar vago">+</span>;
   if (bot) return <span className="sl-av" aria-label="bot">🤖</span>;
   // PENDENTE NÃO É UM BICHO. Desenhar o padrão aqui mostraria um animal com cara de escolhido, que
   // é exatamente o que a regra nova existe para evitar. Interrogação: neutra e sem dono.
   if (!avatar) return <span className="sl-av pendente" aria-label="avatar ainda não escolhido">?</span>;
   const d = desenhoDoAvatar(avatar);
-  // A Moldura Real (Entrega B), decidida pelo servidor: um anel por fora, o bicho igual.
-  return <span className={`sl-av${moldura ? " moldura-real" : ""}`} aria-label={d.rotulo}>{d.glifo}</span>;
+  // A moldura (Entregas B e C), decidida pelo servidor: um aro por fora, o bicho igual.
+  return <span className={`sl-av${classeDaMoldura(moldura)}`} aria-label={d.rotulo}>{d.glifo}</span>;
 }
 
 /** O que a sala diz e permite AGORA — a regra inteira numa função pura, testável sem renderizar. */

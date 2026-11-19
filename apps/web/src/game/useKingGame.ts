@@ -71,12 +71,16 @@ export function useKingGame() {
     // uma partida COMEÇOU. O botão que a pediu é dado da própria tela, não deste hook.
     anunciarInicioDePartida({ modo: "local", humanos: 1, bots: 3 });
     audio.unlock(); // 1º gesto real do usuário: iOS só libera áudio aqui
+    const seed = seedDaUrl();
+    const mao = maoDaUrl();
     ref.current = new KingGame(
       NOMES_DA_MESA_LOCAL,
-      seedDaUrl() ?? Math.floor(Math.random() * 1e9),
+      seed ?? Math.floor(Math.random() * 1e9),
       0,
-      maoDaUrl() ?? 1,
+      mao ?? 1,
       avatarDoHumano.current,
+      // RECORDES: partida de depuração (semente ou mão fixada pela URL) não entra no Top 3 Solo.
+      { recordes: seed === null && mao === null },
     );
     limpar();
     setScreen("mesa");

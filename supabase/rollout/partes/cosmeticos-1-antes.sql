@@ -31,7 +31,13 @@ begin
   if to_regclass('public.cosmeticos_equipados') is not null
      or to_regprocedure('public.equipar_cosmetico(text,boolean)') is not null
      or to_regprocedure('king_private.cosmeticos_da_sala(uuid[])') is not null
-     or to_regprocedure('king_private.nivel_do_cosmetico(text)') is not null then
+     or to_regprocedure('king_private.nivel_do_cosmetico(text)') is not null
+     or to_regprocedure('public.equipar_toalha(text)') is not null
+     or to_regprocedure('king_private.toalhas_do_anfitriao(uuid)') is not null
+     or to_regprocedure('king_private.nivel_da_toalha(text)') is not null
+     or to_regprocedure('public.equipar_item(text,boolean)') is not null
+     or to_regprocedure('king_private.cosmeticos_dos_assentos(uuid[])') is not null
+     or to_regprocedure('king_private.nivel_do_item(text)') is not null then
     raise exception 'ROLLOUT COSMÉTICOS ABORTADO (parte 1): os cosméticos já existem, inteiros ou em parte, neste banco — esta execução não alterou nada. Se acabaram de ser aplicados (o arquivo colado duas vezes), confira com o checkpoint 3.';
   end if;
 end $$;
@@ -72,4 +78,4 @@ select (select count(*) from public.progresso)                       as linhas_d
        (select coalesce(array_agg(m.roleid::regrole::text order by m.roleid::regrole::text collate "C"), '{}')
           from pg_auth_members as m where m.member = 'king_server'::regrole)       as papeis_do_servidor;
 
--- ═══ PARTE 2/3 — A MIGRAÇÃO, idêntica a supabase/migrations/20261117120000_cosmeticos.sql ═══
+-- ═══ PARTE 2/3 — AS TRÊS MIGRAÇÕES, idênticas aos arquivos de supabase/migrations ═══════════

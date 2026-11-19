@@ -10,6 +10,12 @@ declare
   equipar regprocedure := to_regprocedure('public.equipar_cosmetico(text,boolean)');
   sala    regprocedure := to_regprocedure('king_private.cosmeticos_da_sala(uuid[])');
   nivel   regprocedure := to_regprocedure('king_private.nivel_do_cosmetico(text)');
+  toalha  regprocedure := to_regprocedure('public.equipar_toalha(text)');
+  mesa    regprocedure := to_regprocedure('king_private.toalhas_do_anfitriao(uuid)');
+  nivel_t regprocedure := to_regprocedure('king_private.nivel_da_toalha(text)');
+  item    regprocedure := to_regprocedure('public.equipar_item(text,boolean)');
+  assent  regprocedure := to_regprocedure('king_private.cosmeticos_dos_assentos(uuid[])');
+  nivel_i regprocedure := to_regprocedure('king_private.nivel_do_item(text)');
   credito regprocedure := 'king_private.creditar_partida(uuid,timestamptz,timestamptz,smallint,smallint,jsonb)'::regprocedure;
   agora   text[];
   novos   text[];
@@ -35,6 +41,30 @@ begin
                      where k.conrelid = t and k.contype = 'f' and k.confrelid = 'public.players'::regclass and k.confdeltype = 'c') then
     raise exception 'CONFERÊNCIA 1 FALHOU: a tabela dos cosméticos não é a da Entrega B (dono, RLS, vazia, chave ou cascade). Nada foi gravado.';
   end if;
+  -- ...e a toalha: texto, obrigatória, padrão 'imperial' e presa ao catálogo das seis
+  if not exists (select 1 from pg_attribute as a join pg_attrdef as d on d.adrelid = a.attrelid and d.adnum = a.attnum
+                  where a.attrelid = t and a.attname = 'toalha' and not a.attisdropped and a.attnotnull
+                    and a.atttypid = 'text'::regtype and pg_get_expr(d.adbin, d.adrelid) = '''imperial''::text')
+     or not exists (select 1 from pg_constraint as k
+                     where k.conrelid = t and k.contype = 'c' and k.conname = 'cosmeticos_toalha_do_catalogo'
+                       and pg_get_constraintdef(k.oid) = 'CHECK ((toalha = ANY (ARRAY[''imperial''::text, ''verde''::text, ''vinho''::text, ''azul''::text, ''esmeralda''::text, ''preta''::text])))') then
+    raise exception 'CONFERÊNCIA 1 FALHOU: a coluna da toalha não é a esperada (tipo, padrão ou catálogo). Nada foi gravado.';
+  end if;
+  -- ...e as escolhas do catálogo (Entrega C): moldura e baralho opcionais e presos ao catálogo; reações
+  -- obrigatórias (vazia por padrão) e presas às quatro de nível; as três da parte 1 GERADAS a partir delas
+  if (select array_agg(pg_get_constraintdef(k.oid) order by k.conname collate "C") from pg_constraint as k
+       where k.conrelid = t and k.contype = 'c' and k.conname in ('cosmeticos_moldura_do_catalogo', 'cosmeticos_baralho_do_catalogo', 'cosmeticos_reacoes_do_catalogo'))
+     is distinct from array[
+       'CHECK ((baralho = ANY (ARRAY[''imperial''::text, ''safira''::text, ''ouro-negro''::text, ''rubi''::text, ''marfim''::text])))',
+       'CHECK ((moldura = ANY (ARRAY[''real''::text, ''rubi''::text, ''onix''::text, ''diamante''::text, ''esmeralda''::text])))',
+       'CHECK ((reacoes <@ ARRAY[''fogo''::text, ''coroa''::text, ''caveira''::text, ''aplauso''::text]))']
+     or (select count(*) from pg_attribute as a
+          where a.attrelid = t and not a.attisdropped and a.attgenerated = 's' and a.atttypid = 'boolean'::regtype and a.attnotnull
+            and a.attname in ('moldura_real', 'baralho_imperial', 'reacao_coroa')) <> 3
+     or not exists (select 1 from pg_attribute as a where a.attrelid = t and a.attname = 'reacoes' and not a.attisdropped
+                     and a.attnotnull and a.atttypid = 'text[]'::regtype) then
+    raise exception 'CONFERÊNCIA 1 FALHOU: as colunas do catálogo não são as esperadas (moldura, baralho, reações ou os espelhos da parte 1). Nada foi gravado.';
+  end if;
 
   -- 2. a política: UMA, só de leitura, só para authenticated, só a própria linha
   if (select count(*) from pg_policy as p where p.polrelid = t) <> 1
@@ -48,7 +78,7 @@ begin
   end if;
 
   -- 3. as funções: dono dedicado, search_path vazio; as duas portas SECURITY DEFINER, o catálogo não
-  foreach f in array array[equipar, sala, nivel] loop
+  foreach f in array array[equipar, sala, nivel, toalha, mesa, nivel_t, item, assent, nivel_i] loop
     if f is null
        or (select pg_get_userbyid(p.proowner) from pg_proc as p where p.oid = f) <> 'king_progress_owner'
        or (select p.proconfig from pg_proc as p where p.oid = f) is distinct from array['search_path=""'] then
@@ -57,7 +87,13 @@ begin
   end loop;
   if not (select p.prosecdef from pg_proc as p where p.oid = equipar)
      or not (select p.prosecdef from pg_proc as p where p.oid = sala)
-     or (select p.prosecdef from pg_proc as p where p.oid = nivel) then
+     or not (select p.prosecdef from pg_proc as p where p.oid = toalha)
+     or not (select p.prosecdef from pg_proc as p where p.oid = mesa)
+     or not (select p.prosecdef from pg_proc as p where p.oid = item)
+     or not (select p.prosecdef from pg_proc as p where p.oid = assent)
+     or (select p.prosecdef from pg_proc as p where p.oid = nivel)
+     or (select p.prosecdef from pg_proc as p where p.oid = nivel_t)
+     or (select p.prosecdef from pg_proc as p where p.oid = nivel_i) then
     raise exception 'CONFERÊNCIA 3 FALHOU: SECURITY DEFINER fora do previsto nas funções dos cosméticos. Nada foi gravado.';
   end if;
   -- o catálogo do banco é o mesmo do app: 2 / 4 / 6, e nada fora dele
@@ -67,6 +103,29 @@ begin
      or king_private.nivel_do_cosmetico('outro') is not null then
     raise exception 'CONFERÊNCIA 3 FALHOU: o catálogo do banco não é 2/4/6. Nada foi gravado.';
   end if;
+  -- e o das toalhas: as duas mesas de sempre livres (1), vinho 3, azul 8, esmeralda 10, preta 12, e nada fora dele
+  if king_private.nivel_da_toalha('imperial') is distinct from 1
+     or king_private.nivel_da_toalha('verde') is distinct from 1
+     or king_private.nivel_da_toalha('vinho') is distinct from 3
+     or king_private.nivel_da_toalha('azul') is distinct from 8
+     or king_private.nivel_da_toalha('esmeralda') is distinct from 10
+     or king_private.nivel_da_toalha('preta') is distinct from 12
+     or king_private.nivel_da_toalha('outra') is not null then
+    raise exception 'CONFERÊNCIA 3 FALHOU: o catálogo das toalhas não é 1/1/3/8/10/12. Nada foi gravado.';
+  end if;
+  -- e o catálogo inteiro da Entrega C, item a item (a curva combinada), e nada fora dele
+  if (select array_agg(i || '=' || coalesce(king_private.nivel_do_item(i)::text, 'null') order by i collate "C")
+        from unnest(array['moldura-real', 'moldura-rubi', 'moldura-onix', 'moldura-diamante', 'moldura-esmeralda',
+                          'baralho-imperial', 'baralho-safira', 'baralho-ouro-negro', 'baralho-rubi', 'baralho-marfim',
+                          'reacao-fogo', 'reacao-coroa', 'reacao-caveira', 'reacao-aplauso', 'reacao-risada', 'reacao-choro',
+                          'mesa-vinho', 'mesa-preta', 'mesa-roxa', 'outro']) as i)
+     is distinct from array['baralho-imperial=4', 'baralho-marfim=18', 'baralho-ouro-negro=13', 'baralho-rubi=17', 'baralho-safira=9',
+                            'mesa-preta=12', 'mesa-roxa=null', 'mesa-vinho=3',
+                            'moldura-diamante=15', 'moldura-esmeralda=16', 'moldura-onix=11', 'moldura-real=2', 'moldura-rubi=7',
+                            'outro=null', 'reacao-aplauso=14', 'reacao-caveira=10', 'reacao-choro=null', 'reacao-coroa=6',
+                            'reacao-fogo=5', 'reacao-risada=null'] then
+    raise exception 'CONFERÊNCIA 3 FALHOU: o catálogo da Entrega C não é a curva combinada. Nada foi gravado.';
+  end if;
 
   -- 4. quem pode o quê: o cliente LÊ (RLS) e EQUIPA (pela porta); só o servidor lê a sala; ninguém
   --    da API escreve na tabela nem executa o catálogo ou a porta da sala
@@ -74,26 +133,31 @@ begin
     if has_table_privilege(papel, t, 'insert, update, delete, truncate, references, trigger') then
       raise exception 'CONFERÊNCIA 4 FALHOU: % escreve na tabela dos cosméticos. Nada foi gravado.', papel;
     end if;
-    if has_function_privilege(papel, nivel, 'execute') then
+    if has_function_privilege(papel, nivel, 'execute') or has_function_privilege(papel, nivel_t, 'execute')
+       or has_function_privilege(papel, nivel_i, 'execute') then
       raise exception 'CONFERÊNCIA 4 FALHOU: % executa o catálogo direto. Nada foi gravado.', papel;
     end if;
   end loop;
   foreach papel in array array['public', 'anon', 'authenticated', 'service_role'] loop
-    if has_function_privilege(papel, sala, 'execute') then
+    if has_function_privilege(papel, sala, 'execute') or has_function_privilege(papel, mesa, 'execute')
+       or has_function_privilege(papel, assent, 'execute') then
       raise exception 'CONFERÊNCIA 4 FALHOU: % executa a porta da sala. Nada foi gravado.', papel;
     end if;
   end loop;
   foreach papel in array array['public', 'anon', 'service_role', 'king_server'] loop
-    if has_function_privilege(papel, equipar, 'execute') or has_table_privilege(papel, t, 'select') then
+    if has_function_privilege(papel, equipar, 'execute') or has_function_privilege(papel, toalha, 'execute')
+       or has_function_privilege(papel, item, 'execute') or has_table_privilege(papel, t, 'select') then
       raise exception 'CONFERÊNCIA 4 FALHOU: % lê a tabela ou equipa. Nada foi gravado.', papel;
     end if;
   end loop;
   if not has_table_privilege('authenticated', t, 'select') or not has_function_privilege('authenticated', equipar, 'execute')
-     or not has_function_privilege('king_server', sala, 'execute') or pg_has_role('king_server', 'king_progress_owner', 'MEMBER') then
+     or not has_function_privilege('authenticated', toalha, 'execute') or not has_function_privilege('king_server', mesa, 'execute')
+     or not has_function_privilege('king_server', sala, 'execute') or not has_function_privilege('authenticated', item, 'execute')
+     or not has_function_privilege('king_server', assent, 'execute') or pg_has_role('king_server', 'king_progress_owner', 'MEMBER') then
     raise exception 'CONFERÊNCIA 4 FALHOU: faltou a leitura/porta do cliente ou a do servidor, ou o servidor virou dono. Nada foi gravado.';
   end if;
 
-  -- 5. NADA mais mudou de privilégio: só entram a tabela e as três funções, cada uma com o ACL exato;
+  -- 5. NADA mais mudou de privilégio: só entram a tabela e as nove funções, cada uma com o ACL exato;
   --    nenhum objeto que existia ganhou ou perdeu acesso (nem o schema public, que a migração abre e
   --    fecha para o dono dedicado)
   select array_agg(o.obj || ' ' || o.acl) into agora from (
@@ -109,11 +173,17 @@ begin
       from pg_namespace as n where n.nspname in ('king_private', 'public')) as o;
   novos   := array(select x from unnest(agora) as x except select y from unnest(antes.privilegios) as y);
   sumidos := array(select y from unnest(antes.privilegios) as y except select x from unnest(agora) as x);
-  if cardinality(sumidos) <> 0 or cardinality(novos) <> 4
+  if cardinality(sumidos) <> 0 or cardinality(novos) <> 10
      -- (o texto do objeto vem dele mesmo: com `public` no search_path, o Postgres o escreve sem prefixo)
      or not (equipar::text || ' {king_progress_owner=X/king_progress_owner,authenticated=X/king_progress_owner}' = any (novos))
      or not (sala::text || ' {king_progress_owner=X/king_progress_owner,king_server=X/king_progress_owner}' = any (novos))
      or not (nivel::text || ' {king_progress_owner=X/king_progress_owner}' = any (novos))
+     or not (toalha::text || ' {king_progress_owner=X/king_progress_owner,authenticated=X/king_progress_owner}' = any (novos))
+     or not (mesa::text || ' {king_progress_owner=X/king_progress_owner,king_server=X/king_progress_owner}' = any (novos))
+     or not (nivel_t::text || ' {king_progress_owner=X/king_progress_owner}' = any (novos))
+     or not (item::text || ' {king_progress_owner=X/king_progress_owner,authenticated=X/king_progress_owner}' = any (novos))
+     or not (assent::text || ' {king_progress_owner=X/king_progress_owner,king_server=X/king_progress_owner}' = any (novos))
+     or not (nivel_i::text || ' {king_progress_owner=X/king_progress_owner}' = any (novos))
      or not exists (select 1 from unnest(novos) as n
                      where starts_with(n, t::text || ' {')
                        and n ~ ' \{king_progress_owner=[a-zA-Z]+/king_progress_owner,authenticated=r/king_progress_owner\}$') then
@@ -136,14 +206,16 @@ begin
     raise exception 'CONFERÊNCIA 5 FALHOU: privilégio de coluna, papel do servidor ou política de RLS fora da Entrega B. Nada foi gravado.';
   end if;
 
-  -- 6. SECURITY DEFINER: só as duas portas novas entram na lista
+  -- 6. SECURITY DEFINER: só as seis portas novas entram na lista
   if (select array_agg(s collate "C" order by s collate "C") from (
         select n.nspname || '.' || p.proname as s
           from pg_proc as p join pg_namespace as n on n.oid = p.pronamespace
          where p.prosecdef and n.nspname in ('public', 'king_private')) as d)
      is distinct from
      (select array_agg(s collate "C" order by s collate "C")
-        from unnest(antes.security_definer || array['public.equipar_cosmetico', 'king_private.cosmeticos_da_sala']) as s) then
+        from unnest(antes.security_definer || array['public.equipar_cosmetico', 'king_private.cosmeticos_da_sala',
+                                                  'public.equipar_toalha', 'king_private.toalhas_do_anfitriao',
+                                                  'public.equipar_item', 'king_private.cosmeticos_dos_assentos']) as s) then
     raise exception 'CONFERÊNCIA 6 FALHOU: funções SECURITY DEFINER fora da Entrega B. Nada foi gravado.';
   end if;
 
@@ -169,9 +241,13 @@ commit;
 
 -- ═══ RELATÓRIO — só aparece se TUDO acima passou e foi gravado ════════════════════════════
 select 'COSMÉTICOS (ENTREGA B) APLICADA E CONFERIDA' as resultado,
+       has_function_privilege('authenticated', 'public.equipar_item(text,boolean)', 'execute')      as cliente_equipa_o_catalogo,
+       has_function_privilege('king_server', 'king_private.cosmeticos_dos_assentos(uuid[])', 'execute') as servidor_le_os_assentos,
        to_regclass('public.cosmeticos_equipados') is not null                                      as tabela,
        (select count(*) from public.cosmeticos_equipados)                                          as escolhas_gravadas,
        has_function_privilege('authenticated', 'public.equipar_cosmetico(text,boolean)', 'execute') as cliente_equipa,
        has_function_privilege('king_server', 'king_private.cosmeticos_da_sala(uuid[])', 'execute') as servidor_le_a_sala,
+       has_function_privilege('authenticated', 'public.equipar_toalha(text)', 'execute')          as cliente_escolhe_toalha,
+       has_function_privilege('king_server', 'king_private.toalhas_do_anfitriao(uuid)', 'execute') as servidor_le_a_mesa,
        (select count(*) from public.progresso)                                                     as linhas_de_progresso,
        (select coalesce(sum(xp_total), 0) from public.progresso)                                   as xp_total;

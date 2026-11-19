@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProgressoDoJogador } from "../auth/progresso.js";
 import {
-  aplicarBaralho, marcarCelebrados, paraCelebrar,
+  aplicarBaralho, baralhoQueVale, guardarMesa, itemDaToalha, lembrarNivel, marcarCelebrados, paraCelebrar, toalhaEquipada,
   type CosmeticosDoJogador, type Equipados, type ItemDoCatalogo, type ItemId,
 } from "../auth/cosmeticos.js";
 
@@ -23,7 +23,12 @@ export interface CosmeticosDaHome {
   dispensarCelebracao(): void;
 }
 
-const NIVEL_DO_BARALHO = 4;
+/** O que vale NESTE aparelho: o baralho e a mesa (contra os bots) equipados, se o nível alcança. */
+function aplicarNoAparelho(e: Equipados, nivel: number): void {
+  aplicarBaralho(baralhoQueVale(e, nivel));
+  const t = toalhaEquipada(e);
+  guardarMesa(nivel >= itemDaToalha(t).nivel ? t : "imperial");
+}
 
 export function useCosmeticos(api: CosmeticosDoJogador | null, progresso: ProgressoDoJogador | null): CosmeticosDaHome {
   const [equipados, setEquipados] = useState<Equipados | null>(null);
@@ -37,12 +42,13 @@ export function useCosmeticos(api: CosmeticosDoJogador | null, progresso: Progre
 
   useEffect(() => {
     if (!api || !progresso) { setEquipados(null); return; }
+    lembrarNivel(progresso.nivel);
     let cancelado = false;
     void api.meus().then((e) => {
       if (cancelado) return;
       setEquipados(e);
       if (!e) return; // vitrine indisponível: o baralho guardado neste aparelho fica como estava
-      aplicarBaralho(e["baralho-imperial"] && progresso.nivel >= NIVEL_DO_BARALHO);
+      aplicarNoAparelho(e, progresso.nivel);
       // UMA VEZ POR ITEM: marcado já ao aparecer. Reabrir a Home, reconectar ou fechar o app no
       // meio da celebração não a repete.
       const novos = paraCelebrar(progresso.nivel, progresso.playerId ?? "conta");
@@ -63,13 +69,13 @@ export function useCosmeticos(api: CosmeticosDoJogador | null, progresso: Progre
     setOcupado(false);
     if (r.ok) {
       setEquipados(r.equipados);
-      if (item === "baralho-imperial") aplicarBaralho(r.equipados["baralho-imperial"]);
+      aplicarNoAparelho(r.equipados, nivel);
       return;
     }
     setAviso(r.motivo === "nivel"
       ? "Este item ainda não foi liberado para a sua conta."
       : "Não foi possível salvar agora. Tente de novo em instantes.");
-  }, [api, ocupado]);
+  }, [api, ocupado, nivel]);
 
   const dispensarCelebracao = useCallback(() => {
     marcarCelebrados(conta, celebrar.map((i) => i.id));

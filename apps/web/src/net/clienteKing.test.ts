@@ -84,8 +84,8 @@ describe("lerEstadoDaSala", () => {
     // e a camada de desenho cai no padrão sozinha. O leitor não inventa dado que não veio.
     // Cosméticos que não vieram (servidor anterior à Entrega B) ficam DESLIGADOS, nunca indefinidos.
     expect(torto.seats).toEqual([
-      { seat: 0, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "", moldura: false, coroa: false },
-      { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "", moldura: false, coroa: false },
+      { seat: 0, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "", moldura: false, coroa: false, estiloMoldura: "", reacoes: undefined },
+      { seat: 1, playerId: "", nick: "", connected: false, ready: false, assisted: false, bot: false, host: false, avatar: "", moldura: false, coroa: false, estiloMoldura: "", reacoes: undefined },
     ]);
   });
 

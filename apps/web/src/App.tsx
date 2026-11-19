@@ -16,9 +16,11 @@ import { PainelConta } from "./ui/PainelConta.js";
 import { aoConviteDoApp } from "./nativo/linkDoApp.js";
 import { leitorDeProgressoConfigurado } from "./auth/progresso.js";
 import { useMeuProgresso } from "./game/useMeuProgresso.js";
-import { cosmeticosConfigurados, CATALOGO, liberadosNo } from "./auth/cosmeticos.js";
+import { cosmeticosConfigurados, DESBLOQUEAVEIS, liberadosNo } from "./auth/cosmeticos.js";
 import { useCosmeticos } from "./game/useCosmeticos.js";
 import { NovoItemDesbloqueado, VitrineDeItens } from "./ui/Cosmeticos.js";
+import { MeusRecordes } from "./ui/Recordes.js";
+import { leitorDeRecordesConfigurado } from "./auth/recordes.js";
 
 /**
  * Dois modos, uma Mesa.
@@ -154,6 +156,7 @@ function ModoLocal({
   // OS ITENS DA COROA (Entrega B): lidos junto com o progresso. Sem vitrine, nada muda na Home.
   const cosmeticos = useCosmeticos(cosmeticosConfigurados(), progresso);
   const [itensAbertos, setItensAbertos] = useState(false);
+  const [recordesAbertos, setRecordesAbertos] = useState(false);
 
   // Lidos direto dos módulos puros: saber se há servidor configurado não exige abrir conexão
   // nenhuma — e nenhum destes dois módulos toca no cliente Colyseus.
@@ -181,9 +184,13 @@ function ModoLocal({
           progresso={progresso}
           onAbrirConta={painelDaConta.oferecer ? () => setContaAberta(true) : undefined}
           itens={cosmeticos.disponivel
-            ? { liberados: liberadosNo(cosmeticos.nivel).length, total: CATALOGO.length, onAbrir: () => setItensAbertos(true) }
+            ? { liberados: liberadosNo(cosmeticos.nivel).length, total: DESBLOQUEAVEIS.length, onAbrir: () => setItensAbertos(true) }
             : undefined}
+          onAbrirRecordes={() => setRecordesAbertos(true)}
         />
+        {recordesAbertos && (
+          <MeusRecordes progresso={progresso} leitor={leitorDeRecordesConfigurado()} onFechar={() => setRecordesAbertos(false)} />
+        )}
         {itensAbertos && cosmeticos.equipados && (
           <VitrineDeItens
             nivel={cosmeticos.nivel}
@@ -194,7 +201,7 @@ function ModoLocal({
             onFechar={() => setItensAbertos(false)}
           />
         )}
-        {!itensAbertos && !contaAberta && cosmeticos.celebrar.length > 0 && (
+        {!itensAbertos && !contaAberta && !recordesAbertos && cosmeticos.celebrar.length > 0 && (
           <NovoItemDesbloqueado
             itens={cosmeticos.celebrar}
             onVer={() => { cosmeticos.dispensarCelebracao(); setItensAbertos(true); }}
