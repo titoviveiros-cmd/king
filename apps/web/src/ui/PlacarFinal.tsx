@@ -11,9 +11,12 @@ import { sfxCountTick, sfxCrownLand, sfxDefeat, sfxRankShuffle, sfxTap, sfxVicto
 import { analytics } from "../analytics/analytics.js";
 import { anunciarFimDePartida } from "../analytics/partida.js";
 import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
-import { BalaoSocial, BotaoSocial, type MesaMultiplayer } from "./MesaOnline.js";
+import { BalaoSocial, BotaoSocial, reacoesDaMesa, type MesaMultiplayer } from "./MesaOnline.js";
 import { useXpDaPartida, xpParaExibir } from "../game/xpDaPartida.js";
 import { XpNoFim } from "./Progresso.js";
+import { NovoRecorde } from "./Recordes.js";
+import { useNovoRecorde } from "../game/useNovoRecorde.js";
+import { leitorDeRecordesConfigurado, marcarCelebrado } from "../auth/recordes.js";
 
 /**
  * PLACAR FINAL — o encerramento da partida. Não é "o Placar entre-mãos sem o botão":
@@ -58,6 +61,12 @@ export function PlacarFinal({
   // buscado). A busca começa já na montagem, porque o crédito é gravado segundos depois do fim, e
   // o resultado só aparece em "completo". Sem crédito real, não aparece nada — nunca um zero.
   const xp = xpParaExibir(useXpDaPartida(mp?.matchId, mp?.progresso));
+
+  // NOVO RECORDE (Entrega D): solo, pelo Top 3 deste aparelho; online, pelo Top 3 do banco, depois do
+  // crédito confirmado. Aparece só DEPOIS da encenação, e uma vez por resultado.
+  const novoRecorde = useNovoRecorde(game, mp ? { matchId: mp.matchId, creditoConfirmado: xp !== null } : null,
+    mp ? leitorDeRecordesConfigurado() : null);
+  const [recordeFechado, setRecordeFechado] = useState(false);
 
   // PARA A MEDIÇÃO: a MINHA posição e se ela é dividida com alguém. Não o placar bruto — só o
   // resultado que responde "quem termina em que lugar volta a jogar?".
@@ -213,7 +222,7 @@ export function PlacarFinal({
                   principais continuam sendo o que a tela oferece, e este é o círculo discreto do
                   lado. Mesmo componente da Mesa e do placar entre-mãos — mesmo catálogo fechado,
                   mesma etiqueta viajando, mesma validação e mesmo anti-spam do servidor. */}
-              {mp && <BotaoSocial status="finished" variante="fim" onEnviar={mp.onEnviarMensagem} />}
+              {mp && <BotaoSocial status="finished" variante="fim" onEnviar={mp.onEnviarMensagem} reacoes={reacoesDaMesa(mp, game.handNumber())} />}
             </div>
           )}
         </div>
@@ -232,11 +241,13 @@ export function PlacarFinal({
                 >
                   <span className="p">{mostrandoFinal ? ordinal(r.position) : ""}{r.tied && mostrandoFinal && <i>=</i>}</span>
                   {campeao ? <Crown size={26} className="mini" /> : <span className="p-espaco" />}
+                  {/* A MOLDURA no placar final: é aqui que a mesa inteira olha para quem venceu. */}
                   <InsigniaEmLinha
                     seat={r.seat}
                     avatar={etiquetaDoAvatar(game, mp?.sala?.seats, r.seat)}
                     nome={r.player}
                     classe="av"
+                    moldura={mp?.sala?.seats[r.seat]?.estiloMoldura}
                   />
                   {/* A MENSAGEM DIVIDE A CÉLULA COM O NOME, em vez de flutuar por cima dela.
                       Ela aparece NA LINHA de quem falou — a atribuição é posicional, sem precisar
@@ -293,8 +304,17 @@ export function PlacarFinal({
       </div>
 
       {!completo && <div className="fimpular">toque para pular</div>}
+      {completo && novoRecorde && !recordeFechado && (
+        <NovoRecordeUmaVez recorde={novoRecorde} onFechar={() => setRecordeFechado(true)} />
+      )}
     </div>
   );
+}
+
+/** A celebração, marcada como vista no instante em que aparece: fechar o app no meio não a repete. */
+function NovoRecordeUmaVez({ recorde, onFechar }: { recorde: Parameters<typeof NovoRecorde>[0]["recorde"]; onFechar: () => void }) {
+  useEffect(() => { marcarCelebrado(recorde.id); }, [recorde.id]);
+  return <NovoRecorde recorde={recorde} onFechar={onFechar} />;
 }
 
 /**

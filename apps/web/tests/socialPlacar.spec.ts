@@ -137,7 +137,8 @@ test("no Placar entre-mãos: a mensagem atravessa e o cooldown continua valendo"
 
     // ── A MENSAGEM ATRAVESSA ──
     await gatilho.click();
-    const frases = anfitriao.locator(".placarov .socbtn");
+    // as FRASES (a fileira de reações vem antes delas, desde a Entrega C)
+    const frases = anfitriao.locator(".placarov .socfrases .socbtn");
     await expect(frases.first()).toBeVisible();
     const texto = (await frases.first().textContent())?.trim() ?? "";
     await frases.first().click();

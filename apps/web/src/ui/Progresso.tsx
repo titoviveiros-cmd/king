@@ -1,5 +1,6 @@
 import type { ProgressoDoJogador, SequenciaDoJogador } from "../auth/progresso.js";
 import { sequenciaDaPartida, type XpDaPartida } from "../game/xpDaPartida.js";
+import { sfxTap } from "../audio/sounds.js";
 
 /**
  * A PROGRESSÃO DO JOGADOR, como o Design System a define: orgânica, NÃO dashboard — badge de
@@ -35,8 +36,15 @@ function descreverSequencia(s: SequenciaDoJogador): string {
   return recordeVisivel(s) ? `${base}, recorde de ${dias(s.recorde)}` : base;
 }
 
+/** A porta da vitrine dos Itens da Coroa (Entrega B), dentro do card. */
+export interface ItensDoCard {
+  liberados: number;
+  total: number;
+  onAbrir: () => void;
+}
+
 /** Na Home: abaixo das ações de jogo, nunca competindo com elas. */
-export function ProgressoNaHome({ progresso: p }: { progresso: ProgressoDoJogador }) {
+export function ProgressoNaHome({ progresso: p, itens }: { progresso: ProgressoDoJogador; itens?: ItensDoCard }) {
   const s = p.sequencia;
   const total = <span className="pg-total">{p.xpTotal} XP total</span>;
   return (
@@ -60,6 +68,18 @@ export function ProgressoNaHome({ progresso: p }: { progresso: ProgressoDoJogado
           </span>
           {recordeVisivel(s) && <span className="pg-recorde">Recorde: {dias(s.recorde)}</span>}
         </span>
+      )}
+      {/* OS ITENS DA COROA: um botão curto no fim do card, só quando a vitrine existe. É a mesma
+          pílula: nada novo empurra as ações da Home. */}
+      {itens && (
+        <button
+          type="button"
+          className="pg-itens"
+          onClick={() => { sfxTap(); itens.onAbrir(); }}
+          aria-label={`Itens da Coroa: ${itens.liberados} de ${itens.total} liberados`}
+        >
+          👑 <b>{itens.liberados}/{itens.total}</b>
+        </button>
       )}
     </div>
   );

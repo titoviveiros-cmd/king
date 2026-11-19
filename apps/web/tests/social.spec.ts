@@ -299,3 +299,40 @@ for (const frase of ["Segura essa!", "Essa doeu 😅"]) {
     }
   });
 }
+
+/**
+ * AS REAÇÕES (Entrega C) — o balão de EMOJI GRANDE é mais largo e mais alto que o das frases. O pior
+ * caso de largura é "Pegou fogo!". Em cada assento, nos treze tamanhos, ele precisa ficar INTEIRO na
+ * tela e não cobrir carta, Trunfo, HUD, botões do topo, relógio nem o card de outro jogador. Mede
+ * depois da entrada (o estouro anima o emoji, não a caixa).
+ */
+test("o balão de REAÇÃO (o mais largo, 'Pegou fogo!') cabe em cada assento e não cobre nada do jogo", async ({ page }, ti) => {
+  test.setTimeout(120_000);
+  const vp = page.viewportSize()!;
+  test.skip(!(await mesaPositivaComTrunfo(page)), "a mão positiva não montou dentro do orçamento");
+  for (const assento of ASSENTOS) {
+    await page.evaluate((sel) => {
+      document.querySelectorAll(".balao").forEach((n) => n.remove());
+      const card = document.querySelector(sel);
+      if (!card) return;
+      const b = document.createElement("span");
+      b.className = "balao reacao r-fogo";
+      b.innerHTML = '<i class="rc-emoji">🔥</i><span class="rc-txt">Pegou fogo!</span>';
+      card.appendChild(b);
+    }, assento.sel);
+    await page.waitForTimeout(450);
+    const caixa = (await page.locator(".balao.reacao").boundingBox()) as Box;
+    expect(caixa, `${assento.rotulo}: balão não apareceu`).toBeTruthy();
+    expect(insideViewport(caixa, vp, 1), `${assento.rotulo}: saiu da tela`).toBe(true);
+    const proibidos = [...INTOCAVEIS, ".card", ...ASSENTOS.filter((a) => a.sel !== assento.sel).map((a) => a.sel)];
+    for (const sel of proibidos) {
+      for (const alvo of await caixasDe(page, sel)) {
+        expect(Math.round(overlapArea(caixa, alvo)), `${assento.rotulo}: cobre ${sel}`).toBe(0);
+      }
+    }
+    if (PASTA) {
+      const nome = assento.rotulo.replace(/[^A-Za-z0-9]+/g, "-");
+      await page.screenshot({ path: `${PASTA}/social-reacao-${nome}-${ti.project.name}.png` });
+    }
+  }
+});

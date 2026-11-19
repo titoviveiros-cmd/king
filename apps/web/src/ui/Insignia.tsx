@@ -49,7 +49,7 @@ export function etiquetaDoAvatar(
  * numa partida normal ele nunca deveria ser exercido, e o teste que o cobre é o de estado
  * degenerado, não o de partida.
  */
-export function Insignia({ seat, avatar, nome, classe = "av", selo }: {
+export function Insignia({ seat, avatar, nome, classe = "av", selo, moldura }: {
   seat: Seat;
   avatar?: string;
   nome: string;
@@ -57,25 +57,38 @@ export function Insignia({ seat, avatar, nome, classe = "av", selo }: {
   classe?: string;
   /** O selo do castigo desenha um `<i>` dentro de uma linha de texto, não um bloco. */
   selo?: boolean;
+  /**
+   * A MOLDURA (Entregas B e C): o estilo que o SERVIDOR mandou (`assento.estiloMoldura`, lido do
+   * banco), ou nada. Aqui só se desenha: um aro POR FORA do círculo, com o selo da coroa — o desenho,
+   * a cor do assento e o tamanho do avatar ficam exatamente os mesmos.
+   */
+  moldura?: string;
 }) {
   const d = avatar ? desenhoDoAvatar(avatar) : null;
-  const cls = `${classe} s${seat}`;
+  const cls = `${classe} s${seat}${classeDaMoldura(moldura)}`;
   const conteudo = d ? d.glifo : (nome[0] ?? "?");
   return selo
     ? <i className={cls} aria-label={d?.rotulo}>{conteudo}</i>
     : <div className={cls} aria-label={d?.rotulo}>{conteudo}</div>;
 }
 
+/** As classes da moldura: `mold` (a forma comum) e `moldura-<estilo>` (as cores e o selo). */
+export function classeDaMoldura(estilo: string | undefined): string {
+  return estilo ? ` mold moldura-${estilo}` : "";
+}
+
 /** A mesma insígnia como `<span>`, para caber dentro de linhas de texto (placares). */
-export function InsigniaEmLinha({ seat, avatar, nome, classe }: {
+export function InsigniaEmLinha({ seat, avatar, nome, classe, moldura }: {
   seat: Seat;
   avatar?: string;
   nome: string;
   classe: string;
+  /** A moldura do assento, onde a tela quer mostrá-la (o placar final). */
+  moldura?: string;
 }) {
   const d = avatar ? desenhoDoAvatar(avatar) : null;
   return (
-    <span className={`${classe} s${seat}`} aria-label={d?.rotulo}>
+    <span className={`${classe} s${seat}${classeDaMoldura(moldura)}`} aria-label={d?.rotulo}>
       {d ? d.glifo : (nome[0] ?? "?")}
     </span>
   );

@@ -225,12 +225,32 @@ describe("o cliente é SÓ LEITURA de progresso", () => {
   const ESCRITA_NO_BANCO = /\.from\(\s*["'`][^"'`]+["'`]\s*\)(?:(?!\.from\()[\s\S]){0,400}?\.(insert|update|upsert|delete)\s*\(/;
   const SEMPRE_PROIBIDO = /\.(insert|upsert)\s*\(|\.rpc\s*\(|creditar_partida|service_role/;
 
+  /**
+   * A ÚNICA ESCRITA DO CLIENTE (Entrega B): `equipar_cosmetico`, num arquivo só. Ela não toca em
+   * progresso nem em XP — grava a ESCOLHA de um cosmético, e o banco confere o nível antes. A
+   * exceção é a chamada exata, nomeada, e só em `auth/cosmeticos.ts`; qualquer outro `.rpc(`,
+   * ou esta mesma em outro arquivo, continua reprovando.
+   */
+  // A porta de escrita dos cosméticos (Entrega C: UMA para o catálogo inteiro), num arquivo só. Não fala de XP.
+  const ESCRITA_PERMITIDA = { arquivo: join("auth", "cosmeticos.ts"), chamadas: ['c.rpc("equipar_item", '] };
+
   it("nenhum arquivo do app escreve em progresso, ledger ou chama a função de crédito", () => {
     const culpados = fontes(RAIZ).filter((f) => {
-      const t = semComentarios(readFileSync(f, "utf8"));
+      let t = semComentarios(readFileSync(f, "utf8"));
+      if (f.endsWith(ESCRITA_PERMITIDA.arquivo)) for (const c of ESCRITA_PERMITIDA.chamadas) t = t.replace(c, "");
       return ESCRITA_NO_BANCO.test(t) || SEMPRE_PROIBIDO.test(t);
     });
     expect(culpados).toEqual([]);
+  });
+
+  it("a exceção do equipar é UMA chamada (equipar_item), num arquivo só, e não fala de XP", () => {
+    const todos = fontes(RAIZ).map((f) => ({ f, t: semComentarios(readFileSync(f, "utf8")) }));
+    const comRpc = todos.filter(({ t }) => /\.rpc\s*\(/.test(t));
+    expect(comRpc.map(({ f }) => f.endsWith(ESCRITA_PERMITIDA.arquivo))).toEqual([true]);
+    const t = comRpc[0].t;
+    expect(t.split(".rpc(").length - 1, "chamadas rpc além da porta de equipar").toBe(1);
+    for (const c of ESCRITA_PERMITIDA.chamadas) expect(t).toContain(c);
+    expect(t).not.toMatch(/xp_total|xp_delta|xp_eventos|nivel_de|creditar/);
   });
 
   it("a SEQUÊNCIA não tem relógio, armazenamento nem evento no cliente", () => {

@@ -14,7 +14,7 @@ import { TEMPOS } from "../game/timings.js";
 import { adversariosDe, slotDe } from "./assentos.js";
 import {
   BalaoSocial, BotaoSocial, ChipDoRelogio, FaixaDaConexao, SeloDeAssistencia, SeloDeBot,
-  AvisoDeRecusa, type MesaMultiplayer,
+  AvisoDeRecusa, reacoesDaMesa, type MesaMultiplayer,
 } from "./MesaOnline.js";
 import { Insignia, etiquetaDoAvatar } from "./Insignia.js";
 import { DezMaos } from "./DezMaos.js";
@@ -23,6 +23,7 @@ import { UltimaVaza } from "./UltimaVaza.js";
 import { UltimaMao } from "./UltimaMao.js";
 import { ReiCapturado, cenaDoReiJaVista, marcarCenaDoReiVista } from "./ReiCapturado.js";
 import { useDistribuicaoDaMao } from "./distribuicao.js";
+import { ehToalha, mesaGuardada } from "../auth/cosmeticos.js";
 
 export type { MesaMultiplayer } from "./MesaOnline.js";
 
@@ -58,8 +59,7 @@ export function faixaDoNome(nome: string): "" | "medio" | "longo" {
  * contra o conjunto fechado, e esta é a segunda rede — se um dia chegar um tema que este cliente
  * ainda não conhece (versão nova no ar, aparelho com o bundle antigo), a mesa continua desenhada.
  */
-const TEMAS_CONHECIDOS = new Set(["imperial", "verde"]);
-const temaDaMesa = (id: string | undefined) => (id && TEMAS_CONHECIDOS.has(id) ? id : "imperial");
+const temaDaMesa = (id: string | undefined) => (ehToalha(id) ? id : "imperial");
 
 /** Saldo com sinal, no formato curto do card. O menos é o de verdade, não o hífen. */
 const fmtPts = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "0");
@@ -364,8 +364,9 @@ export function Mesa({
       // layout, não de estado da partida, e por isso mora numa classe e não numa medida de JS.
       className={`mesa${shaking ? " shaking" : ""}${contract?.isPositive && trump && !anunciandoUltimaMao ? " comtrunfo" : ""}${mp ? " temsocial" : ""}`}
       /* O tema vem do estado AUTORITATIVO da sala, não de preferência local: todo mundo joga na
-         mesma mesa. Sem multiplayer cai no padrão, que é a mesa aprovada. */
-      data-tema={temaDaMesa(mp?.sala?.tableTheme)}
+         mesma mesa. Contra os bots não há sala: vale a toalha equipada na vitrine (guardada no
+         aparelho, só quando o nível alcança). */
+      data-tema={mp ? temaDaMesa(mp.sala?.tableTheme) : mesaGuardada()}
     >
       <div className="inlay" />
 
@@ -450,6 +451,7 @@ export function Mesa({
         <BotaoSocial
           status={mp.sala?.status === "finished" ? "finished" : "playing"}
           onEnviar={mp.onEnviarMensagem}
+          reacoes={reacoesDaMesa(mp, maoAtual)}
         />
       )}
 
@@ -484,7 +486,7 @@ export function Mesa({
             onClick={() => { sfxTap(); setVendoPerfil(s); }}
             aria-label={`Ver o perfil de ${oppName(s)}`}
           >
-            <Insignia seat={s} avatar={avatarDe(s)} nome={oppName(s)} />
+            <Insignia seat={s} avatar={avatarDe(s)} nome={oppName(s)} moldura={assento?.estiloMoldura} />
             <div>
               <div className="n">
                 {oppName(s)}<SeloDeBot assento={assento} /><SeloDeAssistencia assento={assento} />
@@ -521,7 +523,7 @@ export function Mesa({
         onClick={() => { sfxTap(); setVendoPerfil(eu); }}
         aria-label={`Ver o seu perfil, ${players[eu]}`}
       >
-        <Insignia seat={eu} avatar={avatarDe(eu)} nome={players[eu]} />
+        <Insignia seat={eu} avatar={avatarDe(eu)} nome={players[eu]} moldura={mp?.sala?.seats[eu]?.estiloMoldura} />
         <div>
           <div className="n">{players[eu]}<SeloDeAssistencia assento={mp?.sala?.seats[eu]} /></div>
           <div className="m">

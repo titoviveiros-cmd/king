@@ -29,6 +29,35 @@ export interface AssentoLido {
   host: boolean;
   /** Avatar escolhido. Vem do estado autoritativo — é o MESMO em todos os aparelhos. */
   avatar: string;
+  /**
+   * COSMÉTICOS (Entrega B), preenchidos SÓ pelo servidor com o que o banco liberou. Opcionais: um
+   * servidor anterior a eles não manda os campos, e aí não há moldura nem coroa — nunca erro.
+   */
+  moldura?: boolean;
+  coroa?: boolean;
+  /**
+   * ENTREGA C: a moldura escolhida (`real`, `rubi`, `onix`, `diamante`, `esmeralda`) ou `""`, e as
+   * reações de NÍVEL liberadas. `reacoes` AUSENTE = servidor da Entrega B, que não conhece as reações
+   * livres (a Mesa então só oferece a coroa, se `coroa`).
+   */
+  estiloMoldura?: string;
+  reacoes?: readonly string[];
+}
+
+const MOLDURAS_CONHECIDAS = ["real", "rubi", "onix", "diamante", "esmeralda"];
+const REACOES_DE_NIVEL = ["fogo", "coroa", "caveira", "aplauso"];
+
+/** A moldura: a nova (`estiloMoldura`) se o servidor a manda; senão a da Entrega B ("tem moldura" = Real). */
+function estiloDaMoldura(a: Record<string, unknown>): string {
+  if (typeof a.estiloMoldura === "string") return MOLDURAS_CONHECIDAS.includes(a.estiloMoldura) ? a.estiloMoldura : "";
+  return a.moldura === true ? "real" : "";
+}
+
+/** As reações de nível liberadas; `undefined` quando o servidor ainda não manda o campo. */
+function reacoesDoAssento(a: Record<string, unknown>): string[] | undefined {
+  if (typeof a.reacoes !== "string") return undefined;
+  const ditas = a.reacoes.split(",");
+  return REACOES_DE_NIVEL.filter((r) => ditas.includes(r));
 }
 
 /** Estado PÚBLICO da sala. Nunca contém mão, baralho nem semente — isso é lei do servidor. */
@@ -111,6 +140,10 @@ export function lerEstadoDaSala(bruto: unknown): EstadoDaSalaLido | null {
         bot: booleano(a.bot),
         host: booleano(a.host),
         avatar: texto(a.avatar),
+        moldura: booleano(a.moldura),
+        coroa: booleano(a.coroa),
+        estiloMoldura: estiloDaMoldura(a),
+        reacoes: reacoesDoAssento(a),
       };
     }),
   };
@@ -229,9 +262,15 @@ export function opcoesDeEntrada(
 ) {
   return {
     protocolVersion: PROTOCOL_VERSION, nick: pedido.nick, avatar: pedido.avatar,
+    // Este cliente sabe desenhar as reações; sem isto o servidor não as envia (o cliente antigo
+    // tocaria o som social sem mostrar balão nenhum).
+    recursos: RECURSOS_DO_CLIENTE,
     ...(accessToken ? { accessToken } : {}),
   };
 }
+
+/** O que este cliente sabe mostrar além do conjunto original: as reações. Igual a `REACOES` do servidor. */
+export const RECURSOS_DO_CLIENTE: readonly string[] = ["risada", "choro", "fogo", "coroa", "caveira", "aplauso"];
 
 /**
  * Fabrica o abridor real, ligado a uma URL. É aqui — e só aqui — que `@colyseus/sdk` é usado.
