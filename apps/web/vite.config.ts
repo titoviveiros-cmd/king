@@ -41,6 +41,6 @@ export default defineConfig({
       ),
     },
   },
-  // host: true => o servidor também escuta na rede local (celular no mesmo Wi-Fi).
-  server: { port: 5173, open: true, host: true },
+  // Padrão: só nesta máquina (127.0.0.1). Rede local (celular no mesmo Wi-Fi) só com KING_DEV_LAN=1.
+  server: { port: 5173, open: true, host: process.env.KING_DEV_LAN === "1" ? "0.0.0.0" : "127.0.0.1" },
 });

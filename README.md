@@ -41,15 +41,31 @@ O que **não** vem no clone e é normal:
 - Preferências de áudio (Música / Efeitos / Vibração) — ficam no navegador de cada aparelho.
 
 ## Testar no celular (mesma rede Wi-Fi)
-O `vite.config.ts` já expõe o servidor na rede (`server.host: true`). Com `npm run dev` rodando,
-o terminal mostra o endereço `Network: http://SEU-IP:5173/` — é esse que se abre no celular,
-**com `http://` explícito** (o Safari tenta HTTPS sozinho e falha).
+Por padrão o `npm run dev` escuta **só nesta máquina** (`127.0.0.1:5173`): ninguém na rede alcança o
+servidor de desenvolvimento. Para abrir no celular, ligue a rede local **só durante o teste**:
 
-Na primeira vez, o Windows pode exigir liberar a porta. No PowerShell **como Administrador**:
+```
+$env:KING_DEV_LAN = "1"; npm run dev
+```
+
+(No Git Bash: `KING_DEV_LAN=1 npm run dev`.) Aí o terminal mostra `Network: http://SEU-IP:5173/` — é
+esse que se abre no celular, **com `http://` explícito** (o Safari tenta HTTPS sozinho e falha).
+Qualquer outro valor (ou nenhum) mantém o servidor restrito a esta máquina.
+
+Regras para a exceção de rede local:
+- Só em **Wi-Fi privado** (casa/escritório), nunca em rede pública ou compartilhada.
+- Firewall do Windows limitado à **sub-rede local** (`-RemoteAddress LocalSubnet`) e ao perfil Privado.
+  No PowerShell **como Administrador**:
 
 ```
 Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
-New-NetFirewallRule -DisplayName "KING dev server (Vite 5173)" -Direction Inbound -Protocol TCP -LocalPort 5173 -Action Allow -Profile Private
+New-NetFirewallRule -DisplayName "KING dev server (Vite 5173)" -Direction Inbound -Protocol TCP -LocalPort 5173 -Action Allow -Profile Private -RemoteAddress LocalSubnet
+```
+
+- **Depois do teste**, remova a exceção e feche o terminal (ou `Remove-Item Env:KING_DEV_LAN`):
+
+```
+Remove-NetFirewallRule -DisplayName "KING dev server (Vite 5173)"
 ```
 
 `?seed=N` na URL fixa a semente e reproduz uma partida idêntica — o motor é determinístico.
