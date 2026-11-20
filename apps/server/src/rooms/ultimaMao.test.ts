@@ -51,8 +51,14 @@ const TRUNFO = 30_000;
 let colyseus: ColyseusTestServer;
 beforeAll(async () => {
   configurarTempos({
-    pisoDoPlacar: 1, pisoDoPlacarDoRei: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
+    pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
     turno: TURNO, trunfo: TRUNFO, primeiraJogadaExtra: 0, aberturaDaUltimaMao: RESPIRO,
+    // O PISO DO REI NÃO PODE FICAR ABAIXO DA PAUSA DO KING, nem aqui. Em produção ele é 11,5s
+    // contra 6,5s de pausa: a mão 6 nunca abre com a mesa do cliente ainda parada no Rei. Com
+    // piso de 1ms a mão 6 abria DENTRO da pausa, o espelho da fila ficava 6,5s represado, e a
+    // primeira jogada da mão 10 herdava "leitura" dessa represa (CI: 20015 e 20504ms num turno
+    // de 20000 — falso positivo do DECAI). O mínimo que preserva a ordem de produção é a pausa.
+    pisoDoPlacarDoRei: TEMPOS_PADRAO.leituraDaVazaKing,
     // A cortesia do bot vai a 5ms para as nove primeiras mãos da mesa mista não custarem
     // minutos reais. Isso deixa a prova do respiro MAIS nítida, e não menos: sem ele o bot
     // decidiria em 5ms, e o que se mede é justamente ele não decidir durante a animação.

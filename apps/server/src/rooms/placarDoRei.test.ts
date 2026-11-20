@@ -137,6 +137,12 @@ function todosConfirmam(todos: Cliente[]): void {
  */
 async function ateOFimDaMao(room: KingRoom, todos: Cliente[], alvo: number): Promise<Map<number, number>> {
   const placares = new Map<number, number>();
+  // O GUARDA CONTA AÇÕES, NÃO ESPERAS. A 1ª versão contava cada `dormir(1)` na vez de um bot: o
+  // bot age pelo relógio da sala (granularidade de dezenas de ms), e no Linux da CI, onde o
+  // `setTimeout(1)` dorme mesmo 1ms, cinco mãos de mesa mista estouravam as 4000 voltas sem nada
+  // errado ("loop de segurança"). No Windows o mesmo `dormir(1)` dura ~15ms e escondia isso.
+  // A vez do bot agora é esperada por `ate`, com prazo: um bot que travasse de verdade aparece
+  // como "jogada do bot", e não como um guarda estourado.
   for (let guarda = 0; guarda < 4000; guarda++) {
     const h = real(room).hand!;
     if (h.handScores !== null) {
@@ -147,10 +153,12 @@ async function ateOFimDaMao(room: KingRoom, todos: Cliente[], alvo: number): Pro
       placares.set(h.handNumber, Date.now() - t0);
       continue;
     }
-    if (h.awaitingTrumpFrom !== null) { await dormir(1); continue; }
-    const c = todos.find((x) => x.seat === h.turn);
-    if (!c) { await dormir(1); continue; } // vez de bot: o servidor joga
     const v = versao(room);
+    const c = h.awaitingTrumpFrom === null ? todos.find((x) => x.seat === h.turn) : undefined;
+    if (!c) { // vez de bot (ou trunfo, que nas mãos 1–6 não existe): o servidor age
+      await ate(() => versao(room) > v, 10_000, `jogada do bot na mão ${h.handNumber}`);
+      continue;
+    }
     await ate(() => c.versao === v && c.view?.hand?.turn === c.seat, 10_000, "visão alcançar o turno");
     c.sdk.send("CLIENT_PLAY_CARD", { actionId: `p${++seq}`, cardId: cardId(legalCardsFor(c.view!, c.seat)[0]) });
     await ate(() => versao(room) > v, 10_000, "jogada");
@@ -204,9 +212,15 @@ describe("a mão do Rei segura o Placar; as outras não", () => {
 
     await ate(() => real(room).hand!.handNumber === MAO_DO_REI + 1, 30_000, "mão 6 por auto-ready");
     expect(Date.now() - fim).toBeGreaterThanOrEqual(PISO_DO_REI - 50);
-    const autos = todos[0].automaticas.filter((a) => a.m.tipo === "READY" && a.em >= fim);
-    expect(autos.length, "o avanço não veio do auto-ready").toBe(4);
-    for (const a of autos) expect(a.em - fim, "auto-ready antes do piso do Rei").toBeGreaterThanOrEqual(PISO_DO_REI - 50);
+    // O estado da sala é lido DIRETO do servidor; os AUTO_ACTION chegam pelo socket. O avanço e os
+    // quatro AUTO_ACTION saem no mesmo tique, mas o laço do teste pode ver a mão 6 antes de o
+    // cliente ler as mensagens (CI Linux: "expected +0 to be 4"). Espera a ENTREGA — com prazo, e
+    // sem afrouxar nada: continuam sendo exatamente quatro, e todos depois do piso.
+    const autos = () => todos[0].automaticas.filter((a) => a.m.tipo === "READY" && a.em >= fim);
+    await ate(() => autos().length >= 4, 5_000, "os quatro AUTO_ACTION de READY chegarem ao cliente");
+    await dormir(100); // um quinto, se existisse, também teria chegado
+    expect(autos().length, "o avanço não veio do auto-ready").toBe(4);
+    for (const a of autos()) expect(a.em - fim, "auto-ready antes do piso do Rei").toBeGreaterThanOrEqual(PISO_DO_REI - 50);
   }, 180_000);
 
   it("mesa mista: bots prontos na hora, mas nenhum bot joga a mão 6 por trás do Placar", async () => {
