@@ -18,7 +18,11 @@ import { test, expect, type Page } from "@playwright/test";
 import { insideViewport } from "./helpers/geometry.js";
 import { boxOf, SEL, iniciarPartidaLocal } from "./helpers/mesa.js";
 
-interface Marcas { rcEm?: number; rcFim?: number; seloEm?: number; placarEm?: number }
+interface Marcas {
+  rcEm?: number; rcFim?: number; seloEm?: number; placarEm?: number;
+  /** "Próxima mão" do Placar ficou habilitado. */ liberadoEm?: number;
+  /** O Placar saiu da tela. */ placarFim?: number;
+}
 
 async function mesaNaMao5(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -37,9 +41,16 @@ async function mesaNaMao5(page: Page): Promise<void> {
       if (rc && marcas.rcEm === undefined) marcas.rcEm = t;
       if (!rc && marcas.rcEm !== undefined && marcas.rcFim === undefined) marcas.rcFim = t;
       if (marcas.seloEm === undefined && document.querySelector(".castigo.king")) marcas.seloEm = t;
-      if (marcas.placarEm === undefined && document.querySelector(".placar")) marcas.placarEm = t;
+      const placar = !!document.querySelector(".placar");
+      if (marcas.placarEm === undefined && placar) marcas.placarEm = t;
+      if (!placar && marcas.placarEm !== undefined && marcas.placarFim === undefined) marcas.placarFim = t;
+      const proxima = document.querySelector<HTMLButtonElement>(".pl-actions .btn.gold");
+      if (placar && proxima && !proxima.disabled && marcas.liberadoEm === undefined) marcas.liberadoEm = t;
     };
-    new MutationObserver(marcar).observe(document, { childList: true, subtree: true });
+    // `attributes` também: o botão do Placar libera trocando `disabled`, sem mexer na árvore.
+    new MutationObserver(marcar).observe(document, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"],
+    });
   });
   await page.goto("/?seed=42&mao=5");
   await iniciarPartidaLocal(page);
@@ -168,4 +179,50 @@ test("com MOVIMENTO REDUZIDO a cena diz tudo sem faíscas nem luz", async ({ pag
   await expect(page.locator(".rc-titulo")).toHaveText("O REI FOI CAPTURADO!");
   await expect(page.locator(".rc-pontos")).toHaveText(/^[-−]160$/);
   await expect(page.locator(".rc")).toHaveCount(0, { timeout: 8_000 });
+});
+
+/**
+ * O PLACAR DA MÃO DO REI FICA PARA SER LIDO (solo: quem segura é o cliente).
+ *
+ * Antes, "Próxima mão" respondia no instante em que o Placar entrava — e online o piso geral de 8s,
+ * contado do fim da mão, deixava ~1,5s de Placar depois de 6,5s de cena. A meta é 4,6s REAIS de
+ * Placar depois da cena. Aqui se tenta pular (clique forçado no botão e Enter) e se mede, no
+ * relógio da página, quanto o Placar ficou.
+ */
+test("o Placar da mão do Rei fica ao menos 4,6s: confirmar cedo não avança, e depois avança normal", async ({ page }) => {
+  test.setTimeout(150_000);
+  await mesaNaMao5(page);
+  test.skip(!(await ateACena(page)), "o K♥ não foi capturado dentro do orçamento");
+  const vp = page.viewportSize()!;
+
+  await expect(page.locator(".placar")).toBeVisible({ timeout: 10_000 });
+  const proxima = page.locator(".pl-actions .btn.gold");
+  await expect(proxima).toHaveText(/Próxima mão/);
+  await expect(proxima, "o botão nasceu liberado na mão do Rei").toBeDisabled();
+
+  // Tentativas de pular a leitura: nenhuma pode virar a mão.
+  await proxima.click({ force: true });
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(800);
+  expect(await page.locator(".placar").count(), "uma confirmação cedo tirou o Placar da tela").toBe(1);
+  await expect(proxima).toBeDisabled();
+
+  // Libera sozinho, e o Placar estava lá o tempo todo.
+  await expect(proxima).toBeEnabled({ timeout: 10_000 });
+  const m = await marcas(page);
+  expect(m.placarFim, "o Placar saiu antes de liberar").toBeUndefined();
+  const leitura = m.liberadoEm! - m.placarEm!;
+  const desdeACena = m.liberadoEm! - m.rcEm!;
+  const linha = `Placar segurado ${Math.round(leitura)}ms · ${Math.round(desdeACena)}ms desde a cena`;
+  expect(leitura, `leitura curta demais (${linha})`).toBeGreaterThanOrEqual(4_600);
+  // e não virou espera
+  expect(leitura, `leitura longa demais (${linha})`).toBeLessThanOrEqual(6_500);
+  console.log(`[placar do Rei ${vp.width}x${vp.height}] ${linha}`);
+
+  // Depois da leitura, tudo como sempre: o botão tem foco (Enter funciona) e a mão 6 começa.
+  await expect(proxima).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".placar")).toHaveCount(0, { timeout: 5_000 });
+  await expect(page.locator(".rc"), "a cena do Rei voltou na mão seguinte").toHaveCount(0);
+  await expect(page.locator(SEL.hud)).toBeVisible();
 });

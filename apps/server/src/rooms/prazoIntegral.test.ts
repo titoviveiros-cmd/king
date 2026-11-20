@@ -62,7 +62,7 @@ const MARGEM = 150;
 let colyseus: ColyseusTestServer;
 beforeAll(async () => {
   configurarTempos({
-    pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
+    pisoDoPlacar: 1, pisoDoPlacarDoRei: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
     turno: TURNO, trunfo: 3_600_000, primeiraJogadaExtra: 0, aberturaDaUltimaMao: 0,
     // ══ A JANELA É ENORME DE PROPÓSITO: É ASSIM QUE A CORRIDA MORRE ══
     //

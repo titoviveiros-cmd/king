@@ -37,6 +37,17 @@ export const TEMPOS = {
    */
   leituraDaVazaKing: 6500,
   /**
+   * O PLACAR DA MÃO DO REI FICA PARA SER LIDO — só na mão 5, contado do instante em que a vaza do
+   * K♥ entra na mesa. 11500 = pausa do King (6500) + 4600 de leitura REAL do Placar (meta do
+   * produto) + 400 de folga para timer atrasado no celular.
+   *
+   * O piso geral do Placar (8s, servidor) conta do fim da mão; depois de 6,5s de cena sobrava
+   * ~1,5s de Placar. Solo: "Próxima mão" só responde depois disto (`placarDoRei.ts`). Online:
+   * quem segura é o servidor, com o MESMO número (`pisoDoPlacarDoRei` em
+   * `apps/server/src/match/tempos.ts`, contrato por teste). As outras nove mãos não mudam.
+   */
+  pisoDoPlacarDoRei: 11500,
+  /**
    * Última vaza da mão. O Placar só entra DEPOIS desta pausa — antes ele cobria a mesa no
    * mesmo instante em que a vaza fechava, e o selo do castigo da última bucha nunca era visto.
    */

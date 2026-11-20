@@ -20,7 +20,9 @@ import {
 } from "@king/engine";
 import { pausaDaLeitura } from "../../../server/src/match/pausaDaVaza.js";
 import { TEMPOS_PADRAO } from "../../../server/src/match/tempos.js";
+import { placarLiberadoEm, ehPlacarDoRei as ehPlacarDoReiNoServidor } from "../../../server/src/match/pisoDoPlacar.js";
 import { anunciarVaza } from "./anuncio.js";
+import { ehPlacarDoRei, leituraDoPlacarDoRei, podeAvancarDoPlacar } from "./placarDoRei.js";
 import { LeituraDaPartida } from "./leituraDaPartida.js";
 import { TEMPOS } from "./timings.js";
 import { permanenciaRestante } from "../ui/ReiCapturado.js";
@@ -107,6 +109,8 @@ describe("O REI FOI CAPTURADO — a cena e a pausa que a abriga", () => {
     // piso, a mão 6 poderia abrir com a mesa ainda parada na cena — e a primeira jogada dela
     // começaria a correr contra quem ainda estava vendo o Rei.
     expect(TEMPOS_PADRAO.pisoDoPlacar).toBeGreaterThan(TEMPOS.leituraDaVazaKing);
+    // e o piso que vale na mão do Rei é ainda maior (ver "O PLACAR DA MÃO DO REI" abaixo)
+    expect(TEMPOS_PADRAO.pisoDoPlacarDoRei).toBeGreaterThan(TEMPOS.leituraDaVazaKing);
   });
 
   it("nenhuma animação da cena dura mais que a cena, e nenhuma é infinita", () => {
@@ -244,6 +248,89 @@ describe("a pausa do King só acontece na vaza que ENCERRA a mão", () => {
     for (const s of [1, 7, 42, 101, 2024, 31337, 65_537, 99_991]) {
       expect(verificarPartida(s), `semente ${s}`).toBe(1);
     }
+  });
+});
+
+// ═════════════════════════════════ O PLACAR DA MÃO DO REI ═════════════════════════════════
+
+/**
+ * O PLACAR DA MÃO DO REI FICA PARA SER LIDO.
+ *
+ * O piso geral (8s) conta do fim da mão, e na mão 5 a mesa passa 6,5s na cena: sobrava ~1,5s de
+ * Placar. A meta é 4,6s REAIS de Placar depois da cena — no solo (cliente) e online (servidor),
+ * com o MESMO número dos dois lados. As outras nove mãos não mudam.
+ */
+describe("O PLACAR DA MÃO DO REI — leitura mínima depois da cena, nos dois lados", () => {
+  const META = 4_600;
+
+  /** A partida, pelo motor, parada no fim da mão `alvo`. */
+  function fimDaMao(alvo: number, semente = 42): MatchState {
+    const m = createMatch(["Você", "Bia", "Léo", "Nara"], semente);
+    for (let guarda = 0; guarda < 20_000; guarda++) {
+      const h = m.hand;
+      if ((h && h.handNumber === alvo && h.handScores !== null) || m.finished) return m;
+      if (h === null || h.handScores !== null) { startNextHand(m); continue; }
+      if (h.awaitingTrumpFrom !== null) {
+        selectTrump(m, h.awaitingTrumpFrom, chooseNormalTrump(buildBotView(m, h.awaitingTrumpFrom).hand));
+        continue;
+      }
+      playCard(m, h.turn!, legalCardsFor(m, h.turn!)[0]);
+    }
+    throw new Error("não chegou à mão " + alvo);
+  }
+
+  it("CONTRATO: o cliente e o servidor seguram o Placar do Rei pelo MESMO número", () => {
+    expect(TEMPOS.pisoDoPlacarDoRei).toBe(TEMPOS_PADRAO.pisoDoPlacarDoRei);
+    expect(TEMPOS.leituraDaVazaKing).toBe(TEMPOS_PADRAO.leituraDaVazaKing);
+  });
+
+  it("a leitura depois da cena é ≥ 4,6s, com folga — e não virou espera (≤ 6s)", () => {
+    expect(leituraDoPlacarDoRei()).toBe(TEMPOS.pisoDoPlacarDoRei - TEMPOS.leituraDaVazaKing);
+    expect(leituraDoPlacarDoRei()).toBeGreaterThanOrEqual(META + 300);
+    expect(leituraDoPlacarDoRei()).toBeLessThanOrEqual(6_000);
+    // contada do fim da ANIMAÇÃO (cena + destaque), a meta também é cumprida
+    expect(TEMPOS.pisoDoPlacarDoRei - (TEMPOS.cenaDoRei + TEMPOS.kCopasCaptura)).toBeGreaterThanOrEqual(META);
+  });
+
+  it("SOLO e ONLINE liberam a mão 6 no MESMO instante para a mesma vaza do K♥", () => {
+    const m = fimDaMao(5);
+    const fechou = 50_000;
+    const placarEntra = fechou + TEMPOS.leituraDaVazaKing; // `pausaAte()` no solo
+    const servidor = placarLiberadoEm({ m, maoTerminouEm: fechou, vazaFinalEntraEm: fechou });
+    const g = new LeituraDaPartida(m, 0);
+    expect(podeAvancarDoPlacar(g, placarEntra, servidor - 1)).toBe(false);
+    expect(podeAvancarDoPlacar(g, placarEntra, servidor)).toBe(true);
+  });
+
+  it("os dois lados reconhecem a MESMA mão — só a 5, em todas as dez", () => {
+    for (let mao = 1; mao <= 10; mao++) {
+      const m = fimDaMao(mao);
+      const g = new LeituraDaPartida(m, 0);
+      expect(ehPlacarDoRei(g), `mão ${mao} no cliente`).toBe(mao === 5);
+      expect(ehPlacarDoReiNoServidor(m), `mão ${mao} no servidor`).toBe(mao === 5);
+    }
+  });
+
+  it("solo: confirmação cedo é ignorada; as outras mãos avançam no ato", () => {
+    const placarEntra = 10_000;
+    const g5 = new LeituraDaPartida(fimDaMao(5), 0);
+    expect(podeAvancarDoPlacar(g5, placarEntra, placarEntra)).toBe(false);
+    expect(podeAvancarDoPlacar(g5, placarEntra, placarEntra + META)).toBe(false);
+    expect(podeAvancarDoPlacar(g5, placarEntra, placarEntra + leituraDoPlacarDoRei())).toBe(true);
+    // tela por cima sem hora marcada (pausa "infinita"): não libera
+    expect(podeAvancarDoPlacar(g5, Infinity, Number.MAX_SAFE_INTEGER)).toBe(false);
+    for (const mao of [1, 4, 6, 9]) {
+      const g = new LeituraDaPartida(fimDaMao(mao), 0);
+      expect(podeAvancarDoPlacar(g, placarEntra, placarEntra), `mão ${mao}`).toBe(true);
+    }
+  });
+
+  it("o hook do solo passa pela guarda, e o Placar do solo nasce com o botão segurado", () => {
+    const hook = ler("./useKingGame.ts");
+    expect(hook).toMatch(/if \(!podeAvancarDoPlacar\(g, pausaAte\(\), Date\.now\(\)\)\) return;/);
+    const placar = ler("../ui/Placar.tsx");
+    expect(placar).toMatch(/useLeituraMinima\(!mp && ehPlacarDoRei\(game\), leituraDoPlacarDoRei\(\)\)/);
+    expect(placar).toMatch(/disabled=\{segurando\}/);
   });
 });
 

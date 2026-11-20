@@ -111,7 +111,7 @@ export class PartidaRemota extends LeituraDaPartida {
 
   /**
    * "Continuar" do Placar. No multiplayer isto é um VOTO: a mão só vira com os quatro, e ainda
-   * assim só depois do piso de leitura de 8s — quem decide o momento é o servidor.
+   * assim só depois do piso de leitura (8s; 11,5s na mão do Rei) — quem decide o momento é o servidor.
    */
   advanceHand(): void {
     if (!this.handOver() || this.#pediProximaMao) return;

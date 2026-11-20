@@ -51,7 +51,7 @@ const TRUNFO = 30_000;
 let colyseus: ColyseusTestServer;
 beforeAll(async () => {
   configurarTempos({
-    pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
+    pisoDoPlacar: 1, pisoDoPlacarDoRei: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
     turno: TURNO, trunfo: TRUNFO, primeiraJogadaExtra: 0, aberturaDaUltimaMao: RESPIRO,
     // A cortesia do bot vai a 5ms para as nove primeiras mãos da mesa mista não custarem
     // minutos reais. Isso deixa a prova do respiro MAIS nítida, e não menos: sem ele o bot
