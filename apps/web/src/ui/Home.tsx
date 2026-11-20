@@ -59,9 +59,22 @@ export interface OnlineDaHome {
   onPreparoLido?: () => void;
 }
 
+/**
+ * O MINITORNEIO (Entrega B): a terceira modalidade. Local, contra bots, sem rede. Ausente = a Home
+ * de sempre, com duas portas.
+ */
+export interface TorneioDaHome {
+  /** Começa um torneio novo. Pede o avatar antes, como as outras portas. */
+  onAbrir: (avatar: Avatar) => void;
+  /** Há um torneio salvo e ainda sem campeão? Então a Home oferece "Continuar torneio". */
+  podeContinuar: boolean;
+  onContinuar: () => void;
+}
+
 export function Home({
-  onStart, onOpenAudio, online, tutorial, conta, progresso, onAbrirConta, itens, onAbrirRecordes,
+  onStart, onOpenAudio, online, tutorial, conta, progresso, onAbrirConta, itens, onAbrirRecordes, torneio,
 }: {
+  torneio?: TorneioDaHome;
   onStart: (avatar: Avatar) => void;
   onOpenAudio: () => void;
   /** Ausente = build sem multiplayer. A Home continua a de sempre. */
@@ -164,6 +177,11 @@ export function Home({
             Jogar com amigos
           </button>
         )}
+        {torneio && (
+          <button className="btn tn-home" onClick={() => { sfxTap(); comAvatar(torneio.onAbrir); }}>
+            Minitorneio
+          </button>
+        )}
         <FullscreenButton />
         <AudioButton onOpen={onOpenAudio} />
         {onAbrirRecordes && (
@@ -180,6 +198,13 @@ export function Home({
 
       {/* O PROGRESSO FICA ABAIXO DAS AÇÕES, e é o card do jogador, não um painel: quem abre o jogo
           veio jogar, e o XP é a lembrança de que cada partida conta — não o assunto da tela. */}
+      {/* CONTINUAR TORNEIO: só quando há um salvo, íntegro e sem campeão. O avatar é o do torneio. */}
+      {torneio?.podeContinuar && (
+        <button className="tn-continuar" onClick={() => { sfxTap(); torneio.onContinuar(); }}>
+          ↩ Continuar torneio
+        </button>
+      )}
+
       {progresso && <ProgressoNaHome progresso={progresso} itens={itens} />}
 
       {/* APRENDA KING fica FORA da fileira principal e em tom discreto: quem já sabe jogar não

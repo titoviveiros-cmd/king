@@ -1,0 +1,11 @@
+/* MINITORNEIO NA HOME — a terceira porta e o "Continuar torneio". Arquivo separado de
+   torneio.css porque a Home carrega já na abertura, e o resto do torneio só quando é aberto. */
+.btn.tn-home{color:#ffe27a;background:linear-gradient(180deg,#8a44c8,#4a1d8a);
+  border:2px solid rgba(244,197,66,.85);box-shadow:0 5px 0 0 #2a0f52,0 0 18px -6px rgba(244,197,66,.7);
+  padding:clamp(8px,1.3vh,11px) clamp(12px,2vw,18px);font-size:clamp(.72rem,1.7vh,.85rem);}
+.btn.tn-home:active{box-shadow:0 2px 0 0 #2a0f52;}
+.tn-continuar{font-family:var(--disp);font-weight:800;font-size:clamp(.72rem,2vh,.9rem);letter-spacing:.04em;
+  text-transform:uppercase;color:var(--gold);background:rgba(244,197,66,.1);border:1.5px solid rgba(244,197,66,.55);
+  border-radius:999px;padding:6px 16px;cursor:pointer;}
+.tn-continuar:focus-visible,.tn-voltar:focus-visible,.tn-formato:focus-visible{outline:2px solid var(--gold);outline-offset:3px;}
+
