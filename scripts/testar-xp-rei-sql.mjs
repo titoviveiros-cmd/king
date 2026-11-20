@@ -403,6 +403,51 @@ const TESTES = [
     const de_novo = await creditar(await b.servidor(), [{ id: a, posicao: 1, rei: true }, { id: x, posicao: 2 }]);
     afirmar(xpDe(de_novo.linhas, a) === 90, "reaplicada, a v2 não credita");
   } },
+  { id: "X11", nome: "a TABELA aprovada, posição a posição, da 7ª partida do dia em diante: com o Rei 22/17/13/10, sem o Rei 37/32/28/25 (até a 6ª, cheia)", async fn(b) {
+    const quatro = await b.jogadores(4);
+    const srv = await b.servidor();
+    const BRUTO = [150, 130, 115, 100];
+    const COM_REI = [22, 17, 13, 10];
+    const SEM_REI = [37, 32, 28, 25];
+    // seis partidas do dia com os QUATRO juntos (posições girando): a próxima é a 7ª de cada um
+    for (let i = 0; i < 6; i++) {
+      const giro = quatro.map((id, k) => ({ id, posicao: ((k + i) % 4) + 1, rei: false }));
+      const { linhas } = await creditar(srv, giro, { quando: noMesmoDia(i, "2026-05-05") });
+      for (const h of giro) afirmar(xpDe(linhas, h.id) === BRUTO[h.posicao - 1], `${i + 1}ª do dia, ${h.posicao}º: ${xpDe(linhas, h.id)} (antes da 7ª não há redução)`);
+    }
+    for (let k = 0; k < 4; k++) {
+      // a cada partida, um assento diferente leva o K♥
+      const m = quatro.map((id, i) => ({ id, posicao: i + 1, rei: i === k }));
+      const { partida, linhas } = await creditar(srv, m, { quando: noMesmoDia(6 + k, "2026-05-05") });
+      const comp = await composicao(b.admin, partida);
+      for (const h of m) {
+        const i = h.posicao - 1;
+        const esperado = h.rei ? COM_REI[i] : SEM_REI[i];
+        afirmar(xpDe(linhas, h.id) === esperado, `${7 + k}ª do dia, ${h.posicao}º, rei=${h.rei}: ${xpDe(linhas, h.id)} ≠ ${esperado}`);
+        const pen = h.rei ? 60 : 0;
+        afirmar(JSON.stringify(comp[h.id]) === JSON.stringify([BRUTO[i], pen, BRUTO[i] - pen - esperado, esperado, 2]), `composição ${h.posicao}º rei=${h.rei}: ${JSON.stringify(comp[h.id])}`);
+      }
+    }
+    await ledgerCoerente(b.admin);
+  } },
+  { id: "X12", nome: "EMPATE de posição (dois 1º, um com o Rei: 90 e 150) e a regra pura inteira: posição × Rei × 6ª/7ª × participação × sobreposição, nunca negativa", async fn(b) {
+    const [a, c, d, e] = await b.jogadores(4);
+    const srv = await b.servidor();
+    const { partida, linhas } = await creditar(srv, [{ id: a, posicao: 1, rei: true }, { id: c, posicao: 1 }, { id: d, posicao: 3 }, { id: e, posicao: 4 }]);
+    afirmar(xpDe(linhas, a) === 90 && xpDe(linhas, c) === 150 && xpDe(linhas, d) === 115 && xpDe(linhas, e) === 100, `empate: ${JSON.stringify(linhas)}`);
+    afirmar(JSON.stringify((await composicao(b.admin, partida))[a]) === JSON.stringify([150, 60, 0, 90, 2]), "composição do empatado com o Rei");
+    const BRUTO = { 1: 150, 2: 130, 3: 115, 4: 100 };
+    for (const pos of [1, 2, 3, 4]) for (const rei of [false, true]) for (const ant of [0, 5, 6, 40]) for (const part of [true, false]) for (const sob of [false, true]) {
+      const r = (await b.admin.query("select * from king_private.xp_da_regra_v2($1::smallint, $2, $3, $4, $5)", [pos, part, sob, ant, rei])).rows[0];
+      const bruto = part && !sob ? BRUTO[pos] : 0;
+      const pen = rei && bruto > 0 ? 60 : 0;
+      const liq = Math.floor((bruto - pen) / (ant >= 6 ? 4 : 1));
+      const obtido = [r.xp_bruto, r.penalidade_rei, r.reducao_diaria, r.xp_liquido].join();
+      afirmar(obtido === [bruto, pen, bruto - pen - liq, liq].join(), `pos=${pos} rei=${rei} ant=${ant} part=${part} sob=${sob}: ${obtido}`);
+      afirmar(r.xp_liquido >= 0 && r.reducao_diaria >= 0 && (bruto === 0 || r.xp_liquido >= 10), `negativo ou abaixo de 10: ${obtido}`);
+    }
+    await ledgerCoerente(b.admin);
+  } },
 ];
 
 // ══ O SERVIDOR COMPILADO — o MESMO repositório que vai para a VPS (apps/server/dist) ════════════════
@@ -411,15 +456,15 @@ const repositorioDoServidor = async (b) => {
   const pool = new pg.Pool({ host: "127.0.0.1", port: PORTA, database: b.nome, user: "king_server", password: SENHA_SERVIDOR, max: 2 });
   return { repo: repositorioPg({ pool }), pool, parametrosDoCredito, CHAMADA_DE_CREDITO, fechar: () => pool.end() };
 };
-const resultadoDoServidor = async (humanos, { capturouRei = 0, pontos = false } = {}) => {
+const resultadoDoServidor = async (humanos, { capturouRei = 0, pontos = false, posicoes = { 0: 1, 1: 2, 2: 3, 3: 4 }, quando = outroDia() } = {}) => {
   const { resultadoParaCredito } = await import(new URL("apps/server/dist/progresso/resultado.js", RAIZ).href);
-  const { ini, fim } = outroDia();
+  const { ini, fim } = quando;
   const assentos = [0, 1, 2, 3].map((seat) => humanos[seat]
     ? { seat, playerId: humanos[seat], bot: false, permanente: true, conectado: true, jogadasTotais: 40, jogadasProprias: 40 }
     : { seat, playerId: `bot:${seat}`, bot: true, permanente: false, conectado: true, jogadasTotais: 40, jogadasProprias: 0 });
   return resultadoParaCredito({
     partidaId: randomUUID(), iniciadaEm: new Date(ini), terminadaEm: new Date(fim), assentos,
-    posicoes: { 0: 1, 1: 2, 2: 3, 3: 4 }, capturouRei,
+    posicoes, capturouRei,
     ...(pontos ? { pontos: { 0: 210, 1: 60, 2: -40, 3: -230 } } : {}),
   });
 };
@@ -468,6 +513,38 @@ const TESTES_DO_SERVIDOR = [
       afirmar(await total(b.admin, c) === 70, `saldo de C ${await total(b.admin, c)}`);
       await ledgerCoerente(b.admin);
     } finally { await s1.fechar(); await s2.fechar(); }
+  } },
+  { id: "S7", nome: "a TABELA pelo servidor COMPILADO: cada assento capturando (90/70/55/40), 7ª+ do dia (22/17/13/10 e 37/32/28/25), BOT capturador (ninguém paga), empate", async fn(b) {
+    const quatro = await b.jogadores(4);
+    const { repo, fechar } = await repositorioDoServidor(b);
+    const xp = (l, id) => l.find((x) => x.playerId === id)?.xpDelta;
+    try {
+      for (let k = 0; k < 4; k++) {
+        const r = await resultadoDoServidor(quatro, { capturouRei: k, quando: noMesmoDia(k, "2026-06-01") });
+        afirmar(r.regra === 2 && r.humanos.filter((h) => h.capturouRei).length === 1 && r.humanos[k].capturouRei === true, `fato: ${JSON.stringify(r.humanos)}`);
+        const l = await repo.creditar(r);
+        quatro.forEach((id, i) => afirmar(xp(l, id) === (i === k ? [90, 70, 55, 40][i] : [150, 130, 115, 100][i]), `captura no assento ${k}: ${JSON.stringify(l)}`));
+        afirmar(await versaoDa(b.admin, r.partidaId) === 2, "versão");
+      }
+      for (let k = 4; k < 6; k++) await repo.creditar(await resultadoDoServidor(quatro, { capturouRei: 0, quando: noMesmoDia(k, "2026-06-01") }));
+      // a 7ª e a 8ª do dia
+      for (const [n, k] of [[6, 1], [7, 3]]) {
+        const l = await repo.creditar(await resultadoDoServidor(quatro, { capturouRei: k, quando: noMesmoDia(n, "2026-06-01") }));
+        quatro.forEach((id, i) => afirmar(xp(l, id) === (i === k ? [22, 17, 13, 10][i] : [37, 32, 28, 25][i]), `${n + 1}ª do dia, captura no assento ${k}: ${JSON.stringify(l)}`));
+      }
+      // um BOT no assento 3 leva o K♥: os três humanos recebem o bruto, ninguém é marcado
+      const [h1, h2, h3] = await b.jogadores(3);
+      const rb = await resultadoDoServidor([h1, h2, h3], { capturouRei: 3 });
+      afirmar(rb.regra === 2 && rb.humanos.every((h) => h.capturouRei === false), `bot capturador marcou alguém: ${JSON.stringify(rb.humanos)}`);
+      const lb = await repo.creditar(rb);
+      afirmar(xp(lb, h1) === 150 && xp(lb, h2) === 130 && xp(lb, h3) === 115, `bot capturador: ${JSON.stringify(lb)}`);
+      afirmar(Object.values(await composicao(b.admin, rb.partidaId)).every((c) => c[1] === 0), "penalidade por causa de um bot");
+      // empate na 1ª posição, o capturador é um dos empatados
+      const [t1, t2] = await b.jogadores(2);
+      const le = await repo.creditar(await resultadoDoServidor([t1, t2], { capturouRei: 1, posicoes: { 0: 1, 1: 1, 2: 3, 3: 4 } }));
+      afirmar(xp(le, t1) === 150 && xp(le, t2) === 90, `empate: ${JSON.stringify(le)}`);
+      await ledgerCoerente(b.admin);
+    } finally { await fechar(); }
   } },
 ];
 /** Rodam num banco SEM a Entrega C (o de hoje): servidor novo antes do banco, e o de sempre. */
@@ -668,8 +745,8 @@ const TESTES_DO_ROLLOUT = [
 ];
 
 const MUTACOES = [
-  { id: "sem-penalidade", alvos: ["X1", "X2"], de: "case when p_capturou_rei and b.bruto > 0 then 60 else 0 end", para: "case when p_capturou_rei and b.bruto > 0 then 0 else 0 end" },
-  { id: "reducao-antes-da-penalidade", alvos: ["X2"], de: "select d.bruto, d.pen, d.base - d.base / d.divisor, d.base / d.divisor from d",
+  { id: "sem-penalidade", alvos: ["X1", "X2", "X11", "X12"], de: "case when p_capturou_rei and b.bruto > 0 then 60 else 0 end", para: "case when p_capturou_rei and b.bruto > 0 then 0 else 0 end" },
+  { id: "reducao-antes-da-penalidade", alvos: ["X2", "X11", "X12"], de: "select d.bruto, d.pen, d.base - d.base / d.divisor, d.base / d.divisor from d",
     para: "select d.bruto, d.pen, d.base - greatest(d.bruto / d.divisor - d.pen, 0), greatest(d.bruto / d.divisor - d.pen, 0) from d" },
   { id: "penalidade-negativa", alvos: ["X3"], de: "case when p_capturou_rei and b.bruto > 0 then 60", para: "case when p_capturou_rei then 60" },
   { id: "sobreposicao-ignorada", alvos: ["X3"], de: "                and q.iniciada_em < p_terminada\n                and q.terminada_em > p_iniciada\n           ) as sobreposta,\n           (\n             select count(*)::integer\n               from public.xp_eventos as e\n               join king_private.partidas as q on q.id = e.partida_id\n              where e.player_id = r.pid\n                and e.xp_delta > 0",
@@ -679,6 +756,7 @@ const MUTACOES = [
   { id: "aceita-fato-nao-booleano", alvos: ["X4"], de: "    if jsonb_typeof(v_item -> 'capturou_rei') <> 'boolean' then", para: "    if false then" },
   { id: "grava-como-v1", alvos: ["X1"], de: "values (p_partida, p_iniciada, p_terminada, p_humanos, p_bots, 2)", para: "values (p_partida, p_iniciada, p_terminada, p_humanos, p_bots, 1)" },
   { id: "sem-idempotencia", alvos: ["X5", "X6"], de: "values (p_partida, p_iniciada, p_terminada, p_humanos, p_bots, 2)\n  on conflict (id) do nothing;", para: "values (p_partida, p_iniciada, p_terminada, p_humanos, p_bots, 2);" },
+  { id: "reducao-na-6a", alvos: ["X2", "X11", "X12"], de: "case when p_anteriores_no_dia >= 6 then 4 else 1 end", para: "case when p_anteriores_no_dia >= 5 then 4 else 1 end" },
   { id: "sem-trava", alvos: ["X7"], de: "  perform 1 from public.progresso as g where g.player_id = any (v_ids) order by g.player_id for update;\n", para: "" },
   { id: "sem-composicao", alvos: ["X1"], de: "      join lancados as l on l.player_id = c.pid", para: "      join lancados as l on false" },
   { id: "composicao-sem-soma", alvos: ["X8"], de: "  constraint xp_composicao_soma       check (xp_liquido >= 0 and xp_liquido = xp_bruto - penalidade_rei - reducao_diaria)\n", para: "  constraint xp_composicao_soma       check (xp_liquido >= 0)\n" },

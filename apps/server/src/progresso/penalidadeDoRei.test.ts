@@ -121,6 +121,19 @@ describe("o OUTBOX: pendência antiga e nova valem; o meio-termo não", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("o caminho INVERSO: o servidor ANTERIOR (main b3a6b3c) recusaria a pendência v2 — por isso, outbox VAZIO antes de reverter o servidor", () => {
+    // As duas conferências de forma do `validarResultado` de b3a6b3c (apps/server/src/progresso/tipos.ts),
+    // copiadas literalmente. A pendência que ele recusa vira "corrompida": continua no disco (não se
+    // perde), mas não é creditada por ele e adia o expurgo das lápides até alguém tratá-la.
+    const anterior = (r: ResultadoDaPartida) =>
+      Object.keys(r).sort().join(",") === "bots,humanos,iniciadaEm,partidaId,terminadaEm" &&
+      r.humanos.every((h) => ["participou,playerId,posicao", "participou,playerId,pontos,posicao"].includes(Object.keys(h).sort().join(",")));
+    expect(anterior(copia(antigo))).toBe(true); // a pendência antiga continua legível para ele
+    expect(anterior(copia(novo))).toBe(false); // a nova, não: `regra` e `capturouRei`
+    // o servidor NOVO, ao contrário, lê as duas (teste acima) — reinstalá-lo drena o que ficou
+    expect(validarResultado(copia(novo)).regra).toBe(2);
+  });
 });
 
 // ── o repositório com um pool FALSO: só registra o que seria enviado ao Postgres ──

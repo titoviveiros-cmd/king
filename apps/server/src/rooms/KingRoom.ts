@@ -407,7 +407,9 @@ export class KingRoom extends Room<{
       const dados = client.userData;
       if (!dados) return;
       const r = this.autoridade.jogarCarta(dados.seat, dados.playerId, msg);
-      if (r.ok && !r.duplicada) this.#contarJogada(dados.seat, true);
+      // "Própria" é do DONO do assento no elenco congelado. Quem sentou no lugar de quem saiu de vez
+      // joga pelo assento, mas as cartas dele não viram participação (nem XP) de outra pessoa.
+      if (r.ok && !r.duplicada) this.#contarJogada(dados.seat, dados.playerId === this.#elenco[dados.seat]?.playerId);
       this.#responder(client, msg?.actionId ?? "", r, "CARD_PLAYED");
     });
 
@@ -889,7 +891,8 @@ export class KingRoom extends Room<{
       playerId: e.playerId,
       bot: e.bot,
       permanente: e.permanente,
-      conectado: this.state.seats[seat].connected,
+      // conectado no fim = o DONO do assento está sentado e conectado (a conexão de um substituto não é a dele)
+      conectado: this.state.seats[seat].connected && this.state.seats[seat].playerId === e.playerId,
       jogadasTotais: this.#jogadas[seat],
       jogadasProprias: this.#jogadasProprias[seat],
     }));

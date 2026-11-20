@@ -133,6 +133,12 @@ function lerSequencia(d: LinhaDoMeuProgresso): SequenciaDoJogador | null {
  */
 export function criarLeitorDeProgresso(porta: () => Promise<PortaDeProgresso | null>, temSessao: () => boolean = () => true) {
   return {
+    /**
+     * Há sessão GUARDADA neste aparelho? Sem ela nenhuma leitura acontece — e o Placar Final não
+     * anuncia um XP "em confirmação" para quem não tem de quem ler XP (Entrega C).
+     */
+    temSessao,
+
     /** O progresso do jogador desta sessão. `null` quando não há sessão, provedor, ou a leitura falha. */
     async meuProgresso(): Promise<ProgressoDoJogador | null> {
       if (!temSessao()) return null;

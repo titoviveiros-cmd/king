@@ -10,9 +10,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { XpNoFim } from "./Progresso.js";
+import { XpNoFim, XpPendente } from "./Progresso.js";
 
 const ARQUIVO = new URL("../../tests/fixtures/fimxp-pior-caso.html", import.meta.url);
+const ARQUIVO_PENDENTE = new URL("../../tests/fixtures/fimxp-pendente.html", import.meta.url);
 const PARTIDA = "33333333-3333-4333-8333-333333333333";
 
 /**
@@ -35,5 +36,17 @@ describe("fixture do Playwright", () => {
     expect(PIOR_CASO).toContain("🔥 Sequência: 365 dias");
     expect(PIOR_CASO).toContain("−68 redução diária");
     expect(readFileSync(ARQUIVO, "utf8").replace(/\r\n/g, "\n").trim()).toBe(PIOR_CASO);
+  });
+});
+
+/** O XP AINDA EM CONFIRMAÇÃO (Entrega C): o texto mais longo do estado pendente, sem número nenhum. */
+export const PENDENTE = renderToStaticMarkup(<XpPendente fase="nao-confirmado" />);
+
+describe("fixture do Playwright — o estado pendente", () => {
+  it("é o markup ATUAL do XpPendente no texto mais longo", () => {
+    if (process.env.ATUALIZAR_FIXTURE) writeFileSync(ARQUIVO_PENDENTE, `${PENDENTE}\n`);
+    expect(PENDENTE).toContain("XP em confirmação");
+    expect(PENDENTE).not.toMatch(/\d/);
+    expect(readFileSync(ARQUIVO_PENDENTE, "utf8").replace(/\r\n/g, "\n").trim()).toBe(PENDENTE);
   });
 });

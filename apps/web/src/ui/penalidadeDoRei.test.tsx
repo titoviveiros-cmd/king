@@ -11,7 +11,8 @@ import { parse } from "node-html-parser";
 vi.mock("@supabase/supabase-js", () => ({ createClient: vi.fn(() => ({ auth: {}, from: vi.fn() })) }));
 
 import { criarLeitorDeProgresso, lerComposicao, type ComposicaoDoXp, type PortaDeProgresso } from "../auth/progresso.js";
-import { XpNoFim, contaDoXp } from "./Progresso.js";
+import { XpNoFim, XpPendente, contaDoXp } from "./Progresso.js";
+import { faseDoXp, haBuscaDoXp } from "../game/xpDaPartida.js";
 
 const PARTIDA = "33333333-3333-4333-8333-333333333333";
 const P = { xpTotal: 370, nivel: 3, xpNoNivel: 120, xpDoNivel: 200 };
@@ -109,5 +110,57 @@ describe("o Placar Final online: a conta aparece só quando há o que explicar",
     for (const r of regras) {
       for (const cor of r.match(/color:[^;]+/g) ?? []) expect(cor).toBe("color:var(--muted)");
     }
+  });
+});
+
+describe("o XP AINDA NÃO CONFIRMADO: estado pendente, sem número nenhum", () => {
+  const leitor = (temSessao = true) => ({ temSessao: () => temSessao, meuProgresso: async () => null, creditoDaPartida: async () => null });
+
+  it("a fase: fora (sem leitor, sem sessão, id estranho) · buscando · confirmado · não confirmado", () => {
+    expect(haBuscaDoXp(undefined, leitor())).toBe(false);
+    expect(haBuscaDoXp("nao-e-uuid", leitor())).toBe(false);
+    expect(haBuscaDoXp(PARTIDA, null)).toBe(false);
+    expect(haBuscaDoXp(PARTIDA, leitor(false))).toBe(false); // sem sessão neste aparelho: não há de quem ler XP
+    expect(haBuscaDoXp(PARTIDA, { ...leitor(), temSessao: () => { throw new Error("storage"); } })).toBe(false);
+    expect(haBuscaDoXp(PARTIDA, leitor())).toBe(true);
+    expect(haBuscaDoXp(PARTIDA, { meuProgresso: async () => null, creditoDaPartida: async () => null })).toBe(true); // porta antiga
+    expect(faseDoXp(false, undefined)).toEqual({ fase: "fora", xp: null });
+    expect(faseDoXp(true, undefined)).toEqual({ fase: "buscando", xp: null });
+    expect(faseDoXp(true, null)).toEqual({ fase: "nao-confirmado", xp: null });
+    const xp = xpCom(90, { bruto: 150, penalidadeRei: 60, reducaoDiaria: 0, liquido: 90 });
+    expect(faseDoXp(true, xp)).toEqual({ fase: "confirmado", xp });
+    expect(faseDoXp(false, xp).fase).toBe("fora");
+  });
+
+  it("buscando e não confirmado dizem o estado — e NENHUM dígito (nem bruto, nem penalidade, nem redução, nem líquido)", () => {
+    for (const [fase, texto] of [["buscando", "Confirmando o XP…"], ["nao-confirmado", "XP em confirmação · aparece na Home"]] as const) {
+      const html = renderToStaticMarkup(<XpPendente fase={fase} />);
+      const r = parse(html);
+      expect(r.querySelector(".fimxp-espera")!.text).toBe(texto);
+      expect(r.querySelector(".fimxp")!.getAttribute("role")).toBe("status");
+      expect(html).not.toMatch(/\d/);
+      expect(html).not.toMatch(/Rei de Copas|redução|\+/);
+      expect(r.querySelector(".fimxp-ganho, .fimxp-conta, .fimxp-nivel")).toBeNull();
+    }
+  });
+
+  it("fora do multiplayer com sessão e com o crédito já lido: nada", () => {
+    expect(renderToStaticMarkup(<XpPendente fase="fora" />)).toBe("");
+    expect(renderToStaticMarkup(<XpPendente fase="confirmado" />)).toBe("");
+  });
+
+  it("o leitor real expõe se há sessão (sem sessão, nada é lido e nada é anunciado)", async () => {
+    const { p, consultas } = porta({ xp_delta: 90, posicao: 1 });
+    const sem = criarLeitorDeProgresso(async () => p, () => false);
+    expect(sem.temSessao()).toBe(false);
+    expect(await sem.creditoDaPartida(PARTIDA)).toBeNull();
+    expect(consultas).toEqual([]);
+    expect(criarLeitorDeProgresso(async () => p, () => true).temSessao()).toBe(true);
+  });
+
+  it("o estado pendente usa só a cor discreta do tema", () => {
+    const css = readFileSync(new URL("./theme.css", import.meta.url), "utf8");
+    const regra = css.match(/\.fimxp-espera\{[^}]*\}/)?.[0] ?? "";
+    expect(regra).toContain("color:var(--muted)");
   });
 });

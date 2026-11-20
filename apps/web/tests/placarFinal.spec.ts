@@ -310,6 +310,20 @@ test.describe("o placar final cabe na tela", () => {
     if (process.env.KING_SHOTS) {
       await page.screenshot({ path: `${process.env.KING_SHOTS}/fim-xp-sequencia-${ti.project.name}.png` });
     }
+
+    // ENTREGA C: no lugar do crédito, o ESTADO PENDENTE (crédito ainda não confirmado pelo banco) —
+    // o markup REAL de `XpPendente`, no texto mais longo, sem número nenhum. Também tem de caber.
+    const pendente = readFileSync(new URL("./fixtures/fimxp-pendente.html", import.meta.url), "utf8").trim();
+    await page.locator(".fimdados .fimxp").evaluate((el, html) => { el.outerHTML = html; }, pendente);
+    await page.waitForFunction(() =>
+      document.querySelector(".fimxp-pendente")!.getAnimations({ subtree: true }).every((a) => a.playState === "finished"));
+    await expect(page.locator(".fimdados .fimxp-espera")).toHaveText("XP em confirmação · aparece na Home");
+    await cabeInteira(page, vp, "XP pendente");
+    const espera = await boxOf(page.locator(".fimxp-espera"), ".fimxp-espera");
+    expect(insideViewport(espera as Box, vp, SUBPIXEL), `.fimxp-espera fora da tela: ${JSON.stringify(espera)}`).toBe(true);
+    expect(espera.x + espera.width, ".fimxp-espera saiu pela direita da coluna de resultado").toBeLessThanOrEqual(dados.x + dados.width + SUBPIXEL);
+    expect(await page.locator(".fimdados .fimxp").innerText(), "número no estado pendente").not.toMatch(/\d/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), "rolagem lateral com o XP pendente").toBeLessThanOrEqual(0);
   });
 
   /**

@@ -13,7 +13,7 @@ import { anunciarFimDePartida } from "../analytics/partida.js";
 import { InsigniaEmLinha, etiquetaDoAvatar } from "./Insignia.js";
 import { BalaoSocial, BotaoSocial, reacoesDaMesa, type MesaMultiplayer } from "./MesaOnline.js";
 import { useXpDaPartida, xpParaExibir } from "../game/xpDaPartida.js";
-import { XpNoFim } from "./Progresso.js";
+import { XpNoFim, XpPendente } from "./Progresso.js";
 import { NovoRecorde } from "./Recordes.js";
 import { useNovoRecorde } from "../game/useNovoRecorde.js";
 import { leitorDeRecordesConfigurado, marcarCelebrado } from "../auth/recordes.js";
@@ -60,7 +60,9 @@ export function PlacarFinal({
   // O XP DESTA PARTIDA — só no multiplayer (sem `mp`, não há matchId nem leitor, e nada é
   // buscado). A busca começa já na montagem, porque o crédito é gravado segundos depois do fim, e
   // o resultado só aparece em "completo". Sem crédito real, não aparece nada — nunca um zero.
-  const xp = xpParaExibir(useXpDaPartida(mp?.matchId, mp?.progresso));
+  // PENALIDADE DO REI (Entrega C): enquanto o banco não confirma, a tela diz "confirmando", sem número.
+  const buscaDoXp = useXpDaPartida(mp?.matchId, mp?.progresso);
+  const xp = xpParaExibir(buscaDoXp.xp);
 
   // NOVO RECORDE (Entrega D): solo, pelo Top 3 deste aparelho; online, pelo Top 3 do banco, depois do
   // crédito confirmado. Aparece só DEPOIS da encenação, e uma vez por resultado.
@@ -297,7 +299,7 @@ export function PlacarFinal({
                   "entra na Fase 7" — promessa de algo que o jogo não entregava. Agora é o crédito
                   que o banco confirmou para ESTA partida, e o nível relido depois dele. Por último
                   na coluna e em tom menor: quem venceu continua sendo o assunto desta tela. */}
-              {xp && <XpNoFim xp={xp} matchId={mp?.matchId} />}
+              {xp ? <XpNoFim xp={xp} matchId={mp?.matchId} /> : <XpPendente fase={buscaDoXp.fase} />}
             </>
           )}
         </div>
