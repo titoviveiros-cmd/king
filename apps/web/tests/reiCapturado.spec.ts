@@ -91,6 +91,18 @@ test("a captura do K♥ abre a cena: inteira na tela, quem pegou e −160, ~5s, 
   expect(retrato.aura, "a aura da mesa animou junto com a cena").toBe(0);
   const cena = await boxOf(page.locator(".rc-cena"), "cena do Rei");
   expect(insideViewport(cena, vp, 1), "a cena saiu da tela").toBe(true);
+  // O VÉU COBRE A MESA INTEIRA e fica por cima dela: sem `position:fixed` a cena virava uma faixa
+  // de 218px por baixo da vaza (defeito real, pego aqui — ver `cinematica.test.ts`).
+  const veu = await page.evaluate(() => {
+    const el = document.querySelector(".rc")!;
+    const r = el.getBoundingClientRect();
+    const centro = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+    return { pos: getComputedStyle(el).position, altura: r.height, largura: r.width, centroNaCena: !!centro?.closest(".rc") };
+  });
+  expect(veu.pos).toBe("fixed");
+  expect(veu.altura).toBeGreaterThanOrEqual(vp.height - 1);
+  expect(veu.largura).toBeGreaterThanOrEqual(vp.width - 1);
+  expect(veu.centroNaCena, "o centro da tela não é da cena: algo da Mesa está por cima dela").toBe(true);
 
   // Sai sozinha, e a mesa assume com o selo e o MESMO jogador
   await expect(page.locator(".rc")).toHaveCount(0, { timeout: 8_000 });

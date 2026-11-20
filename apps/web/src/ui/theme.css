@@ -492,7 +492,7 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
              pulsa, uma segunda onda de faíscas;
      3,5–5s  assentamento — tudo respira mais baixo, e a saída (.35s) entrega a mesa ao destaque.
    Só `transform`/`opacity` (e a sombra da carta, que já pulsava): nada pesado para celular, e
-   toda animação tem número de repetições — a cena acaba, não fica rodando atrás do Placar. */
+   toda animação tem número de repetições — a cena acaba, não fica rodando atrás do Placar.
 
    NÃO BLOQUEIA A PARTIDA: a captura do K♥ encerra a mão, e a cena mora dentro da pausa de
    leitura que já existia. `pointer-events` só no próprio elemento, que some inteiro ao sair.

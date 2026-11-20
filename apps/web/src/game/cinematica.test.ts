@@ -147,6 +147,25 @@ describe("O REI FOI CAPTURADO — a cena e a pausa que a abriga", () => {
   });
 });
 
+/**
+ * NENHUM TEXTO SOLTO FORA DE COMENTÁRIO NO theme.css.
+ *
+ * Este teste nasceu de um defeito real desta rodada: um `*\/` a mais fechou o comentário do
+ * cabeçalho da cena no meio do parágrafo. O resto da prosa virou "CSS" inválido, o navegador o
+ * descartou junto com a regra `.rc{…}` seguinte, e a cena passou a ser desenhada SEM
+ * `position:fixed` — 218px de altura, por baixo da vaza, com o toque caindo nas cartas. Os testes
+ * por regex continuavam verdes, porque o texto da regra estava lá. Só o Playwright viu.
+ */
+describe("o theme.css não tem prosa fora de comentário", () => {
+  it("nenhuma linha fora de comentário tem acento ou travessão (marca de texto em português)", () => {
+    const semComentarios = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
+    const soltas = semComentarios.split("\n")
+      .map((l, i) => `${i + 1}: ${l.trim()}`)
+      .filter((l) => /[ãõçéêáâíóôú—]/i.test(l));
+    expect(soltas).toEqual([]);
+  });
+});
+
 describe("a cena retoma de onde parou se a Mesa remontar — e nunca passa da pausa", () => {
   const PERMANENCIA = TEMPOS.cenaDoRei - constante(FONTE_REI, "SAIDA_MS");
 
