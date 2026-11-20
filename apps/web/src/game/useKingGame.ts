@@ -65,8 +65,19 @@ export function useKingGame() {
    */
   const avatarDoHumano = useRef<string | undefined>(undefined);
 
-  const start = useCallback((avatar?: string) => {
+  const start = useCallback((avatar?: string, preparada?: () => KingGame) => {
     if (avatar) avatarDoHumano.current = avatar;
+    if (preparada) {
+      // UMA PARTIDA JÁ MONTADA POR OUTRO MODO (o mini-torneio): mesa, semente e adversários vêm de
+      // quem a montou, e a URL não manda em nada aqui. Sem anúncio de início: a medição conhece
+      // `local` e `online`, e contar a partida de torneio como `local` mentiria sobre as duas.
+      audio.unlock();
+      ref.current = preparada();
+      limpar();
+      setScreen("mesa");
+      bump();
+      return;
+    }
     // "Jogar de novo" na tela de fim é o mesmo `start`: para a medição, o que interessa é que
     // uma partida COMEÇOU. O botão que a pediu é dado da própria tela, não deste hook.
     anunciarInicioDePartida({ modo: "local", humanos: 1, bots: 3 });
