@@ -15,12 +15,15 @@ import { XpNoFim } from "./Progresso.js";
 const ARQUIVO = new URL("../../tests/fixtures/fimxp-pior-caso.html", import.meta.url);
 const PARTIDA = "33333333-3333-4333-8333-333333333333";
 
-/** Os números mais LARGOS plausíveis: nível de dois dígitos, XP de quatro, sequência de três. */
+/**
+ * Os números mais LARGOS plausíveis: nível de dois dígitos, XP de quatro, sequência de três — e,
+ * desde a Entrega C, a CONTA inteira do XP (Rei de Copas E redução diária: 22 = (150 − 60) ÷ 4).
+ */
 export const PIOR_CASO = renderToStaticMarkup(
   <XpNoFim
     matchId={PARTIDA}
     xp={{
-      credito: { xpDelta: 150, posicao: 1 },
+      credito: { xpDelta: 22, posicao: 1, composicao: { bruto: 150, penalidadeRei: 60, reducaoDiaria: 68, liquido: 22 } },
       progresso: { xpTotal: 63_650, nivel: 49, xpNoNivel: 2_450, xpDoNivel: 2_500, sequencia: { atual: 365, recorde: 365, hoje: true, partida: PARTIDA } },
     }}
   />,
@@ -30,6 +33,7 @@ describe("fixture do Playwright", () => {
   it("é o markup ATUAL do XpNoFim no pior caso, com a sequência", () => {
     if (process.env.ATUALIZAR_FIXTURE) writeFileSync(ARQUIVO, `${PIOR_CASO}\n`);
     expect(PIOR_CASO).toContain("🔥 Sequência: 365 dias");
+    expect(PIOR_CASO).toContain("−68 redução diária");
     expect(readFileSync(ARQUIVO, "utf8").replace(/\r\n/g, "\n").trim()).toBe(PIOR_CASO);
   });
 });

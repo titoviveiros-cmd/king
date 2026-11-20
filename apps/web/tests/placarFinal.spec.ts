@@ -273,7 +273,8 @@ test.describe("o placar final cabe na tela", () => {
    * Mesmo raciocínio do botão social: chegar ao placar online com crédito no banco custa uma
    * partida multiplayer inteira, e a pergunta é de GEOMETRIA. A coluna de dados (`.fimdados`) é a
    * mesma nos dois modos. O bloco entra no fim dela com o markup REAL do `XpNoFim` no pior caso
-   * (nível 49, "2450 / 2500 XP", "🔥 Sequência: 365 dias") — `src/ui/fimxpPiorCaso.test.tsx` garante
+   * (nível 49, "2450 / 2500 XP", "🔥 Sequência: 365 dias" e, desde a Entrega C, a conta do XP com o Rei de
+   * Copas e a redução diária) — `src/ui/fimxpPiorCaso.test.tsx` garante
    * que o arquivo é o que o componente desenha hoje.
    */
   test("com o XP e a sequência no pior caso, a coluna de resultado continua cabendo", async ({ page }, ti) => {
@@ -291,7 +292,7 @@ test.describe("o placar final cabe na tela", () => {
     await cabeInteira(page, vp, "XP + sequência");
 
     const dados = await boxOf(page.locator(".fimdados"), ".fimdados");
-    for (const sel of [".fimxp", ".fimxp-ganho", ".fimxp-nivel", ".fimxp-seq"]) {
+    for (const sel of [".fimxp", ".fimxp-ganho", ".fimxp-conta", ".fimxp-nivel", ".fimxp-seq"]) {
       const c = await boxOf(page.locator(sel), sel);
       expect(insideViewport(c as Box, vp, SUBPIXEL), `${sel} fora da tela: ${JSON.stringify(c)}`).toBe(true);
       expect(c.x + c.width, `${sel} saiu pela direita da coluna de resultado`).toBeLessThanOrEqual(dados.x + dados.width + SUBPIXEL);

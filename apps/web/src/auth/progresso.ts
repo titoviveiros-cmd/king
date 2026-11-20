@@ -45,6 +45,30 @@ export interface SequenciaDoJogador {
 export interface CreditoDaPartida {
   xpDelta: number;
   posicao: number;
+  /**
+   * PENALIDADE DO REI (Entrega C): as parcelas do XP, COMO O BANCO AS GRAVOU (`xp_composicao`) —
+   * só em partida creditada pela regra 2, e só se baterem com o crédito. Ausente (regra 1, banco sem
+   * a migração, leitura falhou, dado estranho): a tela mostra o "+N XP" de sempre, sem conta nenhuma.
+   */
+  composicao?: ComposicaoDoXp;
+}
+
+/** O XP de uma partida, parcela a parcela. `liquido` é sempre o `xpDelta` do crédito. */
+export interface ComposicaoDoXp {
+  bruto: number;
+  /** 60 para quem capturou o Rei de Copas na mão 5; 0 para os outros. */
+  penalidadeRei: number;
+  /** O que a regra das partidas do dia (da 7ª em diante, ÷4) tirou, depois da penalidade. */
+  reducaoDiaria: number;
+  liquido: number;
+}
+
+/** A linha de `xp_composicao`. Outras colunas que um dia apareçam são ignoradas. */
+export interface LinhaDaComposicao {
+  xp_bruto?: unknown;
+  penalidade_rei?: unknown;
+  reducao_diaria?: unknown;
+  xp_liquido?: unknown;
 }
 
 type Resposta<T> = Promise<{ data: T | null; error: unknown }>;
@@ -66,6 +90,11 @@ export interface LinhaDoMeuProgresso {
 export interface PortaDeProgresso {
   meuProgresso(): Resposta<LinhaDoMeuProgresso>;
   creditoDaPartida(partidaId: string): Resposta<{ xp_delta: number; posicao: number }>;
+  /**
+   * PENALIDADE DO REI (Entrega C): a composição do XP desta partida. Opcional: a porta de quem não a
+   * tem (teste, publicação antiga) continua valendo, e o crédito sai sem composição.
+   */
+  composicaoDaPartida?(partidaId: string): Resposta<LinhaDaComposicao>;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -73,6 +102,20 @@ const inteiro = (v: unknown): v is number => typeof v === "number" && Number.isI
 
 /** O `matchId` tem a forma de um id de partida? Lixo não vira consulta, nem tentativa repetida. */
 export const matchIdValido = (matchId: unknown): matchId is string => typeof matchId === "string" && UUID.test(matchId);
+
+/**
+ * A composição só passa se for INTEIRA e coerente com o crédito confirmado: inteiros não negativos,
+ * penalidade 0 ou 60, e bruto − penalidade − redução = líquido = o `xp_delta` do ledger. Qualquer
+ * outra coisa é tratada como "não sei" — a tela não inventa conta.
+ */
+export function lerComposicao(d: LinhaDaComposicao | null | undefined, xpDelta: number): ComposicaoDoXp | null {
+  if (!d) return null;
+  const { xp_bruto: bruto, penalidade_rei: pen, reducao_diaria: red, xp_liquido: liq } = d;
+  if (![bruto, pen, red, liq].every(inteiro)) return null;
+  const [b, p, r, l] = [bruto, pen, red, liq] as number[];
+  if ((p !== 0 && p !== 60) || l !== xpDelta || b - p - r !== l) return null;
+  return { bruto: b, penalidadeRei: p, reducaoDiaria: r, liquido: l };
+}
 
 /** A sequência só passa se vier INTEIRA e coerente; senão a tela fica como era antes dela. */
 function lerSequencia(d: LinhaDoMeuProgresso): SequenciaDoJogador | null {
@@ -125,7 +168,16 @@ export function criarLeitorDeProgresso(porta: () => Promise<PortaDeProgresso | n
         if (!p) return null;
         const { data, error } = await p.creditoDaPartida(matchId);
         if (error || !data || !inteiro(data.xp_delta) || !inteiro(data.posicao)) return null;
-        return { xpDelta: data.xp_delta, posicao: data.posicao };
+        const credito: CreditoDaPartida = { xpDelta: data.xp_delta, posicao: data.posicao };
+        // A composição é um DETALHE do crédito: falhar em lê-la nunca derruba o crédito confirmado.
+        try {
+          const c = p.composicaoDaPartida ? await p.composicaoDaPartida(matchId) : null;
+          const composicao = c && !c.error ? lerComposicao(c.data, credito.xpDelta) : null;
+          if (composicao) credito.composicao = composicao;
+        } catch {
+          // banco sem a tabela (migração não aplicada), rede: sem composição, e só
+        }
+        return credito;
       } catch {
         return null;
       }
@@ -174,6 +226,10 @@ export function leitorDeProgressoConfigurado(): LeitorDeProgresso | null {
       meuProgresso: async () => await c.from("meu_progresso").select("*").maybeSingle<LinhaDoMeuProgresso>(),
       creditoDaPartida: async (partidaId) =>
         await c.from("xp_eventos").select("xp_delta, posicao").eq("partida_id", partidaId).maybeSingle(),
+      // `*` pelo mesmo motivo de `meu_progresso`: coluna nova num banco futuro não derruba a leitura.
+      // Num banco SEM a migração a tabela não existe: o erro vira "sem composição" lá em cima.
+      composicaoDaPartida: async (partidaId) =>
+        await c.from("xp_composicao").select("*").eq("partida_id", partidaId).maybeSingle<LinhaDaComposicao>(),
     };
   }, () => sessaoGuardada(r.url));
   leitorUnico = { url: r.url, leitor };

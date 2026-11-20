@@ -37,6 +37,7 @@ import { IdentidadeRecusada, verificadorEmUso, type IdentidadeVerificada } from 
 import { progressoEmUso } from "../progresso/servico.js";
 import { esquecerSala, registrarSala } from "../progresso/salasVivas.js";
 import type { AssentoAoFim } from "../progresso/resultado.js";
+import { capturadorDoRei } from "../progresso/capturaDoRei.js";
 import type { Posicao } from "../progresso/tipos.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
@@ -900,6 +901,8 @@ export class KingRoom extends Room<{
         assentos,
         posicoes,
         pontos,
+        // PENALIDADE DO REI (Entrega C): quem levou o K♥ na mão 5, do HISTÓRICO do motor — nunca do cliente.
+        capturouRei: capturadorDoRei(m),
       });
     } catch (e) {
       console.error(`[progresso] registrador falhou ao receber o fim da partida: ${(e as Error)?.name ?? "erro"}`);

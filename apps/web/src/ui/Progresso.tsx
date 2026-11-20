@@ -1,4 +1,4 @@
-import type { ProgressoDoJogador, SequenciaDoJogador } from "../auth/progresso.js";
+import type { ComposicaoDoXp, ProgressoDoJogador, SequenciaDoJogador } from "../auth/progresso.js";
 import { sequenciaDaPartida, type XpDaPartida } from "../game/xpDaPartida.js";
 import { sfxTap } from "../audio/sounds.js";
 
@@ -90,16 +90,39 @@ export function ProgressoNaHome({ progresso: p, itens }: { progresso: ProgressoD
  * com crédito REAL e positivo — quem decide isso é `xpParaExibir`, antes de chegar aqui. A
  * sequência entra só quando ESTA partida qualificou o dia (`sequenciaDaPartida`).
  */
+/**
+ * PENALIDADE DO REI (Entrega C): a CONTA do XP, só quando há o que explicar (penalidade ou redução) e
+ * só com as parcelas que o BANCO gravou. Tom de informação, não de castigo: cor discreta, sem vermelho,
+ * e o "+N XP" creditado continua sendo o destaque. Os −160 pontos da mão são outra coisa e ficam no placar.
+ */
+export function contaDoXp(c: ComposicaoDoXp | undefined): { bruto: number; rei: number; diaria: number } | null {
+  if (!c || (c.penalidadeRei === 0 && c.reducaoDiaria === 0)) return null;
+  return { bruto: c.bruto, rei: c.penalidadeRei, diaria: c.reducaoDiaria };
+}
+
+function descreverConta(c: NonNullable<ReturnType<typeof contaDoXp>>): string {
+  return [`${c.bruto} XP da partida`, c.rei > 0 ? `menos ${c.rei} pelo Rei de Copas` : "", c.diaria > 0 ? `menos ${c.diaria} de redução diária` : ""]
+    .filter(Boolean).join(", ");
+}
+
 export function XpNoFim({ xp, matchId }: { xp: XpDaPartida; matchId?: string }) {
   const p = xp.progresso;
   const seq = sequenciaDaPartida(xp, matchId);
+  const conta = contaDoXp(xp.credito.composicao);
   return (
     <div
       className="fimxp"
       role="status"
-      aria-label={`Você ganhou ${xp.credito.xpDelta} XP nesta partida${seq !== null ? `; sequência de ${dias(seq)}` : ""}`}
+      aria-label={`Você ganhou ${xp.credito.xpDelta} XP nesta partida${conta ? ` (${descreverConta(conta)})` : ""}${seq !== null ? `; sequência de ${dias(seq)}` : ""}`}
     >
       <b className="fimxp-ganho">+{xp.credito.xpDelta} XP</b>
+      {conta && (
+        <span className="fimxp-conta" aria-hidden>
+          <span className="fimxp-bruto">{conta.bruto}</span>
+          {conta.rei > 0 && <span className="fimxp-rei">−{conta.rei} Rei de Copas</span>}
+          {conta.diaria > 0 && <span className="fimxp-diaria">−{conta.diaria} redução diária</span>}
+        </span>
+      )}
       {p && (
         <span className="fimxp-nivel">
           <span className="fimxp-rotulo">Nível {p.nivel}</span>
