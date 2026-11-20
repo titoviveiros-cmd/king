@@ -87,10 +87,14 @@ export const TEMPOS_PADRAO: Readonly<Tempos> = Object.freeze({
   autoReadyDesconectado: 20_000,
   autoReadyConectado: 45_000,
   cortesiaDoBot: 900,
-  aberturaDaUltimaMao: 3_720,
+  // 6000 = 5580 de permanência + 420 de saída do anúncio (era 3720 = 3300 + 420). Contrato com o
+  // cliente em `rooms/ultimaMao.test.ts`.
+  aberturaDaUltimaMao: 6_000,
   leituraDaVaza: 1_150,
   leituraDaVazaCastigo: 2_700,
-  leituraDaVazaKing: 3_400,
+  // 6500 = cena do Rei (5000) + destaque na mesa (1350) + 150 de folga (era 3400). Só acontece na
+  // vaza que ENCERRA a mão 5, então não estende nenhum prazo de jogada: depois dela vem o Placar.
+  leituraDaVazaKing: 6_500,
   fimDeMao: 1_800,
   passoDaApresentacao: 520,
   lobbyReservaAposQueda: 60_000,

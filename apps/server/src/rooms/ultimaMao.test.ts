@@ -13,7 +13,7 @@
 //   • deixar a partida correr atrás do véu — que é justamente o defeito que a rodada corrigiu;
 //   • represar a apresentação e ficar para trás, com quem escolhe o trunfo perdendo do PRÓPRIO
 //     prazo o tempo da animação, e um bot escolhendo por trás dela (900ms de cortesia contra
-//     ~3,7s de anúncio).
+//     ~6s de anúncio).
 //
 // O prazo é autoritativo e o bot é o servidor. Por isso o respiro mora aqui.
 //
@@ -41,7 +41,9 @@ import {
 import type { KingRoom } from "./KingRoom.js";
 
 const SEATS: Seat[] = [0, 1, 2, 3];
-const RESPIRO = 3_720;
+// O VALOR DE PRODUÇÃO, e não uma cópia: o que se prova aqui é que o bot espera e o relógio não
+// corre durante o anúncio REAL (6s desde a cinemática longa; eram 3,72s).
+const RESPIRO = TEMPOS_PADRAO.aberturaDaUltimaMao;
 /** Prazos folgados e distinguíveis: o que se mede aqui é a DIFERENÇA que o respiro faz. */
 const TURNO = 20_000;
 const TRUNFO = 30_000;
@@ -277,7 +279,7 @@ describe("o servidor e a animação combinam o mesmo tempo", () => {
  *
  * É a metade do problema que só o servidor resolve. No solo basta pausar o motor, que roda no
  * próprio navegador. Numa mesa mista o bot é o SERVIDOR: ele decide por cortesia de 900ms contra
- * ~3,7s de anúncio, e escolheria o trunfo — e depois jogaria — enquanto ninguém está olhando.
+ * ~6s de anúncio, e escolheria o trunfo — e depois jogaria — enquanto ninguém está olhando.
  * Represar a apresentação no cliente não impediria isso; só faria a mesa reaparecer adiantada.
  *
  * `trumpChooserFor(10)` é o assento 3. Com um bot ali, a primeira decisão da última mão é dele —
@@ -315,13 +317,19 @@ describe("na mesa mista, o bot espera a animação terminar", () => {
       "este teste só vale se quem escolhe o trunfo da mão 10 for um bot").toBe(true);
 
     // A METADE DA ANIMAÇÃO. Sem o respiro o bot teria decidido em 5ms — e em produção, com a
-    // cortesia de 900ms contra ~3,7s de anúncio, teria decidido e ainda jogado. É exatamente a
+    // cortesia de 900ms contra ~6s de anúncio, teria decidido e ainda jogado. É exatamente a
     // mesa reaparecendo com a mão em curso.
     await new Promise((r) => setTimeout(r, RESPIRO / 2));
     expect(room.autoridadeDaPartida().estadoAutoritativo()!.hand!.awaitingTrumpFrom,
       "o bot escolheu o trunfo por trás do anúncio").toBe(escolhedor);
     expect(room.autoridadeDaPartida().estadoAutoritativo()!.hand!.currentTrick.length,
       "alguém jogou uma carta por trás do anúncio").toBe(0);
+
+    // E NO FIM DELA TAMBÉM. Com o anúncio de 6s, "não agiu na metade" deixaria passar um respiro
+    // curto demais (o antigo, de 3,72s, por exemplo). A 400ms do fim o bot ainda tem de esperar.
+    await new Promise((r) => setTimeout(r, RESPIRO / 2 - 400));
+    expect(room.autoridadeDaPartida().estadoAutoritativo()!.hand!.awaitingTrumpFrom,
+      "o bot escolheu o trunfo antes de o anúncio terminar").toBe(escolhedor);
 
     // E DEPOIS DELA o bot age normalmente: o respiro adia, não trava.
     await ate(() => room.autoridadeDaPartida().estadoAutoritativo()!.hand!.awaitingTrumpFrom === null,

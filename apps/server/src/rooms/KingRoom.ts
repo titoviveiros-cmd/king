@@ -250,8 +250,9 @@ export class KingRoom extends Room<{
    * ══ A APRESENTAÇÃO DA VAZA QUE FECHOU ══
    *
    * Quando uma vaza fecha, a mesa PARA para todo mundo ler o que aconteceu — 1150ms numa vaza
-   * comum, 3400ms no Rei de Copas. O servidor não para junto, e é isso que estava certo: parar
-   * somaria espera sobre uma espera que o jogador já vê.
+   * comum, 6500ms no Rei de Copas (que encerra a mão 5: depois dela vem o Placar, não uma vez).
+   * O servidor não para junto, e é isso que estava certo: parar somaria espera sobre uma espera
+   * que o jogador já vê.
    *
    * O que estava errado era COBRAR esse tempo do próximo jogador. O prazo dele começava com a
    * mesa parada, e ele recebia 23s de um prazo de 25s sem ter feito nada.
@@ -648,7 +649,7 @@ export class KingRoom extends Room<{
    * primeira decisão da última mão cai numa janela em que ninguém está olhando para a mesa.
    *
    * Sem isto, os dois lados perdem: quem escolhe o trunfo perderia do próprio prazo o tempo do
-   * anúncio, e um bot escolheria por trás dele (cortesia de 900ms contra ~3,7s de animação) — a
+   * anúncio, e um bot escolheria por trás dele (cortesia de 900ms contra ~6s de animação) — a
    * mesa reapareceria com a mão já em curso. Nenhum dos dois se conserta no cliente, porque o
    * prazo é autoritativo e o bot é o servidor.
    *

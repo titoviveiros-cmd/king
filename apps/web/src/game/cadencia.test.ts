@@ -205,11 +205,23 @@ describe("as transições que já estavam corretas continuam corretas", () => {
  *
  * O piso é recalculado aqui a partir dos DOIS lados. Se alguém aumentar uma pausa aprovada ou
  * baixar a cortesia do bot, este teste reprova antes de a carta sumir na mão de alguém.
+ *
+ * ══ POR QUE O REI DE COPAS SAIU DESTA CONTA ══
+ *
+ * A pausa do King cresceu de 3400ms para 6500ms para caber a cena "O REI FOI CAPTURADO" (5s) e o
+ * destaque da mesa (1,35s). Se ela entrasse aqui, exigiria teto 9 e uma dívida de quase 5s — mas
+ * contra jogadas que NÃO EXISTEM: capturar o K♥ encerra a mão 5, então depois desta pausa vem o
+ * Placar, e o servidor não joga carta nenhuma durante ela. Isso não é suposição deste arquivo: o
+ * `cinematica.test.ts` joga partidas inteiras pelo motor e reprova se alguma pausa do King
+ * deixar de fechar a mão. As demais pausas continuam medidas, inclusive a de fim de mão, que
+ * também é terminal mas sempre esteve aqui e cabe com folga.
  */
+const PAUSAS_COM_JOGO_POR_BAIXO = [
+  TEMPOS.leituraDaVaza, TEMPOS.leituraDaVazaCastigo, TEMPOS.fimDeMao,
+] as const;
+
 describe("o teto da fila comporta o que o jogo normal produz", () => {
-  const maiorPausa = Math.max(
-    TEMPOS.leituraDaVaza, TEMPOS.leituraDaVazaCastigo, TEMPOS.leituraDaVazaKing, TEMPOS.fimDeMao,
-  );
+  const maiorPausa = Math.max(...PAUSAS_COM_JOGO_POR_BAIXO);
   const piso = Math.ceil(maiorPausa / CORTESIA_DO_BOT);
 
   it("o teto tem FOLGA sobre o pior caso aprovado — não apenas cabe", () => {
@@ -221,8 +233,8 @@ describe("o teto da fila comporta o que o jogo normal produz", () => {
   });
 
   it("nenhuma pausa aprovada faz a fila colapsar", () => {
-    for (const pausa of [TEMPOS.leituraDaVaza, TEMPOS.leituraDaVazaCastigo,
-      TEMPOS.leituraDaVazaKing, TEMPOS.fimDeMao]) {
+    // O King entra aqui também: três jogadas impossíveis sob ela ainda não descartam carta.
+    for (const pausa of [...PAUSAS_COM_JOGO_POR_BAIXO, TEMPOS.leituraDaVazaKing]) {
       const vistas = simular(bots(3, 0), [{ de: 0, ate: pausa }]);
       expect(vistas, `pausa de ${pausa}ms descartou carta`).toHaveLength(3);
     }
@@ -278,17 +290,14 @@ describe("a dívida de apresentação contra o prazo do humano", () => {
   }
 
   it("no pior caso aprovado, o humano recebe pelo menos 92% do prazo", () => {
-    const pior = Math.max(
-      divida(TEMPOS.leituraDaVaza, 3), divida(TEMPOS.leituraDaVazaCastigo, 3),
-      divida(TEMPOS.leituraDaVazaKing, 3), divida(TEMPOS.fimDeMao, 3),
-    );
+    // Sem o King: depois da pausa dele não há turno de ninguém a cobrar (ver o teto da fila).
+    const pior = Math.max(...PAUSAS_COM_JOGO_POR_BAIXO.map((p) => divida(p, 3)));
     expect(pior, `dívida de ${pior}ms sobre um prazo de ${TURNO}ms`)
       .toBeLessThanOrEqual(TURNO * 0.08);
   });
 
   it("a dívida nunca passa de dois passos de apresentação por carta represada", () => {
-    for (const pausa of [TEMPOS.leituraDaVaza, TEMPOS.leituraDaVazaCastigo,
-      TEMPOS.leituraDaVazaKing, TEMPOS.fimDeMao]) {
+    for (const pausa of PAUSAS_COM_JOGO_POR_BAIXO) {
       expect(divida(pausa, 3)).toBeLessThanOrEqual(TEMPOS.botPasso * 2 * 3);
     }
   });

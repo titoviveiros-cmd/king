@@ -20,8 +20,22 @@ export const TEMPOS = {
    * — e é justamente essa a graça do jogo.
    */
   leituraDaVazaCastigo: 2700,
-  /** O K de Copas é o castigo máximo: pausa ainda maior. */
-  leituraDaVazaKing: 3400,
+  /**
+   * O K de Copas é o castigo máximo: a pausa mais longa do jogo, porque é nela que mora a cena
+   * "O REI FOI CAPTURADO" (`cenaDoRei`) seguida do destaque da mesa (`kCopasCaptura`).
+   *
+   * Era 3400ms, com a cena de 2s. A cena cresceu para 5s e a pausa cresceu junto: as duas somadas
+   * cabem aqui com 150ms de folga (5000 + 1350 = 6350 ≤ 6500), para um `setTimeout` atrasado no
+   * celular não cortar o fim do destaque.
+   *
+   * POR QUE ESTA PAUSA PODE SER LONGA SEM ROUBAR TEMPO DE NINGUÉM: capturar o K♥ ENCERRA a mão 5
+   * (o motor fecha a mão quando a única carta penalizada sai). Depois desta pausa não vem a vez de
+   * ninguém — vem o Placar. Nenhum bot joga durante ela e nenhum relógio de jogada corre contra
+   * ela. O `cadencia.test.ts` prova isso com o motor e reprova se um dia deixar de ser verdade.
+   *
+   * Par no servidor: `leituraDaVazaKing` em `apps/server/src/match/tempos.ts` (contrato por teste).
+   */
+  leituraDaVazaKing: 6500,
   /**
    * Última vaza da mão. O Placar só entra DEPOIS desta pausa — antes ele cobria a mesa no
    * mesmo instante em que a vaza fechava, e o selo do castigo da última bucha nunca era visto.
@@ -47,14 +61,20 @@ export const TEMPOS = {
   /** POUSO NA VAZA: a carta chega, bate e assenta. Par no theme.css: `pousaNaVaza` (.26s). */
   pousoNaVaza: 260,
   /**
-   * O REI FOI CAPTURADO — a cena central da mão 5 (`ReiCapturado.tsx`): 2000ms de presença, já
-   * contada a saída; um toque encurta. Vem ANTES do destaque da mesa (`kCopasCaptura`), nunca junto,
-   * e as duas somadas cabem na pausa do King: 2000 + 1350 = 3350 ≤ `leituraDaVazaKing` (3400).
+   * O REI FOI CAPTURADO — a cena central da mão 5 (`ReiCapturado.tsx`): 5000ms de presença, já
+   * contadas a entrada e a saída; um toque encurta. Vem ANTES do destaque da mesa
+   * (`kCopasCaptura`), nunca junto, e as duas somadas cabem na pausa do King:
+   * 5000 + 1350 = 6350 ≤ `leituraDaVazaKing` (6500).
+   *
+   * Eram 2000ms, e o momento mais dramático da partida passava rápido demais: quem não estava
+   * olhando para o aparelho naquele instante só via o selo. Cinco segundos dão tempo de a mesa
+   * inteira ver quem pegou e quanto custou sem virar espera — a mão já acabou, ninguém tem jogada
+   * a fazer (ver `leituraDaVazaKing`).
    */
-  cenaDoRei: 2000,
+  cenaDoRei: 5000,
   /**
    * K DE COPAS CAPTURADO: impacto, destaque e dissipação em 1350ms na mesa, DEPOIS da cena
-   * (`cenaDoRei`), dentro da pausa do King (`leituraDaVazaKing`), que não muda. Só existe enquanto o selo do castigo está na tela —
+   * (`cenaDoRei`), dentro da pausa do King (`leituraDaVazaKing`). Só existe enquanto o selo do castigo está na tela —
    * quem decide quem pegou é o motor, via `anunciarVaza`.
    * Par no theme.css: `kCaptura`, `kHalo`, `kOnda`, `kPenalizado`, `kSelo` (1.35s).
    */

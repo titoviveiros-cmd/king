@@ -7,11 +7,12 @@
 //
 // AS REGRAS QUE ELA OBEDECE:
 //
-//   1. CABE NA PAUSA QUE JÁ EXISTE. A captura do K♥ encerra a mão e a mesa já para 3,4s para a
-//      leitura (`leituraDaVazaKing`). A cena dura 2s e depois a mesa assume com o selo e a aura
-//      vinho (1,35s). Nada aqui pede `suspender`, nada prolonga a pausa, nada espera o servidor.
+//   1. CABE NA PAUSA DO KING. A captura do K♥ encerra a mão e a mesa para 6,5s para a leitura
+//      (`leituraDaVazaKing`). A cena dura 5s e depois a mesa assume com o selo e a aura vinho
+//      (1,35s). Nada aqui pede `suspender`, nada prolonga a pausa, nada espera o servidor: quem
+//      sabe o tamanho da pausa é `timings.ts`, e o servidor tem o mesmo número (`tempos.ts`).
 //   2. NÃO BLOQUEIA. Sai sozinha, e um toque encurta. O toque só fecha a cena: não avança a
-//      partida, não joga carta, não confirma nada.
+//      partida, não joga carta, não confirma nada — e não atravessa para o que está por baixo.
 //   3. APARECE UMA VEZ POR CAPTURA. A marca é o `nonce` do castigo, guardada fora do React — uma
 //      remontagem da Mesa não repete a cena. Reconectar limpa o castigo (`limpar()` em
 //      RESYNC/RECONNECTED), então quem volta não assiste ao que já passou.
@@ -27,6 +28,14 @@ const SAIDA_MS = 350;
 /** Permanência antes de começar a sair: a cena inteira dura `TEMPOS.cenaDoRei`. */
 const PERMANENCIA_MS = TEMPOS.cenaDoRei - SAIDA_MS;
 
+/**
+ * As faíscas saem em DUAS ondas: a do impacto, junto com a carta, e uma segunda no meio da cena.
+ * Com 2s uma onda bastava; com 5s, a cena ficava parada metade do tempo. Oito por onda, só
+ * `transform`/`opacity` — o que o celular compõe sem redesenhar a tela.
+ */
+const ONDAS_DE_FAISCAS = [0.18, 2.1] as const;
+const FAISCAS_POR_ONDA = 8;
+
 /** Capturas cuja cena já foi vista (ou dispensada), pelo `nonce` do castigo. */
 const vistas = new Set<number>();
 /** A cena desta captura já passou? Depois dela, a mesa mostra o selo e a aura vinho. */
@@ -36,7 +45,27 @@ export function marcarCenaDoReiVista(nonce: number): void {
   vistas.add(nonce);
 }
 
-export function ReiCapturado({ quem, voce, pontos, onFim }: {
+/**
+ * Quando a cena de cada captura começou, pelo `nonce` — fora do React, como `vistas`.
+ *
+ * POR QUE: a cena agora dura 5s dentro de uma pausa de 6,5s. Se a Mesa remontar no meio dela
+ * (girar o aparelho, por exemplo), uma cena que recomeçasse do zero terminaria DEPOIS da pausa e
+ * seria cortada pelo Placar, levando junto o destaque da mesa. Retomando de onde parou, a soma
+ * cena + destaque continua cabendo na pausa.
+ */
+const inicios = new Map<number, number>();
+
+/**
+ * Quanto falta da permanência de uma cena que começou em `inicio`, no instante `agora`.
+ * Puro, para ser testado sem relógio. Nunca negativo e nunca maior que a permanência inteira.
+ */
+export function permanenciaRestante(inicio: number, agora: number): number {
+  return Math.min(PERMANENCIA_MS, Math.max(0, PERMANENCIA_MS - (agora - inicio)));
+}
+
+export function ReiCapturado({ nonce, quem, voce, pontos, onFim }: {
+  /** O `nonce` do castigo: identidade desta captura (a mesma marca de `vistas`). */
+  nonce: number;
   /** Nome de quem levou a vaza com o K♥ — o vencedor confirmado pelo motor. */
   quem: string;
   /** Foi o próprio jogador deste aparelho? */
@@ -60,22 +89,35 @@ export function ReiCapturado({ quem, voce, pontos, onFim }: {
   });
 
   useEffect(() => {
-    const id = window.setTimeout(() => encerrar.current(), PERMANENCIA_MS);
+    if (!inicios.has(nonce)) inicios.set(nonce, Date.now());
+    const restante = permanenciaRestante(inicios.get(nonce)!, Date.now());
+    const id = window.setTimeout(() => encerrar.current(), restante);
     return () => window.clearTimeout(id);
-  }, []);
+  }, [nonce]);
 
   return (
     <div
       className={`rc${saindo ? " saindo" : ""}${reduzido ? " calmo" : ""}`}
-      onClick={() => encerrar.current()}
+      // O TOQUE FECHA A CENA E PARA AQUI. A camada cobre a Mesa inteira (`inset:0`) e continua
+      // interceptando durante a saída, então o dedo nunca alcança uma carta ou um botão por baixo
+      // dela; o `stopPropagation` garante que nenhum ouvinte da Mesa trate este toque como seu.
+      onClick={(e) => { e.stopPropagation(); encerrar.current(); }}
       role="status"
       aria-live="polite"
     >
+      {!reduzido && <span className="rc-luz" aria-hidden />}
       {!reduzido && (
         <div className="rc-faiscas" aria-hidden>
-          {Array.from({ length: 8 }, (_, i) => (
-            <i key={i} style={{ "--ang": `${i * 45 + 22}deg`, "--atraso": `${0.18 + i * 0.03}s` } as CSSProperties} />
-          ))}
+          {ONDAS_DE_FAISCAS.flatMap((desde, onda) => Array.from({ length: FAISCAS_POR_ONDA }, (_, i) => (
+            <i
+              key={`${onda}-${i}`}
+              style={{
+                // a segunda onda sai girada meio passo: as faíscas não repetem o mesmo desenho
+                "--ang": `${i * 45 + 22 + onda * 22}deg`,
+                "--atraso": `${desde + i * 0.03}s`,
+              } as CSSProperties}
+            />
+          )))}
         </div>
       )}
       <div className="rc-cena">

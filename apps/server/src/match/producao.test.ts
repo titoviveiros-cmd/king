@@ -48,7 +48,7 @@ describe("os prazos congelados são os de produção", () => {
   it("os tempos de apresentação são os de produção, não os de teste", () => {
     expect(TEMPOS_PADRAO.leituraDaVaza).toBe(1_150);
     expect(TEMPOS_PADRAO.leituraDaVazaCastigo).toBe(2_700);
-    expect(TEMPOS_PADRAO.leituraDaVazaKing).toBe(3_400);
+    expect(TEMPOS_PADRAO.leituraDaVazaKing).toBe(6_500);
     expect(TEMPOS_PADRAO.fimDeMao).toBe(1_800);
     expect(TEMPOS_PADRAO.passoDaApresentacao).toBe(520);
   });
