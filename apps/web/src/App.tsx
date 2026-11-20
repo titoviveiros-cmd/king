@@ -42,7 +42,7 @@ const ModoOnline = lazy(() => import("./ModoOnline.js"));
  * aprendeu nunca mais vai abrir — não faz sentido esse peso viajar em toda visita.
  */
 /**
- * O MINITORNEIO também entra por `lazy()`: as telas da chave e a celebração só viajam para quem
+ * O MINI-TORNEIO também entra por `lazy()`: as telas da chave e a celebração só viajam para quem
  * abre o torneio. O orquestrador e a persistência são pequenos e ficam no bundle principal, porque
  * a Home precisa saber, sem abrir nada, se há um torneio para continuar.
  */
@@ -62,7 +62,7 @@ export function App({ convite = null }: { convite?: Convite | null } = {}) {
   // "Rever como se joga"), e só o toque nele monta o tutorial. O progresso salvo continua valendo:
   // é lido quando ele abre, para retomar de onde parou.
   const [tutorialAberto, setTutorialAberto] = useState(false);
-  // O MINITORNEIO ABERTO: novo (com o avatar recém-escolhido na Home) ou a continuação do salvo.
+  // O MINI-TORNEIO ABERTO: novo (com o avatar recém-escolhido na Home) ou a continuação do salvo.
   const [torneioAberto, setTorneioAberto] = useState<{ continuar: boolean; avatar?: Avatar } | null>(null);
   const [tutorialConcluido, setTutorialConcluido] = useState(() => armazenamentoLocal.ler().concluido);
 
@@ -156,7 +156,7 @@ function ModoLocal({
   onOpenAudio, onIrParaOnline, tutorial, preparo, onPreparoLido, versaoDoPreparo = 0, torneio,
 }: {
   onOpenAudio: () => void;
-  /** O Minitorneio na Home (Entrega B). */
+  /** O mini-torneio na Home (Entrega B). */
   torneio?: TorneioDaHome;
   onIrParaOnline: (e: Entrada) => void;
   tutorial: TutorialDaHome;

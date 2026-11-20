@@ -60,13 +60,13 @@ export interface OnlineDaHome {
 }
 
 /**
- * O MINITORNEIO (Entrega B): a terceira modalidade. Local, contra bots, sem rede. Ausente = a Home
+ * O MINI-TORNEIO (Entrega B): a terceira modalidade. Local, contra bots, sem rede. Ausente = a Home
  * de sempre, com duas portas.
  */
 export interface TorneioDaHome {
   /** Começa um torneio novo. Pede o avatar antes, como as outras portas. */
   onAbrir: (avatar: Avatar) => void;
-  /** Há um torneio salvo e ainda sem campeão? Então a Home oferece "Continuar torneio". */
+  /** Há um torneio salvo e ainda sem campeão? Então a Home oferece "Continuar mini-torneio". */
   podeContinuar: boolean;
   onContinuar: () => void;
 }
@@ -179,7 +179,7 @@ export function Home({
         )}
         {torneio && (
           <button className="btn tn-home" onClick={() => { sfxTap(); comAvatar(torneio.onAbrir); }}>
-            Minitorneio
+            Jogar mini-torneio
           </button>
         )}
         <FullscreenButton />
@@ -198,10 +198,10 @@ export function Home({
 
       {/* O PROGRESSO FICA ABAIXO DAS AÇÕES, e é o card do jogador, não um painel: quem abre o jogo
           veio jogar, e o XP é a lembrança de que cada partida conta — não o assunto da tela. */}
-      {/* CONTINUAR TORNEIO: só quando há um salvo, íntegro e sem campeão. O avatar é o do torneio. */}
+      {/* CONTINUAR MINI-TORNEIO: só quando há um salvo, íntegro e sem campeão. O avatar é o do torneio. */}
       {torneio?.podeContinuar && (
         <button className="tn-continuar" onClick={() => { sfxTap(); torneio.onContinuar(); }}>
-          ↩ Continuar torneio
+          ↩ Continuar mini-torneio
         </button>
       )}
 

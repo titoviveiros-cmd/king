@@ -21,7 +21,7 @@ export function nomeDaMesa(t: Torneio, m: Pick<MesaDoTorneio, "fase" | "indice">
 export function Chave({ torneio: t }: { torneio: Torneio }) {
   const f = FORMATOS[t.formato];
   return (
-    <div className="tn-chave" role="region" aria-label={`Chave do ${f.nome}`} tabIndex={0}>
+    <div className="tn-chave" role="region" aria-label={`Chave ${f.doNome}`} tabIndex={0}>
       {f.fases.map((nomeDaFase, fase) => {
         const mesas = mesasDaFase(t, fase);
         const vagas = mesasNaFase(f, fase);

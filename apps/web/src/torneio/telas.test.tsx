@@ -12,6 +12,7 @@ import { parse } from "node-html-parser";
 import { Home } from "../ui/Home.js";
 import { Chave } from "./Chave.js";
 import { Celebracao } from "./Celebracao.js";
+import { FORMATOS } from "./formatos.js";
 import { TelaClassificacao, TelaConfronto, TelaEliminado, TelaEscolha, TelaFim } from "./telas.js";
 import { jogarMesaDeBots } from "./simulacao.js";
 import {
@@ -35,23 +36,23 @@ function ateJogar(t0: Torneio): Torneio {
 /** Empate no total entre o humano (assento 0) e o assento 1, decidido pelas negativas. */
 const EMPATE: FatosDaMesa = { pontos: [100, 100, -50, -150], negativas: [-200, -300, -350, -450], ilesas: [2, 1, 1, 0] };
 
-describe("a Home com o Minitorneio", () => {
+describe("a Home com o mini-torneio", () => {
   it("três modalidades, e o torneio pede o avatar como as outras portas", () => {
     const root = html(<Home onStart={noop} onOpenAudio={noop} online={{ indisponivel: null, podeVoltar: false, onCriar: noop, onEntrar: noop, onVoltar: noop }} torneio={{ onAbrir: noop, podeContinuar: false, onContinuar: noop }} />);
     const rotulos = root.querySelectorAll(".row .btn").map((b) => b.text.trim());
-    expect(rotulos).toEqual(["▶ Jogar agora", "Jogar com amigos", "Minitorneio"]);
-    expect(root.text).not.toContain("Continuar torneio");
+    expect(rotulos).toEqual(["▶ Jogar agora", "Jogar com amigos", "Jogar mini-torneio"]);
+    expect(root.text).not.toContain("Continuar mini-torneio");
     expect(readFileSync(new URL("../ui/Home.tsx", import.meta.url), "utf8")).toContain("comAvatar(torneio.onAbrir)");
   });
 
   it("o botão do torneio NÃO é `.btn.gold`: o seletor das specs da Mesa continua único", () => {
     const root = html(<Home onStart={noop} onOpenAudio={noop} torneio={{ onAbrir: noop, podeContinuar: true, onContinuar: noop }} />);
     expect(root.querySelectorAll(".btn.gold")).toHaveLength(1);
-    expect(root.text).toContain("Continuar torneio");
+    expect(root.text).toContain("↩ Continuar mini-torneio");
   });
 
   it("sem a prop, a Home é a de sempre", () => {
-    expect(html(<Home onStart={noop} onOpenAudio={noop} />).text).not.toContain("Minitorneio");
+    expect(html(<Home onStart={noop} onOpenAudio={noop} />).text).not.toMatch(/torneio/i);
   });
 });
 
@@ -60,7 +61,7 @@ describe("telas", () => {
     const root = html(<TelaEscolha onEscolher={noop} onSair={noop} />);
     const formatos = root.querySelectorAll(".tn-formato");
     expect(formatos.map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Minitorneio: 16 participantes, 3 partidas até o título",
+      "Mini-torneio: 16 participantes, 3 partidas até o título",
       "Copa Completa: 32 participantes, 4 partidas até o título",
     ]);
     expect(formatos.every((b) => b.tagName === "BUTTON")).toBe(true);
@@ -69,7 +70,7 @@ describe("telas", () => {
   it("chave: região rotulada, caminho do jogador marcado e vagas a definir", () => {
     const t = criarTorneio("copa32", 5, "leao");
     const root = html(<Chave torneio={t} />);
-    expect(root.querySelector('[role="region"]')!.getAttribute("aria-label")).toBe("Chave do Copa Completa");
+    expect(root.querySelector('[role="region"]')!.getAttribute("aria-label")).toBe("Chave da Copa Completa");
     expect(root.querySelectorAll(".tn-mesa:not(.tn-mesa-vaga)")).toHaveLength(8);
     expect(root.querySelectorAll(".tn-mesa-vaga")).toHaveLength(7);
     expect(root.querySelectorAll(".tn-meu-caminho")).toHaveLength(1);
@@ -135,17 +136,25 @@ describe("telas", () => {
     }
     expect(campeao(t)).toBe(ID_DO_HUMANO);
     const fim = html(<TelaFim torneio={t} campeaoId={ID_DO_HUMANO} onNovo={noop} onChave={noop} onSair={noop} />);
-    expect(fim.querySelector("h1")!.text).toBe("CAMPEÃO DA COPA!");
-    expect(fim.querySelectorAll(".tn-acoes button").map((b) => b.text)).toEqual(["Novo torneio", "Ver a chave", "Home"]);
+    const h1 = fim.querySelector("h1")!;
+    expect(h1.text).toBe("Campeão da Copa!");
+    expect(h1.classList.contains("tn-caixa-alta")).toBe(true); // a caixa alta é só CSS
+    expect(fim.querySelector(".tn-vitoria")!.text).toBe("Você venceu a Copa Completa!");
+    expect(fim.querySelectorAll(".tn-acoes button").map((b) => b.text)).toEqual(["Começar outro mini-torneio", "Ver a chave", "Home"]);
   });
 });
 
 describe("a celebração", () => {
-  it("diz tudo em texto desde o primeiro quadro: título, nome, bicho, e como sair", () => {
-    const root = html(<Celebracao titulo="CAMPEÃO DO MINITORNEIO!" nome="Você" avatar="sapo" onFim={noop} />);
+  it("diz tudo em texto desde o primeiro quadro: título, frase, nome, bicho, e como sair", () => {
+    const f = FORMATOS.mini16;
+    const root = html(<Celebracao titulo={f.tituloDoCampeao} frase={f.fraseDaVitoria} nome="Você" avatar="sapo" onFim={noop} />);
     const d = root.querySelector('[role="dialog"]')!;
-    expect(d.getAttribute("aria-label")).toBe("CAMPEÃO DO MINITORNEIO!");
-    expect(root.querySelector('[role="status"]')!.text).toBe("CAMPEÃO DO MINITORNEIO!");
+    expect(d.getAttribute("aria-label")).toBe("Campeão do mini-torneio!");
+    expect(root.querySelector('[role="status"]')!.text).toBe("Campeão do mini-torneio!");
+    expect(root.querySelector(".tn-celebra-titulo")!.classList.contains("tn-caixa-alta")).toBe(true);
+    expect(root.querySelector(".tn-celebra-frase")!.text).toBe("Você venceu o mini-torneio!");
+    expect(root.querySelector(".tn-coroa")).not.toBeNull();
+    expect(root.querySelector(".tn-campeao-av")!.text).toBe("🐸");
     expect(root.text).toContain("Você");
     expect(root.text).toContain("Sapo");
     expect(root.text).toContain("toque para continuar");
@@ -160,6 +169,18 @@ describe("a celebração", () => {
     const css = readFileSync(new URL("./torneio.css", import.meta.url), "utf8");
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\{[^}]*animation:none !important/);
     expect(css).toMatch(/\.tn-particulas,\.tn-brilho\{display:none;\}/);
+  });
+});
+
+describe("o som da celebração", () => {
+  it("é o motivo da coroa, UMA vez na montagem, e passa pelo motor que obedece às preferências", () => {
+    const fonte = readFileSync(new URL("./Celebracao.tsx", import.meta.url), "utf8");
+    expect(fonte).toContain("useEffect(() => { sfxVictory(); }, []);");
+    expect(fonte.split("sfxVictory()").length - 1).toBe(1);
+    // o motor de áudio cala efeitos e vibração conforme as preferências da pessoa
+    const motor = readFileSync(new URL("../audio/engine.ts", import.meta.url), "utf8");
+    expect(motor).toContain("if (!this.prefs.sfx) return;");
+    expect(motor).toContain("if (!this.prefs.haptics) return;");
   });
 });
 

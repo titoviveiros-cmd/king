@@ -1,4 +1,4 @@
-/* MINITORNEIO — arquivo próprio, só com classes `tn-` (e o botão da Home).
+/* MINI-TORNEIO — arquivo próprio, só com classes `tn-` (e o botão da Home).
    Usa os tokens do Design System (theme.css) e não redefine nenhum: paleta imperial, Gabarito +
    Nunito, ouro para o caminho do jogador, turquesa para quem avança, magenta para quem cai.
    Paisagem primeiro (852×393, 844×390, 667×375); tudo rola por DENTRO, nunca de lado. */
@@ -18,6 +18,9 @@
 .tn-corpo{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
   display:flex;flex-direction:column;align-items:center;gap:clamp(6px,1.4vh,12px);padding:4px 2px 8px;text-align:center;}
 .tn-h1{font-family:var(--disp);font-weight:800;margin:0;font-size:clamp(1.05rem,min(3vw,5.4vh),1.7rem);line-height:1.05;
+  /* o texto é pintado pelo FUNDO (background-clip): o acento da caixa alta (o til de CAMPEÃO) passa da
+     linha e, sem este respiro, fica fora da área pintada — cortado. */
+  padding-top:.14em;
   background:linear-gradient(180deg,#fff,#ffe27a 60%,#e0a91f);-webkit-background-clip:text;background-clip:text;color:transparent;}
 .tn-h1-grande{font-size:clamp(1.4rem,min(4.6vw,8vh),2.6rem);letter-spacing:.03em;}
 .tn-sub{margin:0;color:var(--muted);font-size:calc(var(--ui)*.88);}
@@ -154,9 +157,13 @@
   border-radius:50%;font-size:clamp(1.8rem,min(5vw,9vh),2.8rem);background:radial-gradient(circle at 35% 30%,var(--surface2),var(--night2));
   border:3px solid var(--gold);box-shadow:0 0 0 4px rgba(244,197,66,.25),0 0 30px rgba(244,197,66,.5);animation:tnSobe .6s cubic-bezier(.34,1.4,.64,1) .35s both;}
 .tn-celebra-titulo{position:relative;margin:4px 0 0;font-family:var(--disp);font-weight:800;letter-spacing:.04em;
-  font-size:clamp(1.3rem,min(4.4vw,8.4vh),2.6rem);line-height:1.02;
+  font-size:clamp(1.3rem,min(4.4vw,8.4vh),2.6rem);line-height:1.02;padding-top:.14em;
   background:linear-gradient(180deg,#fff,#ffe27a 50%,#e0a91f);-webkit-background-clip:text;background-clip:text;color:transparent;
   filter:drop-shadow(0 3px 14px rgba(244,197,66,.45));animation:tnSoco .7s cubic-bezier(.34,1.5,.64,1) .55s both;}
+.tn-caixa-alta{text-transform:uppercase;}
+.tn-celebra-frase{position:relative;margin:0;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.02);color:#ffe27a;
+  letter-spacing:.02em;animation:tnSobe .5s ease-out .7s both;}
+.tn-vitoria{color:#ffe27a;font-weight:800;}
 .tn-celebra-nome{position:relative;margin:0;font-family:var(--disp);font-weight:800;font-size:calc(var(--ui)*1.2);color:#fff;
   animation:tnSobe .5s ease-out .8s both;}
 .tn-celebra-dica{position:relative;margin:2px 0 0;font-size:calc(var(--ui)*.72);color:var(--muted);animation:tnAparece .5s ease-out 2s both;}

@@ -1,4 +1,4 @@
-// O MODO MINITORNEIO — liga o orquestrador puro, o executor das mesas de bots e a Mesa solo.
+// O MODO MINI-TORNEIO — liga o orquestrador puro, o executor das mesas de bots e a Mesa solo.
 //
 //   orquestrador (puro)  ←  fatos  ←  partidas reais (bots: executor · humano: Mesa solo)
 //          ↓
@@ -47,7 +47,15 @@ type Tela =
   | { t: "celebracao" }
   | { t: "fim" };
 
-export const AVISO_DE_SAVE_DESCARTADO = "O torneio salvo estava danificado e foi descartado. Comece um novo.";
+/**
+ * O PILOTO DE TESTE (ver `pilotoDeTeste.ts`) só existe no servidor de desenvolvimento e nos builds
+ * de e2e. O Vite troca `import.meta.env` por constantes: no build de produção isto é `false`, o
+ * ramo morre e o módulo do piloto não entra no bundle.
+ */
+const PILOTO_DE_TESTE: boolean =
+  import.meta.env.DEV || import.meta.env.MODE === "e2e" || import.meta.env.MODE === "e2e-nativo";
+
+export const AVISO_DE_SAVE_DESCARTADO = "O mini-torneio salvo estava danificado e foi descartado. Comece um novo.";
 
 /** A tela que mostra o passo atual do torneio. Usada ao retomar e depois de cada etapa. */
 function telaDoMomento(t: Torneio): Tela {
@@ -62,7 +70,7 @@ function telaDoMomento(t: Torneio): Tela {
 export default function ModoTorneio({
   continuar, avatar, onSair, onOpenAudio,
 }: {
-  /** `true` = "Continuar torneio" da Home; `false` = começar um novo (escolha do formato). */
+  /** `true` = "Continuar mini-torneio" da Home; `false` = começar um novo (escolha do formato). */
   continuar: boolean;
   /** O bicho escolhido na Home para um torneio NOVO. Ao continuar, vale o do save. */
   avatar?: Avatar;
@@ -70,7 +78,7 @@ export default function ModoTorneio({
   onOpenAudio: () => void;
 }) {
   const g = useKingGame();
-  // A RETOMADA É LIDA NA MONTAGEM, antes do primeiro quadro: quem toca "Continuar torneio" nunca
+  // A RETOMADA É LIDA NA MONTAGEM, antes do primeiro quadro: quem toca "Continuar mini-torneio" nunca
   // vê a escolha de formato piscar antes da chave.
   const [inicio] = useState(() => (continuar ? lerTorneio() : null));
   const restaurado = inicio?.tipo === "ok" ? inicio.restaurado : null;
@@ -173,6 +181,19 @@ export default function ModoTorneio({
   }, [g]);
 
   useBotaoVoltar(tela.t === "partida", sairDaPartida);
+
+  // O piloto de teste lê a partida do humano de AGORA — e só enquanto ela está na tela.
+  const jogoDoPiloto = useRef<PartidaDoTorneio | null>(null);
+  jogoDoPiloto.current = tela.t === "partida" && g.game instanceof PartidaDoTorneio ? g.game : null;
+  useEffect(() => {
+    if (!PILOTO_DE_TESTE) return;
+    let vivo = true;
+    let tirar: (() => void) | undefined;
+    void import("./pilotoDeTeste.js").then((p) => {
+      if (vivo) tirar = p.instalarPilotoDeTeste(() => jogoDoPiloto.current);
+    });
+    return () => { vivo = false; tirar?.(); };
+  }, []);
 
   // O fim da partida: assim que a leitura da última vaza termina, os fatos vão para o
   // orquestrador — UMA vez (o registro é idempotente, e a mesa sai do estado "em partida").
@@ -287,7 +308,8 @@ export default function ModoTorneio({
       return (
         <>
           <TelaFim torneio={t} campeaoId={c} onNovo={recomecar} onChave={irParaChave} onSair={sair} />
-          <Celebracao titulo={FORMATOS[t.formato].tituloDoCampeao} nome={p.nome} avatar={p.avatar} onFim={() => setTela({ t: "fim" })} />
+          <Celebracao
+            titulo={FORMATOS[t.formato].tituloDoCampeao} frase={FORMATOS[t.formato].fraseDaVitoria} nome={p.nome} avatar={p.avatar} onFim={() => setTela({ t: "fim" })} />
         </>
       );
     }

@@ -68,7 +68,7 @@ export function useKingGame() {
   const start = useCallback((avatar?: string, preparada?: () => KingGame) => {
     if (avatar) avatarDoHumano.current = avatar;
     if (preparada) {
-      // UMA PARTIDA JÁ MONTADA POR OUTRO MODO (o Minitorneio): mesa, semente e adversários vêm de
+      // UMA PARTIDA JÁ MONTADA POR OUTRO MODO (o mini-torneio): mesa, semente e adversários vêm de
       // quem a montou, e a URL não manda em nada aqui. Sem anúncio de início: a medição conhece
       // `local` e `online`, e contar a partida de torneio como `local` mentiria sobre as duas.
       audio.unlock();

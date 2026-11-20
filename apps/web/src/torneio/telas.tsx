@@ -1,4 +1,4 @@
-// AS TELAS DO MINITORNEIO — só apresentação. Quem decide qual aparece é `ModoTorneio`.
+// AS TELAS DO MINI-TORNEIO — só apresentação. Quem decide qual aparece é `ModoTorneio`.
 //
 // Cada tela se lê PARADA: o que muda o jogo (quem passou, por qual critério, em que fase você
 // caiu) está em texto, com papéis e rótulos. A animação (entrada, brilho, avanço no trilho) é
@@ -38,7 +38,7 @@ export function Moldura({
     <div className="tn">
       <header className="tn-topo">
         <button className="tn-voltar" onClick={toque(onSair)}>← {rotuloSair}</button>
-        <span className="tn-marca">{torneio ? FORMATOS[torneio.formato].nome : "Minitorneio"}</span>
+        <span className="tn-marca">{torneio ? FORMATOS[torneio.formato].nome : "Mini-torneio"}</span>
         {torneio?.qa && <span className="tn-qa" title="Semente ou mão inicial fixadas pela URL">modo de teste</span>}
       </header>
       <main className="tn-corpo" aria-label={titulo}>{children}</main>
@@ -287,7 +287,7 @@ export function TelaEliminado({ torneio: t, onVerResto, onNovo, onSair }: {
         <Trilho torneio={t} faseAtual={ultima.fase} caiu />
         <div className="tn-acoes">
           {onVerResto && <button className="btn gold" autoFocus onClick={toque(onVerResto)}>Ver quem será o campeão</button>}
-          <button className="btn violet" onClick={toque(onNovo)}>Novo torneio</button>
+          <button className="btn violet" onClick={toque(onNovo)}>Novo mini-torneio</button>
         </div>
       </div>
     </Moldura>
@@ -308,7 +308,8 @@ export function TelaFim({ torneio: t, campeaoId, onNovo, onChave, onSair }: {
     <Moldura torneio={t} titulo="Resultado do torneio" onSair={onSair}>
       <div className={`tn-fim ${venci ? "tn-fim-venci" : ""}`}>
         <span className="tn-trofeu" aria-hidden>🏆</span>
-        <h1 className="tn-h1 tn-h1-grande">{venci ? f.tituloDoCampeao : `Campeão: ${p.nome}`}</h1>
+        <h1 className={`tn-h1 tn-h1-grande ${venci ? "tn-caixa-alta" : ""}`}>{venci ? f.tituloDoCampeao : `Campeão: ${p.nome}`}</h1>
+        {venci && <p className="tn-sub tn-vitoria">{f.fraseDaVitoria}</p>}
         <p className="tn-campeao-linha">
           <span className="tn-av" role="img" aria-label={d.rotulo}>{d.glifo}</span> {p.nome}
         </p>
@@ -320,7 +321,7 @@ export function TelaFim({ torneio: t, campeaoId, onNovo, onChave, onSair }: {
           </p>
         )}
         <div className="tn-acoes">
-          <button className="btn gold" autoFocus onClick={toque(onNovo)}>Novo torneio</button>
+          <button className="btn gold" autoFocus onClick={toque(onNovo)}>Começar outro mini-torneio</button>
           <button className="btn violet" onClick={toque(onChave)}>Ver a chave</button>
           <button className="btn violet" onClick={toque(onSair)}>Home</button>
         </div>

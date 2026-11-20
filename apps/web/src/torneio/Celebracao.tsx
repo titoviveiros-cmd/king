@@ -1,7 +1,8 @@
 // A CELEBRAÇÃO DO CAMPEÃO — ~8 segundos de ouro, e depois a tela parada.
 //
-// O que ela PRECISA dizer cabe numa linha estática: o título ("CAMPEÃO DO MINITORNEIO!" ou
-// "CAMPEÃO DA COPA!"), o nome e o bicho de quem venceu. Isso está no DOM desde o primeiro quadro,
+// O que ela PRECISA dizer cabe em poucas linhas estáticas: o título ("Campeão do mini-torneio!" ou
+// "Campeão da Copa!", em caixa alta só pelo CSS), a frase da vitória ("Você venceu o mini-torneio!"),
+// o nome e o bicho de quem venceu. Isso está no DOM desde o primeiro quadro,
 // em texto, com `role="status"` — quem joga sem som, sem movimento ou com leitor de tela recebe a
 // notícia inteira sem esperar efeito nenhum.
 //
@@ -12,7 +13,12 @@
 // Dispensa: um toque (ou Enter/Espaço/Esc) em qualquer ponto encerra; sozinha, encerra em 8 s.
 // Com `prefers-reduced-motion`, nada se mexe e nada cai — o CSS desliga, e o JS não desenha as
 // partículas.
+//
+// SOM: o motivo da coroa (`sfxVictory`, o mesmo da vitória na partida solo), UMA vez por
+// celebração. Ele passa pelo motor de áudio, que já obedece às preferências da pessoa (efeitos
+// desligados = silêncio; vibração desligada = sem vibrar). Nada aqui decide som por conta própria.
 import { useEffect, useRef } from "react";
+import { sfxVictory } from "../audio/sounds.js";
 import { Crown } from "../ui/Crown.js";
 import { desenhoDoAvatar } from "../ui/avatares.js";
 
@@ -28,9 +34,11 @@ export function prefereMenosMovimento(): boolean {
 }
 
 export function Celebracao({
-  titulo, nome, avatar, onFim, duracaoMs = DURACAO_DA_CELEBRACAO_MS,
+  titulo, frase, nome, avatar, onFim, duracaoMs = DURACAO_DA_CELEBRACAO_MS,
 }: {
   titulo: string;
+  /** "Você venceu o mini-torneio!" — a linha abaixo do título. */
+  frase?: string;
   nome: string;
   avatar: string;
   onFim: () => void;
@@ -40,6 +48,9 @@ export function Celebracao({
   fim.current = onFim;
   const raiz = useRef<HTMLDivElement>(null);
   const reduzido = prefereMenosMovimento();
+
+  // O som toca UMA vez, na montagem — nunca de novo por re-render.
+  useEffect(() => { sfxVictory(); }, []);
 
   useEffect(() => {
     const t = setTimeout(() => fim.current(), duracaoMs);
@@ -79,7 +90,8 @@ export function Celebracao({
         <div className="tn-brilho" aria-hidden />
         <Crown size={110} className="tn-coroa" />
         <div className="tn-campeao-av" aria-hidden>{d.glifo}</div>
-        <p className="tn-celebra-titulo" role="status">{titulo}</p>
+        <p className="tn-celebra-titulo tn-caixa-alta" role="status">{titulo}</p>
+        {frase && <p className="tn-celebra-frase">{frase}</p>}
         <p className="tn-celebra-nome">{nome} <span className="tn-sr">({d.rotulo})</span></p>
         <p className="tn-celebra-dica">toque para continuar</p>
       </div>
