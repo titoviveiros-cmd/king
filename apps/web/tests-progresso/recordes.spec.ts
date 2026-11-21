@@ -176,25 +176,71 @@ test("banco SEM a migração dos recordes: a tela abre, o online diz 'indisponí
 // ═══ SOLO de verdade: depuração não conta; a partida inteira conta e celebra UMA vez ═══
 
 async function jogarAteOFim(page: Page): Promise<void> {
+  const prog = observadorDaPartida(page);
   for (let i = 0; i < 4000 && !(await page.locator(".fimacoes").count()); i++) {
+    await prog.talvez(i);
     // o anúncio da ÚLTIMA MÃO fica por cima da Mesa e segura os cliques: fecha primeiro
     const aviso = page.locator(".um");
-    if (await aviso.count()) { await aviso.click({ timeout: 1000 }).catch(() => {}); await page.waitForTimeout(200); continue; }
+    if (await aviso.count()) { await aviso.click({ timeout: 1000 }).catch(prog.erro); await page.waitForTimeout(200); continue; }
     const trunfo = page.locator(".trumpbtn").first();
-    if (await trunfo.count()) { await trunfo.click({ timeout: 3000 }).catch(() => {}); continue; }
+    if (await trunfo.count()) { await trunfo.click({ timeout: 3000 }).catch(prog.erro); continue; }
     const legal = page.locator('.hand .card[role="button"]').first();
     if (await legal.count()) {
-      await legal.click({ timeout: 3000 }).catch(() => {});
-      if (await page.locator(".hand .card.sel").count()) await page.locator(".hand .card.sel").first().click({ timeout: 3000 }).catch(() => {});
+      await legal.click({ timeout: 3000 }).catch(prog.erro);
+      if (await page.locator(".hand .card.sel").count()) await page.locator(".hand .card.sel").first().click({ timeout: 3000 }).catch(prog.erro);
       continue;
     }
     for (const rotulo of [/próxima mão/i, /continuar/i]) {
       const b = page.getByRole("button", { name: rotulo }).first();
-      if (await b.count()) await b.click({ timeout: 3000 }).catch(() => {});
+      if (await b.count()) await b.click({ timeout: 3000 }).catch(prog.erro);
     }
-    if (await page.locator(".fim").count()) await page.locator(".fim").click({ position: { x: 5, y: 5 }, timeout: 1000 }).catch(() => {});
+    if (await page.locator(".fim").count()) await page.locator(".fim").click({ position: { x: 5, y: 5 }, timeout: 1000 }).catch(prog.erro);
     await page.waitForTimeout(120);
   }
+}
+
+/**
+ * TELEMETRIA DA PARTIDA LONGA — só registra, não decide nada.
+ *
+ * Na CI (Linux), a 1ª tentativa desta partida chegou a levar mais de 15 min (mão 7 aos 15 min; a
+ * de depuração passou de 4 min só na mão 10), enquanto a repetição e qualquer execução local
+ * levam ~6 min. A repetição é a única com trace, então a tentativa lenta não deixava evidência.
+ * Isto imprime, no log da CI, a mão/vaza a cada mudança (no máximo a cada 10 s) e, se a mesa
+ * ficar 45 s sem mudar, o estado da tela, o último erro de clique e o atraso real de um timer de
+ * 50 ms dentro da página (mede se a página está com a thread ocupada ou com timers estrangulados).
+ */
+function observadorDaPartida(page: Page) {
+  const t0 = Date.now();
+  let marca = "", desde = t0, ultimaOlhada = 0, ultimoAlarme = 0, ultimoErro = "";
+  const seg = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
+  return {
+    erro: (e: unknown) => { ultimoErro = String((e as Error)?.message ?? e).split("\n").slice(0, 4).join(" ⏎ ").slice(0, 300); },
+    async talvez(i: number) {
+      if (Date.now() - ultimaOlhada < 10_000) return;
+      ultimaOlhada = Date.now();
+      const agora = await page.evaluate(() =>
+        `${document.querySelector('button[aria-label^="Mão"]')?.getAttribute("aria-label")?.slice(0, 7) ?? "-"} ${(document.body.innerText.match(/Vaza \d+\/13/) ?? ["-"])[0]}`,
+      ).catch(() => "?");
+      if (agora !== marca) { console.log(`[partida ${seg()}] it${i} ${agora}`); marca = agora; desde = Date.now(); return; }
+      if (Date.now() - desde < 45_000 || Date.now() - ultimoAlarme < 45_000) return;
+      ultimoAlarme = Date.now();
+      const estado = await page.evaluate(async () => {
+        const ini = performance.now();
+        const atraso = await new Promise<number>((r) => setTimeout(() => r(performance.now() - ini), 50));
+        const raf = await new Promise<number>((r) => { const a = performance.now(); requestAnimationFrame(() => r(performance.now() - a)); });
+        const prox = [...document.querySelectorAll("button")].find((b) => /pr[oó]xima/i.test(b.textContent ?? ""));
+        return JSON.stringify({
+          timer50: Math.round(atraso), raf: Math.round(raf), vis: document.visibilityState, foco: document.hasFocus(),
+          mao: document.querySelectorAll(".hand .card").length, jogaveis: document.querySelectorAll('.hand .card[role="button"]').length,
+          sel: document.querySelectorAll(".hand .card.sel").length,
+          telas: [".um", ".rc", ".placar", ".fim", ".trumpbtn", ".novorecorde"].filter((s) => document.querySelector(s)),
+          proxima: prox ? (prox.disabled ? "desabilitado" : "habilitado") : "-",
+          animacoes: document.getAnimations().length,
+        });
+      }).catch((e) => `avaliação falhou: ${String(e).slice(0, 120)}`);
+      console.log(`[partida ${seg()}] PARADA há ${((Date.now() - desde) / 1000).toFixed(0)}s em "${marca}" it${i} ${estado} último erro: ${ultimoErro || "-"}`);
+    },
+  };
 }
 const preparoDoSolo = (page: Page) => page.addInitScript(() => {
   try {
