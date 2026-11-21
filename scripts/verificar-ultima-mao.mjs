@@ -82,7 +82,7 @@ const PROTOCOL_VERSION = 3;
 /** Precisa bater com `TEMPOS_PADRAO` em apps/server/src/match/tempos.ts. */
 const CORTESIA_DO_BOT = 900;
 const TURNO = 25_000;
-const RESPIRO = 3_720;
+const RESPIRO = 6_000; // aberturaDaUltimaMao (era 3_720 antes da cinemática longa)
 
 const falhas = [];
 const ok = (t) => console.log("  ✓ " + t);

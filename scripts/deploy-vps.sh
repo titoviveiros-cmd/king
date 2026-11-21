@@ -157,15 +157,41 @@ conferir_artefato() {
   return 0
 }
 ART=""
-# `3_720` no fonte sobrevive a compilacao com o separador; o padrao aceita as duas grafias.
+# ── OS VALORES DE TEMPO SAO CONFERIDOS EXATOS ──
+#
+# `6_000` no fonte sobrevive a compilacao com o separador; o padrao aceita as duas grafias. Cada
+# padrao e ANCORADO (inicio da linha + virgula no fim): `6_?000,` reprova 3720 (o valor anterior),
+# 60000 e 6001. Um padrao sem ancora aprovaria `turno: 25_0000` — um prazo dez vezes maior.
+#
+# CONTRATO: cada numero abaixo e igual a `TEMPOS_PADRAO` em apps/server/src/match/tempos.ts.
+# `scripts/ops/deploy-vps-portoes.test.mjs` (job rapido da CI) compara os dois e reprova se um
+# lado mudar sem o outro — foi exatamente o que aconteceu com 3720 → 6000 na cinematica longa.
 conferir_artefato "apps/server/dist/match/tempos.js" \
-  "aberturaDaUltimaMao: 3_?720" "constante aberturaDaUltimaMao = 3720" || ART="$ART constante"
+  "^[[:space:]]*aberturaDaUltimaMao: 6_?000,$" "constante aberturaDaUltimaMao = 6000" || ART="$ART constante"
 conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
   "respiroDaAbertura" "respiro da abertura integrado a KingRoom" || ART="$ART integracao"
 conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
   "aberturaDaUltimaMao" "prazo da decisao consulta a constante" || ART="$ART consulta"
 conferir_artefato "apps/server/dist/protocol/index.js" \
-  "PROTOCOL_VERSION = 3" "PROTOCOL_VERSION = 3 no artefato" || ART="$ART protocolo"
+  "PROTOCOL_VERSION = 3;" "PROTOCOL_VERSION = 3 no artefato" || ART="$ART protocolo"
+
+# ── A CINEMATICA LONGA (PR #18, 20/11) ──
+#
+# A cena do Rei (mao 5) segura a mesa 6,5s, e o Placar dessa mao tem piso proprio de 11,5s contado
+# da entrada da vaza do K♥ na mesa. Sem estas linhas, um binario que perdesse a cinematica (ou a
+# trouxesse com os tempos antigos: 3400 e piso geral de 8s) passaria pelo portao.
+conferir_artefato "apps/server/dist/match/tempos.js" \
+  "^[[:space:]]*leituraDaVazaKing: 6_?500,$" "pausa da vaza do Rei = 6500ms" || ART="$ART vaza-rei"
+conferir_artefato "apps/server/dist/match/tempos.js" \
+  "^[[:space:]]*pisoDoPlacarDoRei: 11_?500,$" "piso do Placar da mao do Rei = 11500ms" || ART="$ART piso-rei"
+conferir_artefato "apps/server/dist/match/tempos.js" \
+  "^[[:space:]]*pisoDoPlacar: 8_?000,$" "piso geral do Placar = 8000ms" || ART="$ART piso-geral"
+conferir_artefato "apps/server/dist/match/pausaDaVaza.js" \
+  "TEMPOS\.leituraDaVazaKing" "pausa da vaza do Rei consulta a constante" || ART="$ART vaza-rei-consulta"
+conferir_artefato "apps/server/dist/match/pisoDoPlacar.js" \
+  "TEMPOS\.pisoDoPlacarDoRei" "piso do Rei compilado (pisoDoPlacar.js)" || ART="$ART piso-rei-compilado"
+conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
+  "from \"\.\./match/pisoDoPlacar\.js\"" "piso do Rei integrado a KingRoom" || ART="$ART piso-rei-integrado"
 
 # ── A CORRECAO DE CADENCIA E PRAZO (rodada de 03/09) ──
 #
@@ -184,10 +210,10 @@ conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
 # O prazo NOMINAL do jogador. Um valor de instrumentacao aqui seria a falha mais silenciosa
 # possivel: o jogo funcionaria, so que com menos tempo para jogar.
 conferir_artefato "apps/server/dist/match/tempos.js" \
-  "turno: 25_?000" "prazo do turno = 25000ms" || ART="$ART prazo"
+  "^[[:space:]]*turno: 25_?000,$" "prazo do turno = 25000ms" || ART="$ART prazo"
 # Nenhum atraso novo no gameplay: a cortesia do bot continua a de producao.
 conferir_artefato "apps/server/dist/match/tempos.js" \
-  "cortesiaDoBot: 900" "cortesia do bot inalterada = 900ms" || ART="$ART cortesia"
+  "^[[:space:]]*cortesiaDoBot: 900,$" "cortesia do bot inalterada = 900ms" || ART="$ART cortesia"
 # IDENTIDADE DORMENTE: o artefato traz o verificador, e ele so acorda com SUPABASE_URL.
 # Esta linha confere que o binario nao chegou com o provedor embutido de outra forma.
 conferir_artefato "apps/server/dist/auth/identidade.js" \
