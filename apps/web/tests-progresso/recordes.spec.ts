@@ -10,7 +10,7 @@
  *   - sem conta, só o Solo — e sem recorde, o estado vazio;
  *   - a partida de depuração (`?mao=`) NÃO gera recorde; uma partida solo INTEIRA gera, e celebra uma vez.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const REF = "abcdefghijklmnopqrst";
 const HOST = `https://${REF}.supabase.co`;
@@ -175,6 +175,38 @@ test("banco SEM a migração dos recordes: a tela abre, o online diz 'indisponí
 
 // ═══ SOLO de verdade: depuração não conta; a partida inteira conta e celebra UMA vez ═══
 
+/**
+ * TOCAR A CARTA ONDE ELA ESTÁ VISÍVEL — como uma pessoa faz.
+ *
+ * O clique padrão do Playwright mira o CENTRO da caixa da carta. No leque as cartas são giradas,
+ * se sobrepõem e as jogáveis ficam erguidas: às vezes o centro da 1ª carta jogável é de outra
+ * carta. O Playwright então recusa ("<span class=pip> from <div aria-label='7 de hearts'> subtree
+ * intercepts pointer events") e o laço insistia na mesma carta até o tempo do teste acabar.
+ * Medido na CI (execução 44858287757, tentativa 3): mão 8, vaza 8, centro do 10♥ coberto pelo 7♥,
+ * mesa parada por minutos com a página saudável. Nenhum ponto FIXO resolve: medido localmente, o
+ * canto superior esquerdo também é coberto (Q♦ sob o 3♣).
+ *
+ * Então procura, dentro da carta, um ponto que seja DELA (`elementFromPoint`), começando pelo
+ * centro — o comportamento de antes, quando ele funciona — e toca ali. Se a carta não tiver
+ * nenhuma parte visível, cai no clique padrão, que falha e fica registrado: carta jogável que
+ * ninguém consegue tocar seria defeito do jogo, e não pode ficar escondido.
+ */
+async function tocarCarta(page: Page, carta: Locator, anotar: (e: unknown) => void): Promise<void> {
+  const ponto = await carta.evaluate((c) => {
+    const r = c.getBoundingClientRect();
+    for (const fy of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+      for (const fx of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+        const x = r.x + r.width * fx, y = r.y + r.height * fy;
+        const t = document.elementFromPoint(x, y);
+        if (t && (t === c || c.contains(t))) return { x, y };
+      }
+    }
+    return null;
+  }, undefined, { timeout: 3000 }).catch(() => null);
+  if (!ponto) { await carta.click({ timeout: 3000 }).catch(anotar); return; }
+  await page.mouse.click(ponto.x, ponto.y);
+}
+
 async function jogarAteOFim(page: Page): Promise<void> {
   const prog = observadorDaPartida(page);
   for (let i = 0; i < 4000 && !(await page.locator(".fimacoes").count()); i++) {
@@ -186,8 +218,8 @@ async function jogarAteOFim(page: Page): Promise<void> {
     if (await trunfo.count()) { await trunfo.click({ timeout: 3000 }).catch(prog.erro); continue; }
     const legal = page.locator('.hand .card[role="button"]').first();
     if (await legal.count()) {
-      await legal.click({ timeout: 3000 }).catch(prog.erro);
-      if (await page.locator(".hand .card.sel").count()) await page.locator(".hand .card.sel").first().click({ timeout: 3000 }).catch(prog.erro);
+      await tocarCarta(page, legal, prog.erro);
+      if (await page.locator(".hand .card.sel").count()) await tocarCarta(page, page.locator(".hand .card.sel").first(), prog.erro);
       continue;
     }
     for (const rotulo of [/próxima mão/i, /continuar/i]) {
