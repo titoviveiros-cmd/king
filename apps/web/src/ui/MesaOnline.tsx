@@ -143,8 +143,8 @@ export function AvisoDeRecusa({ recusa }: { recusa: { mensagem: string; nonce: n
 /**
  * O "Continuar" do Placar no multiplayer.
  *
- * A mão só vira com os QUATRO — e ainda assim só depois do piso de leitura de 8s, que é do
- * servidor. Sem isto o jogador ficaria olhando uma tela parada sem saber se travou ou se está
+ * A mão só vira com os QUATRO — e ainda assim só depois do piso de leitura de 8s (11,5s da vaza
+ * do K♥ na mão do Rei), que é do servidor. Sem isto o jogador ficaria olhando uma tela parada sem saber se travou ou se está
  * esperando alguém. O Placar continua sendo Placar: resultado, ranking e próximo contrato
  * permanecem intactos; isto entra apenas no lugar do botão.
  */

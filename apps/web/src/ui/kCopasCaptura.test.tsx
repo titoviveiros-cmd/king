@@ -342,7 +342,7 @@ describe("o CSS do destaque é só pintura", () => {
     expect(css).toMatch(/\.trick\.kcaptura::after\{content:"";position:absolute;z-index:-1;pointer-events:none;/);
   });
 
-  it("três tempos dentro da pausa: 1,1 a 1,5 s, uma vez só, e a pausa do King não muda", () => {
+  it("três tempos dentro da pausa: 1,1 a 1,5 s, uma vez só, depois da cena e dentro da pausa do King", () => {
     for (const nome of ["kCaptura", "kHalo", "kOnda", "kPenalizado", "kSelo", "kSeloValor", "kCapturaCalmo"]) {
       const usos = usosDaAnimacao(nome);
       expect(usos.length, `${nome} não é usada`).toBeGreaterThan(0);
@@ -355,11 +355,12 @@ describe("o CSS do destaque é só pintura", () => {
     expect(TEMPOS.kCopasCaptura).toBeGreaterThanOrEqual(1100);
     expect(TEMPOS.kCopasCaptura).toBeLessThanOrEqual(1500);
     expect(TEMPOS.kCopasCaptura).toBeLessThan(TEMPOS.leituraDaVazaKing);
-    // a cena vem ANTES e dura 2 a 2,5s; somadas, cabem na pausa do King, que não mudou
-    expect(TEMPOS.cenaDoRei).toBeGreaterThanOrEqual(2000);
-    expect(TEMPOS.cenaDoRei).toBeLessThanOrEqual(2500);
+    // a cena vem ANTES e dura ~5s (era 2s); somadas, cabem na pausa do King, que cresceu junto
+    // (3400 → 6500). O contrato completo — folga, servidor, motor — está em `cinematica.test.ts`.
+    expect(TEMPOS.cenaDoRei).toBeGreaterThanOrEqual(4500);
+    expect(TEMPOS.cenaDoRei).toBeLessThanOrEqual(5500);
     expect(TEMPOS.cenaDoRei + TEMPOS.kCopasCaptura).toBeLessThanOrEqual(TEMPOS.leituraDaVazaKing);
-    expect(TEMPOS.leituraDaVazaKing).toBe(3400);
+    expect(TEMPOS.leituraDaVazaKing).toBe(6500);
   });
 
   it("o selo do K♥ mantém as animações de sempre do castigo e ganha só o clarão vinho", () => {
@@ -428,10 +429,12 @@ describe("a cena O REI FOI CAPTURADO é só apresentação", () => {
   it("não toca som, não vibra, não suspende a mesa e não fala com o servidor", () => {
     const codigo = fonte.replace(/\/\/.*$/gm, "");
     expect(codigo).not.toMatch(/audio|sfx|vibr|haptic|suspender|enviar|send\(|fetch\(/i);
-    // sai sozinha no tempo da cena; o toque só encurta
+    // sai sozinha no tempo da cena (retomando de onde parou se a Mesa remontar); o toque só
+    // encurta, e não atravessa para a Mesa
     expect(codigo).toMatch(/const PERMANENCIA_MS = TEMPOS\.cenaDoRei - SAIDA_MS;/);
-    expect(codigo).toMatch(/window\.setTimeout\(\(\) => encerrar\.current\(\), PERMANENCIA_MS\)/);
-    expect(codigo).toMatch(/onClick=\{\(\) => encerrar\.current\(\)\}/);
+    expect(codigo).toMatch(/const restante = permanenciaRestante\(inicios\.get\(nonce\)!, Date\.now\(\)\);/);
+    expect(codigo).toMatch(/window\.setTimeout\(\(\) => encerrar\.current\(\), restante\)/);
+    expect(codigo).toMatch(/onClick=\{\(e\) => \{ e\.stopPropagation\(\); encerrar\.current\(\); \}\}/);
   });
 
   it("cobre a mesa no andar da Última Mão, abaixo do clarão do tremor, e não repete", () => {

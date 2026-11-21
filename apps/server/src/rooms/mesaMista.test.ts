@@ -30,7 +30,7 @@ beforeAll(async () => {
   // Estes testes exercitam COMPOSIÇÃO e AUTORIZAÇÃO, não prazos. Sem encurtar o piso do Placar,
   // cada mão custaria 8s reais; sem alongar os turnos, o relógio agiria no meio do roteiro.
   configurarTempos({
-    pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
+    pisoDoPlacar: 1, pisoDoPlacarDoRei: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
     turno: 3_600_000, trunfo: 3_600_000, primeiraJogadaExtra: 0, cortesiaDoBot: 1,
     // Esta suíte não exercita o respiro da abertura da última mão: zerado para a mão 10 se
     // comportar como as outras nove. Quem o exercita é `ultimaMao.test.ts`.

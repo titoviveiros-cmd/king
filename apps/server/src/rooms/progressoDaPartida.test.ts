@@ -29,7 +29,7 @@ let recebidas: PartidaEncerrada[] = [];
 let reiVisto: { winner: Seat; vaza: number } | null = null;
 
 const TEMPOS_LONGOS = {
-  pisoDoPlacar: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
+  pisoDoPlacar: 1, pisoDoPlacarDoRei: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
   turno: 3_600_000, trunfo: 3_600_000, primeiraJogadaExtra: 0, aberturaDaUltimaMao: 0,
   // As pausas de apresentação atrasam cada prazo automático; aqui se mede contagem, não ritmo.
   leituraDaVaza: 1, leituraDaVazaCastigo: 1, leituraDaVazaKing: 1, fimDeMao: 1, passoDaApresentacao: 1, cortesiaDoBot: 1,

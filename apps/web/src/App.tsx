@@ -1,6 +1,9 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useKingGame } from "./game/useKingGame.js";
-import { Home, preparoDoConvite, type OnlineDaHome, type PreparoDaHome, type TutorialDaHome } from "./ui/Home.js";
+import { Home, preparoDoConvite, type OnlineDaHome, type PreparoDaHome, type TorneioDaHome, type TutorialDaHome } from "./ui/Home.js";
+import type { Avatar } from "./ui/avatares.js";
+import { haTorneioParaContinuar } from "./torneio/persistencia.js";
+import "./torneio/home.css";
 import { Mesa } from "./ui/Mesa.js";
 import { AudioPanel } from "./ui/AudioPanel.js";
 import { RotateGate } from "./ui/RotateGate.js";
@@ -38,6 +41,13 @@ const ModoOnline = lazy(() => import("./ModoOnline.js"));
  * APRENDA KING também entra por `lazy()`. Ele carrega quatro cenários e um roteiro que quem já
  * aprendeu nunca mais vai abrir — não faz sentido esse peso viajar em toda visita.
  */
+/**
+ * O MINI-TORNEIO também entra por `lazy()`: as telas da chave e a celebração só viajam para quem
+ * abre o torneio. O orquestrador e a persistência são pequenos e ficam no bundle principal, porque
+ * a Home precisa saber, sem abrir nada, se há um torneio para continuar.
+ */
+const ModoTorneio = lazy(() => import("./torneio/ModoTorneio.js"));
+
 const Tutorial = lazy(() => import("./tutorial/Tutorial.js").then((m) => ({ default: m.Tutorial })));
 
 export function App({ convite = null }: { convite?: Convite | null } = {}) {
@@ -52,6 +62,8 @@ export function App({ convite = null }: { convite?: Convite | null } = {}) {
   // "Rever como se joga"), e só o toque nele monta o tutorial. O progresso salvo continua valendo:
   // é lido quando ele abre, para retomar de onde parou.
   const [tutorialAberto, setTutorialAberto] = useState(false);
+  // O MINI-TORNEIO ABERTO: novo (com o avatar recém-escolhido na Home) ou a continuação do salvo.
+  const [torneioAberto, setTorneioAberto] = useState<{ continuar: boolean; avatar?: Avatar } | null>(null);
   const [tutorialConcluido, setTutorialConcluido] = useState(() => armazenamentoLocal.ler().concluido);
 
   // Uma abertura por página: a trava mora no módulo, e não num ref, para que nem uma remontagem
@@ -91,15 +103,30 @@ export function App({ convite = null }: { convite?: Convite | null } = {}) {
     if (concluido) setTutorialConcluido(true);
   }, []);
 
+  const torneio: TorneioDaHome = {
+    onAbrir: (avatar) => setTorneioAberto({ continuar: false, avatar }),
+    // Lido a cada render da Home: é um JSON pequeno, e a resposta muda quando um torneio termina.
+    podeContinuar: haTorneioParaContinuar(),
+    onContinuar: () => setTorneioAberto({ continuar: true }),
+  };
+  const fecharTorneio = useCallback(() => setTorneioAberto(null), []);
+
   return (
     <>
-      {tutorialAberto ? (
+      {torneioAberto ? (
+        <Suspense fallback={<Carregando texto="Montando a chave…" />}>
+          <ModoTorneio
+            continuar={torneioAberto.continuar} avatar={torneioAberto.avatar}
+            onSair={fecharTorneio} onOpenAudio={abrirAudio}
+          />
+        </Suspense>
+      ) : tutorialAberto ? (
         <Suspense fallback={<Carregando texto="Preparando a mesa…" />}>
           <Tutorial onSair={fecharTutorial} onOpenAudio={abrirAudio} />
         </Suspense>
       ) : entrada === null ? (
         <ModoLocal
-          onOpenAudio={abrirAudio} onIrParaOnline={setEntrada} tutorial={tutorial}
+          onOpenAudio={abrirAudio} onIrParaOnline={setEntrada} tutorial={tutorial} torneio={torneio}
           preparo={preparo} onPreparoLido={preparoLido} versaoDoPreparo={versaoDoPreparo}
         />
       ) : (
@@ -126,9 +153,11 @@ function Carregando({ texto }: { texto: string }) {
 // ─────────────────────────────── MODO LOCAL / BOTS ───────────────────────────────
 
 function ModoLocal({
-  onOpenAudio, onIrParaOnline, tutorial, preparo, onPreparoLido, versaoDoPreparo = 0,
+  onOpenAudio, onIrParaOnline, tutorial, preparo, onPreparoLido, versaoDoPreparo = 0, torneio,
 }: {
   onOpenAudio: () => void;
+  /** O mini-torneio na Home (Entrega B). */
+  torneio?: TorneioDaHome;
   onIrParaOnline: (e: Entrada) => void;
   tutorial: TutorialDaHome;
   preparo: PreparoDaHome | null;
@@ -187,6 +216,7 @@ function ModoLocal({
             ? { liberados: liberadosNo(cosmeticos.nivel).length, total: DESBLOQUEAVEIS.length, onAbrir: () => setItensAbertos(true) }
             : undefined}
           onAbrirRecordes={() => setRecordesAbertos(true)}
+          torneio={torneio}
         />
         {recordesAbertos && (
           <MeusRecordes progresso={progresso} leitor={leitorDeRecordesConfigurado()} onFechar={() => setRecordesAbertos(false)} />

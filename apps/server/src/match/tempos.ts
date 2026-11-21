@@ -21,6 +21,19 @@ export interface Tempos {
   critico: number;
   /** Piso de leitura do Placar entre-mãos: ninguém avança antes disso, nem com os quatro prontos. */
   pisoDoPlacar: number;
+  /**
+   * PISO DO PLACAR DA MÃO DO REI (mão 5, "Não pegar o Rei de Copas") — vale SÓ nessa mão, por
+   * cima de `pisoDoPlacar`, e conta a partir do instante em que a vaza do K♥ ENTRA na mesa do
+   * cliente (espelho da fila; ver `match/pisoDoPlacar.ts`), não de quando o servidor a resolveu.
+   *
+   * Por que existe: o piso geral (8s) conta do fim da mão, e na mão 5 a mesa fica 6,5s parada na
+   * cena do Rei (`leituraDaVazaKing`) antes de o Placar entrar. Sobrava ~1,5s de Placar para ler.
+   *
+   * 11500 = pausa do King (6500) + 4600 de leitura REAL do Placar (meta do produto) + 400 de
+   * folga para timer atrasado no celular. As outras nove mãos não mudam. Par no cliente:
+   * `TEMPOS.pisoDoPlacarDoRei` em `apps/web/src/game/timings.ts` (contrato por teste).
+   */
+  pisoDoPlacarDoRei: number;
   /** Ausente vira pronto automaticamente depois disto (contado do fim da mão). */
   autoReadyDesconectado: number;
   /** Conectado que não confirma vira pronto automaticamente depois disto. */
@@ -84,13 +97,19 @@ export const TEMPOS_PADRAO: Readonly<Tempos> = Object.freeze({
   aviso: 10_000,
   critico: 5_000,
   pisoDoPlacar: 8_000,
+  // 11500 = pausa do King (6500) + 4600 de leitura real do Placar + 400 de folga. Só na mão 5.
+  pisoDoPlacarDoRei: 11_500,
   autoReadyDesconectado: 20_000,
   autoReadyConectado: 45_000,
   cortesiaDoBot: 900,
-  aberturaDaUltimaMao: 3_720,
+  // 6000 = 5580 de permanência + 420 de saída do anúncio (era 3720 = 3300 + 420). Contrato com o
+  // cliente em `rooms/ultimaMao.test.ts`.
+  aberturaDaUltimaMao: 6_000,
   leituraDaVaza: 1_150,
   leituraDaVazaCastigo: 2_700,
-  leituraDaVazaKing: 3_400,
+  // 6500 = cena do Rei (5000) + destaque na mesa (1350) + 150 de folga (era 3400). Só acontece na
+  // vaza que ENCERRA a mão 5, então não estende nenhum prazo de jogada: depois dela vem o Placar.
+  leituraDaVazaKing: 6_500,
   fimDeMao: 1_800,
   passoDaApresentacao: 520,
   lobbyReservaAposQueda: 60_000,
