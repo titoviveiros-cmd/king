@@ -105,6 +105,28 @@ test("cada portão de tempo reprova o valor antigo, o vizinho, o décuplo e o d�
   }
 });
 
+test("portões da penalidade do Rei (PR #16): presentes e reprovam o binário sem a regra 2", () => {
+  const de = (rotulo) => {
+    const p = PORTOES.find((x) => x.que.startsWith(rotulo));
+    assert.ok(p, `portão "${rotulo}" ausente em deploy-vps.sh`);
+    return ereParaJs(p.padrao);
+  };
+  const regra = de("regra de XP atual");
+  assert.match("export const REGRA_ATUAL = 2;", regra);
+  for (const n of ["1", "3", "20", "2 "]) assert.doesNotMatch(`export const REGRA_ATUAL = ${n};`, regra);
+  assert.doesNotMatch("// export const REGRA_ATUAL = 2;", regra);
+  // O KingRoom da Fase II (sem o fato) e o com o fato comentado não passam.
+  const integrado = de("captura do Rei entregue");
+  assert.match("                capturouRei: capturadorDoRei(m),", integrado);
+  assert.doesNotMatch("                pontos,\n            });", integrado);
+  assert.doesNotMatch("                capturouRei: null,", integrado);
+  const porta = de("porta v2 do credito");
+  assert.doesNotMatch("select * from king_private.creditar_partida(", porta);
+  const troca = de("troca de ocupante");
+  assert.match("this.#contarJogada(dados.seat, dados.playerId === this.#elenco[dados.seat]?.playerId);", troca);
+  assert.doesNotMatch("this.#contarJogada(dados.seat, true);", troca);
+});
+
 test("o verificador pós-deploy da última mão usa os mesmos números do servidor", () => {
   const v = readFileSync(join(RAIZ, "scripts/verificar-ultima-mao.mjs"), "utf8");
   const constante = (nome) => {

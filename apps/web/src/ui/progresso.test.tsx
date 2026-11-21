@@ -196,13 +196,16 @@ describe("Placar Final — o XP da partida", () => {
 
   it("a fiação: busca pelo matchId e leitor do `mp`, e o bloco só dentro de 'completo'", () => {
     const codigo = semComentarios(readFileSync(new URL("./PlacarFinal.tsx", import.meta.url), "utf8"));
-    expect(codigo).toContain("xpParaExibir(useXpDaPartida(mp?.matchId, mp?.progresso))");
+    expect(codigo).toContain("const buscaDoXp = useXpDaPartida(mp?.matchId, mp?.progresso);");
+    expect(codigo).toContain("const xp = xpParaExibir(buscaDoXp.xp);");
     // O fragmento EXATO de "completo" na coluna de dados: do `<>` ao `</>` que o fecha.
     const inicio = codigo.indexOf("{completo && (\n            <>");
     const fim = codigo.indexOf("</>", inicio);
     expect(inicio).toBeGreaterThan(-1);
-    expect(codigo.slice(inicio, fim)).toContain("{xp && <XpNoFim xp={xp} matchId={mp?.matchId} />}");
+    // crédito confirmado → o bloco do XP; senão, o estado da confirmação (sem número nenhum)
+    expect(codigo.slice(inicio, fim)).toContain("{xp ? <XpNoFim xp={xp} matchId={mp?.matchId} /> : <XpPendente fase={buscaDoXp.fase} />}");
     expect(codigo.match(/<XpNoFim/g)).toHaveLength(1); // um lugar só: re-render não duplica
+    expect(codigo.match(/<XpPendente/g)).toHaveLength(1);
   });
 
   it("o multiplayer entrega o matchId AUTORITATIVO da partida corrente e o leitor único", () => {

@@ -38,6 +38,7 @@ import { IdentidadeRecusada, verificadorEmUso, type IdentidadeVerificada } from 
 import { progressoEmUso } from "../progresso/servico.js";
 import { esquecerSala, registrarSala } from "../progresso/salasVivas.js";
 import type { AssentoAoFim } from "../progresso/resultado.js";
+import { capturadorDoRei } from "../progresso/capturaDoRei.js";
 import type { Posicao } from "../progresso/tipos.js";
 import {
   CODIGO, PROTOCOL_VERSION, difundir, enviar,
@@ -414,7 +415,9 @@ export class KingRoom extends Room<{
       const dados = client.userData;
       if (!dados) return;
       const r = this.autoridade.jogarCarta(dados.seat, dados.playerId, msg);
-      if (r.ok && !r.duplicada) this.#contarJogada(dados.seat, true);
+      // "Própria" é do DONO do assento no elenco congelado. Quem sentou no lugar de quem saiu de vez
+      // joga pelo assento, mas as cartas dele não viram participação (nem XP) de outra pessoa.
+      if (r.ok && !r.duplicada) this.#contarJogada(dados.seat, dados.playerId === this.#elenco[dados.seat]?.playerId);
       this.#responder(client, msg?.actionId ?? "", r, "CARD_PLAYED");
     });
 
@@ -920,7 +923,8 @@ export class KingRoom extends Room<{
       playerId: e.playerId,
       bot: e.bot,
       permanente: e.permanente,
-      conectado: this.state.seats[seat].connected,
+      // conectado no fim = o DONO do assento está sentado e conectado (a conexão de um substituto não é a dele)
+      conectado: this.state.seats[seat].connected && this.state.seats[seat].playerId === e.playerId,
       jogadasTotais: this.#jogadas[seat],
       jogadasProprias: this.#jogadasProprias[seat],
     }));
@@ -932,6 +936,8 @@ export class KingRoom extends Room<{
         assentos,
         posicoes,
         pontos,
+        // PENALIDADE DO REI (Entrega C): quem levou o K♥ na mão 5, do HISTÓRICO do motor — nunca do cliente.
+        capturouRei: capturadorDoRei(m),
       });
     } catch (e) {
       console.error(`[progresso] registrador falhou ao receber o fim da partida: ${(e as Error)?.name ?? "erro"}`);

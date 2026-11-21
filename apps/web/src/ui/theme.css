@@ -1459,6 +1459,14 @@ body{font-family:var(--body);color:var(--ink);background:var(--night);overflow:h
 .fimxp-nivel .pg-barra{width:calc(var(--ui)*4.6);}
 /* A sequência no fim: mesma linha, mesmo tom menor, em ouro — só quando ESTA partida qualificou o dia. */
 .fimxp-seq{font-size:calc(var(--ui)*.66);font-weight:800;letter-spacing:.02em;color:var(--gold);white-space:nowrap;}
+/* PENALIDADE DO REI (Entrega C): a conta do XP, só quando há penalidade ou redução. Mesma linha, tom
+   menor e SEM vermelho — é informação, não castigo; o "+N XP" creditado continua sendo o destaque. */
+.fimxp-conta{display:inline-flex;align-items:baseline;gap:calc(var(--ui)*.4);font-size:calc(var(--ui)*.6);font-weight:700;
+  color:var(--muted);white-space:nowrap;}
+.fimxp-bruto{text-decoration:line-through;text-decoration-thickness:1px;opacity:.8;}
+.fimxp-rei,.fimxp-diaria{color:var(--muted);}
+/* O XP ainda não confirmado pelo banco: uma linha discreta, SEM número nenhum (nada é estimado). */
+.fimxp-espera{font-size:calc(var(--ui)*.66);font-weight:700;color:var(--muted);letter-spacing:.02em;white-space:nowrap;}
 @media (prefers-reduced-motion: reduce){ .fimxp{animation:none;} }
 
 .fimpular{position:absolute;bottom:calc(var(--pad) + var(--sb));left:50%;transform:translateX(-50%);z-index:3;

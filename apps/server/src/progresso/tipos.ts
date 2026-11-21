@@ -18,6 +18,12 @@ export interface HumanoDoResultado {
    * contrato do XP não muda): vai para `king_private.registrar_placares`, na mesma transação.
    */
   pontos?: number;
+  /**
+   * PENALIDADE DO REI (Entrega C): este jogador capturou o K♥ na mão 5? Só existe com `regra: 2` —
+   * e então existe em TODOS os humanos (no máximo um `true`; nenhum quando foi um bot). É um FATO do
+   * motor, lido no servidor; o XP continua sendo calculado no banco.
+   */
+  capturouRei?: boolean;
 }
 
 /** A faixa que o banco aceita (`placares_online_pontos`). */
@@ -31,7 +37,16 @@ export interface ResultadoDaPartida {
   terminadaEm: string;
   bots: number;
   humanos: HumanoDoResultado[];
+  /**
+   * PENALIDADE DO REI (Entrega C): a versão da REGRA DE XP sob a qual este resultado deve ser creditado.
+   * Ausente = regra 1 (o outbox gravado antes desta entrega, que não tem o fato da captura, continua
+   * válido e é creditado pela regra antiga). `2` = traz `capturouRei` em cada humano.
+   */
+  regra?: 2;
 }
+
+/** A versão da regra de XP que este servidor sabe produzir (ver `regra`). */
+export const REGRA_ATUAL = 2;
 
 /** O que o banco confirma. `novo = false` quando a partida já tinha sido creditada antes. */
 export interface LancamentoConfirmado {
@@ -61,7 +76,13 @@ export function validarResultado(x: unknown): ResultadoDaPartida {
   const r = x as Partial<ResultadoDaPartida> | null;
   if (!r || typeof r !== "object") throw new ResultadoInvalido("resultado não é objeto");
   const chaves = Object.keys(r).sort().join(",");
-  if (chaves !== "bots,humanos,iniciadaEm,partidaId,terminadaEm") throw new ResultadoInvalido("campos inesperados no resultado");
+  if (chaves !== "bots,humanos,iniciadaEm,partidaId,terminadaEm" && chaves !== "bots,humanos,iniciadaEm,partidaId,regra,terminadaEm") {
+    throw new ResultadoInvalido("campos inesperados no resultado");
+  }
+  // A regra só pode ser uma que este servidor conhece. Versão desconhecida não vira "creditar pela 1":
+  // é lixo, e lixo fica no outbox para análise.
+  const regra2 = r.regra !== undefined;
+  if (regra2 && r.regra !== REGRA_ATUAL) throw new ResultadoInvalido("versão de regra desconhecida");
   if (typeof r.partidaId !== "string" || !UUID.test(r.partidaId)) throw new ResultadoInvalido("partidaId não é UUID");
   const inicio = Date.parse(String(r.iniciadaEm));
   const fim = Date.parse(String(r.terminadaEm));
@@ -71,11 +92,16 @@ export function validarResultado(x: unknown): ResultadoDaPartida {
     throw new ResultadoInvalido("composição inválida");
   }
   const vistos = new Set<string>();
+  let capturadores = 0;
   for (const h of r.humanos) {
-    const chavesDoHumano = h && typeof h === "object" ? Object.keys(h).sort().join(",") : "";
+    const chavesDoHumano = h && typeof h === "object" ? Object.keys(h).filter((k) => k !== "capturouRei").sort().join(",") : "";
     if (chavesDoHumano !== "participou,playerId,posicao" && chavesDoHumano !== "participou,playerId,pontos,posicao") {
       throw new ResultadoInvalido("humano com campos inesperados");
     }
+    // Regra 2 ⇔ o fato em TODOS os humanos. Meio a meio seria um resultado que nenhuma regra descreve.
+    if (regra2 !== Object.hasOwn(h, "capturouRei")) throw new ResultadoInvalido("captura do Rei incoerente com a regra de XP");
+    if (regra2 && typeof h.capturouRei !== "boolean") throw new ResultadoInvalido("captura do Rei não é booleana");
+    if (h.capturouRei === true) capturadores += 1;
     if (h.pontos !== undefined && (!Number.isInteger(h.pontos) || h.pontos < PONTOS_MIN || h.pontos > PONTOS_MAX)) {
       throw new ResultadoInvalido("pontuação fora da faixa");
     }
@@ -86,5 +112,7 @@ export function validarResultado(x: unknown): ResultadoDaPartida {
     if (![1, 2, 3, 4].includes(h.posicao)) throw new ResultadoInvalido("posição fora de 1..4");
     if (typeof h.participou !== "boolean") throw new ResultadoInvalido("participação não é booleana");
   }
+  // O K♥ é uma carta só.
+  if (capturadores > 1) throw new ResultadoInvalido("mais de um capturador do Rei");
   return r as ResultadoDaPartida;
 }

@@ -273,7 +273,8 @@ test.describe("o placar final cabe na tela", () => {
    * Mesmo raciocínio do botão social: chegar ao placar online com crédito no banco custa uma
    * partida multiplayer inteira, e a pergunta é de GEOMETRIA. A coluna de dados (`.fimdados`) é a
    * mesma nos dois modos. O bloco entra no fim dela com o markup REAL do `XpNoFim` no pior caso
-   * (nível 49, "2450 / 2500 XP", "🔥 Sequência: 365 dias") — `src/ui/fimxpPiorCaso.test.tsx` garante
+   * (nível 49, "2450 / 2500 XP", "🔥 Sequência: 365 dias" e, desde a Entrega C, a conta do XP com o Rei de
+   * Copas e a redução diária) — `src/ui/fimxpPiorCaso.test.tsx` garante
    * que o arquivo é o que o componente desenha hoje.
    */
   test("com o XP e a sequência no pior caso, a coluna de resultado continua cabendo", async ({ page }, ti) => {
@@ -291,7 +292,7 @@ test.describe("o placar final cabe na tela", () => {
     await cabeInteira(page, vp, "XP + sequência");
 
     const dados = await boxOf(page.locator(".fimdados"), ".fimdados");
-    for (const sel of [".fimxp", ".fimxp-ganho", ".fimxp-nivel", ".fimxp-seq"]) {
+    for (const sel of [".fimxp", ".fimxp-ganho", ".fimxp-conta", ".fimxp-nivel", ".fimxp-seq"]) {
       const c = await boxOf(page.locator(sel), sel);
       expect(insideViewport(c as Box, vp, SUBPIXEL), `${sel} fora da tela: ${JSON.stringify(c)}`).toBe(true);
       expect(c.x + c.width, `${sel} saiu pela direita da coluna de resultado`).toBeLessThanOrEqual(dados.x + dados.width + SUBPIXEL);
@@ -309,6 +310,20 @@ test.describe("o placar final cabe na tela", () => {
     if (process.env.KING_SHOTS) {
       await page.screenshot({ path: `${process.env.KING_SHOTS}/fim-xp-sequencia-${ti.project.name}.png` });
     }
+
+    // ENTREGA C: no lugar do crédito, o ESTADO PENDENTE (crédito ainda não confirmado pelo banco) —
+    // o markup REAL de `XpPendente`, no texto mais longo, sem número nenhum. Também tem de caber.
+    const pendente = readFileSync(new URL("./fixtures/fimxp-pendente.html", import.meta.url), "utf8").trim();
+    await page.locator(".fimdados .fimxp").evaluate((el, html) => { el.outerHTML = html; }, pendente);
+    await page.waitForFunction(() =>
+      document.querySelector(".fimxp-pendente")!.getAnimations({ subtree: true }).every((a) => a.playState === "finished"));
+    await expect(page.locator(".fimdados .fimxp-espera")).toHaveText("XP em confirmação · aparece na Home");
+    await cabeInteira(page, vp, "XP pendente");
+    const espera = await boxOf(page.locator(".fimxp-espera"), ".fimxp-espera");
+    expect(insideViewport(espera as Box, vp, SUBPIXEL), `.fimxp-espera fora da tela: ${JSON.stringify(espera)}`).toBe(true);
+    expect(espera.x + espera.width, ".fimxp-espera saiu pela direita da coluna de resultado").toBeLessThanOrEqual(dados.x + dados.width + SUBPIXEL);
+    expect(await page.locator(".fimdados .fimxp").innerText(), "número no estado pendente").not.toMatch(/\d/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), "rolagem lateral com o XP pendente").toBeLessThanOrEqual(0);
   });
 
   /**

@@ -12,3 +12,8 @@ supabase/migrations/20261119120000_cosmeticos_catalogo.sql text eol=lf
 supabase/migrations/20261120120000_recordes.sql text eol=lf
 supabase/rollout/recordes-*.sql text eol=lf
 supabase/rollout/partes/recordes-*.sql text eol=lf
+
+# Entrega C (penalidade do Rei): mesma razão — sha256 da migração no cabeçalho do rollout.
+supabase/migrations/20261121120000_xp_penalidade_rei.sql text eol=lf
+supabase/rollout/xp-rei-*.sql text eol=lf
+supabase/rollout/partes/xp-rei-*.sql text eol=lf

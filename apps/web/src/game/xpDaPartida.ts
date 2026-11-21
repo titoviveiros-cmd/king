@@ -47,21 +47,50 @@ export async function buscarXpDaPartida(
 }
 
 /**
+ * ONDE ESTÁ A CONFIRMAÇÃO do XP desta partida (Entrega C) — para a tela nunca inventar número:
+ *   - `fora`           sem busca: modo local/solo/mini-torneio, publicação sem identidade, sem sessão
+ *                      neste aparelho (sem sessão não há de quem ler XP), `matchId` estranho;
+ *   - `buscando`       a busca está em curso: o crédito ainda não chegou ao banco;
+ *   - `confirmado`     o banco confirmou o crédito (`xp`), e só ele traz números;
+ *   - `nao-confirmado` as tentativas acabaram sem crédito — continua pendente, e a Home mostra depois.
+ */
+export type FaseDoXp = "fora" | "buscando" | "confirmado" | "nao-confirmado";
+export interface BuscaDoXp { fase: FaseDoXp; xp: XpDaPartida | null }
+
+/** O que o hook precisa do leitor. `temSessao` ausente (porta antiga, teste) = "pode haver sessão". */
+type LeitorDoFim = Pick<LeitorDeProgresso, "creditoDaPartida" | "meuProgresso"> & { temSessao?: () => boolean };
+
+/** Há o que buscar? Pura: decide a fase ANTES da primeira resposta. */
+export function haBuscaDoXp(matchId: string | undefined, leitor: LeitorDoFim | null | undefined): boolean {
+  if (!matchIdValido(matchId) || !leitor) return false;
+  try { return leitor.temSessao ? leitor.temSessao() : true; } catch { return false; }
+}
+
+/** A fase, pela busca e pelo que ela devolveu (`undefined` = ainda não devolveu). */
+export function faseDoXp(haBusca: boolean, resolvido: XpDaPartida | null | undefined): BuscaDoXp {
+  if (!haBusca) return { fase: "fora", xp: null };
+  if (resolvido === undefined) return { fase: "buscando", xp: null };
+  return resolvido ? { fase: "confirmado", xp: resolvido } : { fase: "nao-confirmado", xp: null };
+}
+
+/**
  * O XP desta partida, para o Placar Final do MULTIPLAYER. Sem `matchId` ou sem leitor (modo local,
  * publicação sem identidade) não há busca nenhuma. A busca começa quando a tela monta — o crédito
  * tem até a encenação terminar para chegar — e morre com ela.
  */
-export function useXpDaPartida(matchId: string | undefined, leitor: LeitorDeProgresso | null | undefined): XpDaPartida | null {
-  const [xp, setXp] = useState<XpDaPartida | null>(null);
+export function useXpDaPartida(matchId: string | undefined, leitor: LeitorDoFim | null | undefined): BuscaDoXp {
+  const [resposta, setResposta] = useState<{ matchId: string; xp: XpDaPartida | null } | null>(null);
+  const haBusca = haBuscaDoXp(matchId, leitor);
   useEffect(() => {
-    if (!matchId || !leitor) return;
+    if (!haBusca || !matchId || !leitor) return;
     let cancelado = false;
     void buscarXpDaPartida(leitor, matchId, { cancelado: () => cancelado }).then((r) => {
-      if (!cancelado && r) setXp(r);
+      if (!cancelado) setResposta({ matchId, xp: r });
     });
     return () => { cancelado = true; };
-  }, [matchId, leitor]);
-  return xp;
+  }, [matchId, leitor, haBusca]);
+  // uma resposta de OUTRA partida (a tela trocou de matchId) não vale para esta
+  return faseDoXp(haBusca, resposta && resposta.matchId === matchId ? resposta.xp : undefined);
 }
 
 /**

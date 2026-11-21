@@ -1582,7 +1582,10 @@ const TESTES = [
     }
     // Revisado na Fase 9 (S19 conferido): 20261025130000 recria a MESMA função de crédito — mesmo
     // motivo, mesma regra —, só pulando quem excluiu a conta. Outro escritor continua reprovando aqui.
-    afirmar(insercoes.join() === "20260925120000_progresso.sql,20261025130000_credito_com_conta_excluida.sql", `INSERT no ledger nas migrações: ${insercoes.join(", ")}`);
+    // Revisado na Entrega C (S19 conferido): 20261121120000 cria a porta v2 (penalidade do Rei) — o MESMO
+    // motivo 'partida_concluida', o MESMO papel (king_server), a mesma partida online com 2+ humanos em
+    // `partidas`; o XP continua > 0 para quem participa (mínimo 10), então a sequência não muda de regra.
+    afirmar(insercoes.join() === "20260925120000_progresso.sql,20261025130000_credito_com_conta_excluida.sql,20261121120000_xp_penalidade_rei.sql", `INSERT no ledger nas migrações: ${insercoes.join(", ")}`);
     afirmar(grants.length === 0, `GRANT de escrita no ledger em: ${grants.join(", ")}`);
     afirmar(motivos.join() === "20260925120000_progresso.sql", `o conjunto de motivos do ledger mudou em: ${motivos.join(", ")}`);
   } },

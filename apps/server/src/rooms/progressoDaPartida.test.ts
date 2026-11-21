@@ -6,14 +6,14 @@
 // `scripts/testar-progresso-sql.mjs`.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { boot, type ColyseusTestServer } from "@colyseus/testing";
-import { cardId, legalCardsFor, type PlayerView, type Seat, type Trump } from "@king/engine";
+import { cardId, isKingOfHearts, legalCardsFor, type PlayerView, type Seat, type Trump } from "@king/engine";
 import { configurarTempos, restaurarTempos } from "../match/tempos.js";
 import { SALA_KING, servidor } from "../app.js";
 import { AVATARES } from "./identidade.js";
 import { PROTOCOL_VERSION, type AtualizacaoDeEstado, type BoasVindas } from "../protocol/index.js";
 import type { KingRoom } from "./KingRoom.js";
 import { configurarProgresso, restaurarProgresso } from "../progresso/servico.js";
-import type { PartidaEncerrada } from "../progresso/resultado.js";
+import { participou, type PartidaEncerrada } from "../progresso/resultado.js";
 
 const SEATS: Seat[] = [0, 1, 2, 3];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,6 +21,12 @@ const TRUNFO: Record<number, Trump> = { 7: "hearts", 8: "diamonds", 9: "no-trump
 
 let colyseus: ColyseusTestServer;
 let recebidas: PartidaEncerrada[] = [];
+/**
+ * PENALIDADE DO REI (Entrega C): quem levou a vaza do K♥ na mão 5, OBSERVADO NA MESA (as vazas
+ * concluídas do estado autoritativo, no fim da mão 5) — a referência contra a qual o fato que a sala
+ * entrega ao progresso (`capturouRei`, lido do histórico do motor) é conferido.
+ */
+let reiVisto: { winner: Seat; vaza: number } | null = null;
 
 const TEMPOS_LONGOS = {
   pisoDoPlacar: 1, pisoDoPlacarDoRei: 1, autoReadyDesconectado: 3_600_000, autoReadyConectado: 3_600_000,
@@ -34,6 +40,7 @@ afterAll(async () => { restaurarTempos(); await colyseus.shutdown(); });
 beforeEach(async () => {
   await colyseus.cleanup();
   recebidas = [];
+  reiVisto = null;
   configurarProgresso({ estado: "closed", partidaEncerrada: (p) => { recebidas.push(p); } });
 });
 afterEach(() => { restaurarProgresso(); restaurarTempos(); });
@@ -91,19 +98,34 @@ const acao = (p: string) => `${p}-${++seq}`;
  * Joga as 10 mãos pelo protocolo. `calado` é um assento que NUNCA envia carta nem trunfo: tudo
  * dele sai por estouro de prazo, pelo mesmo caminho da assistência.
  */
-async function jogarAteOFim(room: KingRoom, clientes: Cliente[], calado: Seat | null = null): Promise<void> {
+async function jogarAteOFim(
+  room: KingRoom,
+  clientes: Cliente[],
+  calado: Seat | null = null,
+  /** Chamado uma vez por mão, antes da 1ª ação dela e antes do "pronto" do fim dela. */
+  aoVer?: (momento: "inicio" | "fim", mao: number) => Promise<void>,
+  /** Assentos FORA da mesa agora (desconectados): não recebem visão nem mandam nada. */
+  ausentes: Set<Seat> = new Set(),
+): Promise<void> {
+  const vistos = new Set<string>();
   for (let guarda = 0; guarda < 6000; guarda++) {
     const m = room.autoridadeDaPartida().estadoAutoritativo()!;
     if (m.finished) return;
-    // Toda ação parte da versão CORRENTE: espera as quatro visões alcançarem o servidor, senão a
-    // ação sai com versão velha e é recusada como STALE_ACTION.
+    // Toda ação parte da versão CORRENTE: espera as visões dos PRESENTES alcançarem o servidor, senão
+    // a ação sai com versão velha e é recusada como STALE_ACTION.
     const corrente = room.autoridadeDaPartida().stateVersion;
-    await ate(() => clientes.every((x) => x.versao >= corrente), 20_000, "visões alcançarem o servidor");
+    await ate(() => clientes.every((x) => ausentes.has(x.seat) || x.versao >= corrente), 20_000, "visões alcançarem o servidor");
     const h = m.hand!;
+    const momento = h.handScores !== null ? "fim" : "inicio";
+    if (aoVer && !vistos.has(`${momento}${h.handNumber}`)) {
+      vistos.add(`${momento}${h.handNumber}`);
+      await aoVer(momento, h.handNumber);
+      continue; // o gancho pode ter mudado a mesa: relê o estado
+    }
     if (h.awaitingTrumpFrom !== null) {
       const quem = clientes[h.awaitingTrumpFrom];
       const antes = room.autoridadeDaPartida().stateVersion;
-      if (quem.seat !== calado) {
+      if (quem.seat !== calado && !ausentes.has(quem.seat)) {
         quem.sdk.send("CLIENT_SELECT_TRUMP", { actionId: acao("t"), trump: TRUNFO[h.handNumber], expectedStateVersion: quem.versao });
       }
       await ate(() => room.autoridadeDaPartida().stateVersion > antes, 20_000, "trunfo");
@@ -111,14 +133,19 @@ async function jogarAteOFim(room: KingRoom, clientes: Cliente[], calado: Seat | 
     }
     if (h.handScores !== null) {
       const antes = h.handNumber;
-      for (const c of clientes) c.sdk.send("CLIENT_READY_NEXT_HAND", { actionId: acao(`r${c.seat}`) });
+      if (h.handNumber === 5) {
+        for (const t of h.completedTricks) {
+          if (t.cards.some((p) => isKingOfHearts(p.card))) reiVisto = { winner: t.winner, vaza: t.number };
+        }
+      }
+      for (const c of clientes) if (!ausentes.has(c.seat)) c.sdk.send("CLIENT_READY_NEXT_HAND", { actionId: acao(`r${c.seat}`) });
       await ate(() => room.autoridadeDaPartida().estadoAutoritativo()!.handNumber > antes, 20_000, "avanço de mão");
       continue;
     }
     const vez = h.turn as Seat;
     const antes = room.autoridadeDaPartida().stateVersion;
     const c = clientes[vez];
-    if (vez !== calado) {
+    if (vez !== calado && !ausentes.has(vez)) {
       const legais = legalCardsFor(c.view!, vez);
       c.sdk.send("CLIENT_PLAY_CARD", { actionId: acao(`p${vez}`), cardId: cardId(legais[0]), expectedStateVersion: c.versao });
     }
@@ -156,6 +183,10 @@ describe("o fim da partida chega ao progresso", () => {
     // RECORDES (Entrega D): a pontuação final de cada assento é a do MOTOR, no fim
     const fim = room.autoridadeDaPartida().estadoAutoritativo()!;
     expect(p.pontos).toEqual({ 0: fim.cumulative[0], 1: fim.cumulative[1], 2: fim.cumulative[2], 3: fim.cumulative[3] });
+    // PENALIDADE DO REI (Entrega C): o fato entregue é o vencedor da vaza do K♥ que a MESA viu
+    expect(reiVisto).not.toBeNull();
+    expect(p.capturouRei).toBe(reiVisto!.winner);
+    expect(fim.history.find((x) => x.handNumber === 5)!.handScores[reiVisto!.winner]).toBe(-160);
 
     const ultimaMao = cartasDaUltimaMao(room);
     for (const a of p.assentos) {
@@ -180,6 +211,82 @@ describe("o fim da partida chega ao progresso", () => {
     expect(calado.jogadasProprias).toBe(0);
     expect(calado.jogadasTotais).toBe(outros[0].jogadasTotais); // o total conta as cartas automáticas
     expect(calado.jogadasTotais).toBeGreaterThan(100);
+    // o K♥ pode ter caído com o assento 3 jogando no AUTOMÁTICO: o fato continua sendo o da mesa
+    expect(recebidas[0].capturouRei).toBe(reiVisto!.winner);
+  }, 180_000);
+
+  it("PENALIDADE DO REI: cair e voltar NO MEIO da mão 5 não muda o capturador — é o assento que levou a vaza", async () => {
+    configurarTempos({ ...TEMPOS_LONGOS, turno: 250, trunfo: 250, autoReadyDesconectado: 250 });
+    const { room, clientes } = await salaCom4();
+    const fora = new Set<Seat>();
+    const c2 = clientes[2];
+    await jogarAteOFim(room, clientes, null, async (momento, mao) => {
+      if (momento === "inicio" && mao === 5) {
+        // o assento 2 cai antes da 1ª carta da mão 5: as cartas dele saem no automático
+        (c2.sdk as unknown as { reconnection: { enabled: boolean } }).reconnection.enabled = false;
+        fora.add(2);
+        await c2.sdk.leave(false);
+        await ate(() => !room.state.seats[2].connected, 5_000, "queda registrada");
+      }
+      if (momento === "fim" && mao === 5) {
+        // e volta pela credencial antes da mão 6, a tempo de terminar a partida jogando
+        const novo = await colyseus.sdk.reconnect(c2.credencial);
+        c2.sdk = novo as never;
+        escutar(novo as never, c2);
+        await ate(() => room.state.seats[2].connected, 5_000, "reconexão");
+        fora.delete(2);
+      }
+    }, fora);
+    await ate(() => recebidas.length > 0, 5_000, "entrega do fim");
+    const p = recebidas[0];
+    expect(reiVisto).not.toBeNull();
+    expect(p.capturouRei).toBe(reiVisto!.winner);
+    expect(p.assentos[2].conectado).toBe(true);
+    expect(p.assentos[2].jogadasProprias).toBeLessThan(p.assentos[2].jogadasTotais); // houve automático
+  }, 180_000);
+
+  it("TROCA DE OCUPANTE: quem SAIU de vez e foi substituído não herda as jogadas do substituto; o fato do Rei segue o ASSENTO", async () => {
+    configurarTempos({ ...TEMPOS_LONGOS, turno: 250, trunfo: 250 });
+    const { room, clientes } = await salaCom4();
+    const fora = new Set<Seat>();
+    const c2 = clientes[2];
+    const dono = room.state.seats[2].playerId;
+    let substituto = "";
+    await jogarAteOFim(room, clientes, null, async (momento, mao) => {
+      if (momento === "inicio" && mao === 2) {
+        // saída CONSENTIDA no meio da partida: o assento é liberado (onLeave) e outra pessoa senta nele
+        fora.add(2);
+        await c2.sdk.leave(true);
+        await ate(() => room.state.seats[2].playerId === "", 5_000, "assento liberado");
+        const codigo = clientes[0].credencial.split(":")[0];
+        const sdk = await colyseus.sdk.joinById(codigo, { protocolVersion: PROTOCOL_VERSION, nick: "Substituto", avatar: AVATARES[4] });
+        c2.sdk = sdk as never;
+        c2.view = null;
+        c2.versao = 0;
+        escutar(sdk as never, c2);
+        await ate(() => room.state.seats[2].playerId !== "", 5_000, "substituto sentado");
+        substituto = room.state.seats[2].playerId;
+        // até ver a mesa, o substituto fica de fora: as cartas do assento saem no automático
+      }
+      if (momento === "fim" && mao === 2) {
+        await ate(() => c2.view !== null, 5_000, "o substituto receber a visão");
+        fora.delete(2); // daqui em diante o SUBSTITUTO joga pelo assento 2 — inclusive a mão 5
+      }
+    }, fora);
+    await ate(() => recebidas.length > 0, 5_000, "entrega do fim");
+    const p = recebidas[0];
+    expect(substituto).not.toBe("");
+    expect(substituto).not.toBe(dono);
+    // o elenco é o do INÍCIO: o crédito do assento 2 continua sendo do dono, nunca do substituto
+    expect(p.assentos[2].playerId).toBe(dono);
+    expect(p.assentos.map((a) => a.playerId)).not.toContain(substituto);
+    // as cartas do substituto NÃO viram "próprias" do dono, e a conexão dele não é a do dono
+    expect(p.assentos[2].jogadasProprias).toBeLessThanOrEqual(13); // só a mão 1, jogada pelo dono
+    expect(p.assentos[2].jogadasTotais).toBe(p.assentos[0].jogadasTotais);
+    expect(p.assentos[2].conectado).toBe(false);
+    expect(participou(p.assentos[2])).toBe(false); // saiu na mão 2: abaixo de 60%, sem XP e sem penalidade
+    // o fato do Rei é o do motor, pelo ASSENTO — quem quer que estivesse sentado nele
+    expect(p.capturouRei).toBe(reiVisto!.winner);
   }, 180_000);
 
   it("reconexão, pedido de próxima mão e ação repetida DEPOIS do fim não entregam de novo", async () => {

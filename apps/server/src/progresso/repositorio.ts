@@ -13,6 +13,12 @@
 // dela: ela roda num SAVEPOINT, e qualquer recusa do banco a ela (migração ainda não aplicada, dado
 // fora da regra) desfaz SÓ o placar e o crédito é gravado assim mesmo. Falha de conexão, de
 // concorrência ou de autenticação derruba a transação inteira, e o retry de sempre cuida.
+//
+// PENALIDADE DO REI (Entrega C): resultado com `regra: 2` vai à porta NOVA,
+// `king_private.creditar_partida_v2`, que recebe também o fato `capturou_rei`. A porta v1 não muda, e
+// é para ela que vai todo resultado SEM o fato (o outbox gravado antes desta entrega). Banco ainda sem a
+// v2 responde 42883 (função inexistente): o crédito é repetido na v1, pela regra antiga, e o jogo segue —
+// o banco é quem diz qual regra conhece, e grava a versão usada em `partidas.versao_regra`.
 import pg from "pg";
 import { mascarar, type LancamentoConfirmado, type ResultadoDaPartida } from "./tipos.js";
 
@@ -65,6 +71,25 @@ export function parametrosDoCredito(r: ResultadoDaPartida): unknown[] {
   return [r.partidaId, r.iniciadaEm, r.terminadaEm, r.humanos.length, r.bots, JSON.stringify(resultado)];
 }
 
+export const CHAMADA_DE_CREDITO_V2 =
+  "select player_id, posicao, xp_delta, novo from king_private.creditar_partida_v2(" +
+  "$1::uuid, $2::timestamptz, $3::timestamptz, $4::smallint, $5::smallint, $6::jsonb)";
+
+/**
+ * Os parâmetros da porta v2 — os da v1 mais o FATO `capturou_rei`, e nada além. `null` quando o
+ * resultado não é da regra 2 (sem o fato não existe chamada v2: a pendência antiga vai pela v1).
+ */
+export function parametrosDoCreditoV2(r: ResultadoDaPartida): unknown[] | null {
+  if (r.regra !== 2 || r.humanos.some((h) => typeof h.capturouRei !== "boolean")) return null;
+  const resultado = r.humanos.map((h) => ({
+    player_id: h.playerId, posicao: h.posicao, participou: h.participou, capturou_rei: h.capturouRei,
+  }));
+  return [r.partidaId, r.iniciadaEm, r.terminadaEm, r.humanos.length, r.bots, JSON.stringify(resultado)];
+}
+
+/** 42883 = `undefined_function`: o banco ainda não tem a porta v2 (migração não aplicada, ou desfeita). */
+const SEM_A_V2 = "42883";
+
 /**
  * Repositório sobre `pg`. Pool PEQUENA, criada uma vez: um crédito por partida encerrada não
  * justifica mais que duas conexões.
@@ -98,6 +123,27 @@ export function repositorioPg(origem: { connectionString: string; ca: string } |
   // Erro de conexão ociosa não pode derrubar o servidor do jogo. E não imprime nada da conexão.
   pool.on("error", (e) => console.error(`[progresso] conexão ociosa com erro: ${(e as { code?: string }).code ?? e.name}`));
 
+  /**
+   * O crédito pela porta certa. Regra 2 → v2; banco sem a v2 (42883) → a MESMA partida pela v1. Dentro
+   * de uma transação, o 42883 aborta a transação: por isso a v2 roda num SAVEPOINT, e só ele é desfeito.
+   * Qualquer outro erro da v2 sobe como sempre (o retry e o disjuntor do serviço cuidam) — nunca vira
+   * "credita pela v1", que seria trocar de regra por causa de uma falha passageira.
+   */
+  async function creditarNaPorta(c: pg.Pool | pg.PoolClient, r: ResultadoDaPartida, emTransacao: boolean) {
+    const v2 = parametrosDoCreditoV2(r);
+    if (v2) {
+      if (emTransacao) await c.query("savepoint credito_v2");
+      try {
+        return (await c.query(CHAMADA_DE_CREDITO_V2, v2)).rows;
+      } catch (e) {
+        if ((e as { code?: unknown })?.code !== SEM_A_V2) throw e;
+        if (emTransacao) await c.query("rollback to savepoint credito_v2");
+        console.log(`[progresso] banco sem a regra de XP 2: partida ${mascarar(r.partidaId)} creditada pela regra 1`);
+      }
+    }
+    return (await c.query(CHAMADA_DE_CREDITO, parametrosDoCredito(r))).rows;
+  }
+
   return {
     async sondar() {
       await pool.query("select 1");
@@ -106,14 +152,13 @@ export function repositorioPg(origem: { connectionString: string; ca: string } |
       const placares = parametrosDosPlacares(r);
       // Sem placar: a chamada de sempre, sozinha (o crédito já é uma transação dentro da função).
       if (!placares) {
-        const { rows } = await pool.query(CHAMADA_DE_CREDITO, parametrosDoCredito(r));
-        return rows.map(lancamento);
+        return (await creditarNaPorta(pool, r, false)).map(lancamento);
       }
       const c = await pool.connect();
       let ok = false;
       try {
         await c.query("begin");
-        const { rows } = await c.query(CHAMADA_DE_CREDITO, parametrosDoCredito(r));
+        const rows = await creditarNaPorta(c, r, true);
         await c.query("savepoint placares");
         try {
           await c.query(CHAMADA_DOS_PLACARES, placares);

@@ -1,5 +1,5 @@
-import type { ProgressoDoJogador, SequenciaDoJogador } from "../auth/progresso.js";
-import { sequenciaDaPartida, type XpDaPartida } from "../game/xpDaPartida.js";
+import type { ComposicaoDoXp, ProgressoDoJogador, SequenciaDoJogador } from "../auth/progresso.js";
+import { sequenciaDaPartida, type FaseDoXp, type XpDaPartida } from "../game/xpDaPartida.js";
 import { sfxTap } from "../audio/sounds.js";
 
 /**
@@ -86,6 +86,21 @@ export function ProgressoNaHome({ progresso: p, itens }: { progresso: ProgressoD
 }
 
 /**
+ * PENALIDADE DO REI (Entrega C): a CONTA do XP, só quando há o que explicar (penalidade ou redução) e
+ * só com as parcelas que o BANCO gravou. Tom de informação, não de castigo: cor discreta, sem vermelho,
+ * e o "+N XP" creditado continua sendo o destaque. Os −160 pontos da mão são outra coisa e ficam no placar.
+ */
+export function contaDoXp(c: ComposicaoDoXp | undefined): { bruto: number; rei: number; diaria: number } | null {
+  if (!c || (c.penalidadeRei === 0 && c.reducaoDiaria === 0)) return null;
+  return { bruto: c.bruto, rei: c.penalidadeRei, diaria: c.reducaoDiaria };
+}
+
+function descreverConta(c: NonNullable<ReturnType<typeof contaDoXp>>): string {
+  return [`${c.bruto} XP da partida`, c.rei > 0 ? `menos ${c.rei} pelo Rei de Copas` : "", c.diaria > 0 ? `menos ${c.diaria} de redução diária` : ""]
+    .filter(Boolean).join(", ");
+}
+
+/**
  * No fim de uma partida ONLINE, depois da encenação: o que ela rendeu e onde o jogador ficou. Só
  * com crédito REAL e positivo — quem decide isso é `xpParaExibir`, antes de chegar aqui. A
  * sequência entra só quando ESTA partida qualificou o dia (`sequenciaDaPartida`).
@@ -93,13 +108,21 @@ export function ProgressoNaHome({ progresso: p, itens }: { progresso: ProgressoD
 export function XpNoFim({ xp, matchId }: { xp: XpDaPartida; matchId?: string }) {
   const p = xp.progresso;
   const seq = sequenciaDaPartida(xp, matchId);
+  const conta = contaDoXp(xp.credito.composicao);
   return (
     <div
       className="fimxp"
       role="status"
-      aria-label={`Você ganhou ${xp.credito.xpDelta} XP nesta partida${seq !== null ? `; sequência de ${dias(seq)}` : ""}`}
+      aria-label={`Você ganhou ${xp.credito.xpDelta} XP nesta partida${conta ? ` (${descreverConta(conta)})` : ""}${seq !== null ? `; sequência de ${dias(seq)}` : ""}`}
     >
       <b className="fimxp-ganho">+{xp.credito.xpDelta} XP</b>
+      {conta && (
+        <span className="fimxp-conta" aria-hidden>
+          <span className="fimxp-bruto">{conta.bruto}</span>
+          {conta.rei > 0 && <span className="fimxp-rei">−{conta.rei} Rei de Copas</span>}
+          {conta.diaria > 0 && <span className="fimxp-diaria">−{conta.diaria} redução diária</span>}
+        </span>
+      )}
       {p && (
         <span className="fimxp-nivel">
           <span className="fimxp-rotulo">Nível {p.nivel}</span>
@@ -108,6 +131,24 @@ export function XpNoFim({ xp, matchId }: { xp: XpDaPartida; matchId?: string }) 
         </span>
       )}
       {seq !== null && <span className="fimxp-seq">🔥 Sequência: {dias(seq)}</span>}
+    </div>
+  );
+}
+
+/**
+ * O XP AINDA NÃO CONFIRMADO (Entrega C). O crédito é gravado pelo servidor segundos depois do fim; até
+ * o banco confirmar, a tela diz que está confirmando — e NENHUM número: nem bruto, nem penalidade do
+ * Rei, nem redução, nem líquido. Se as tentativas acabarem sem crédito, diz que segue em confirmação
+ * e que a Home mostra depois. Fora do multiplayer com sessão (`fora`) e com o crédito já lido
+ * (`confirmado`, inclusive o de zero), não desenha nada.
+ */
+export function XpPendente({ fase }: { fase: FaseDoXp }) {
+  if (fase !== "buscando" && fase !== "nao-confirmado") return null;
+  const texto = fase === "buscando" ? "Confirmando o XP…" : "XP em confirmação · aparece na Home";
+  const rotulo = fase === "buscando" ? "Confirmando o XP desta partida" : "O XP desta partida ainda está em confirmação; ele aparece na Home";
+  return (
+    <div className="fimxp fimxp-pendente" role="status" aria-label={rotulo}>
+      <span className="fimxp-espera">{texto}</span>
     </div>
   );
 }
