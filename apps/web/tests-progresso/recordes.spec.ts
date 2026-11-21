@@ -10,7 +10,7 @@
  *   - sem conta, só o Solo — e sem recorde, o estado vazio;
  *   - a partida de depuração (`?mao=`) NÃO gera recorde; uma partida solo INTEIRA gera, e celebra uma vez.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const REF = "abcdefghijklmnopqrst";
 const HOST = `https://${REF}.supabase.co`;
@@ -175,26 +175,122 @@ test("banco SEM a migração dos recordes: a tela abre, o online diz 'indisponí
 
 // ═══ SOLO de verdade: depuração não conta; a partida inteira conta e celebra UMA vez ═══
 
+/**
+ * TOCAR A CARTA ONDE ELA ESTÁ VISÍVEL — como uma pessoa faz.
+ *
+ * O clique padrão do Playwright mira o CENTRO da caixa da carta. No leque as cartas são giradas,
+ * se sobrepõem e as jogáveis ficam erguidas: às vezes o centro da 1ª carta jogável é de outra
+ * carta. O Playwright então recusa ("<span class=pip> from <div aria-label='7 de hearts'> subtree
+ * intercepts pointer events") e o laço insistia na mesma carta até o tempo do teste acabar.
+ * Medido na CI (execução 44858287757, tentativa 3): mão 8, vaza 8, centro do 10♥ coberto pelo 7♥,
+ * mesa parada por minutos com a página saudável. Nenhum ponto FIXO resolve: medido localmente, o
+ * canto superior esquerdo também é coberto (Q♦ sob o 3♣).
+ *
+ * Então procura, dentro da carta, um ponto que seja DELA (`elementFromPoint`), começando pelo
+ * centro — o comportamento de antes, quando ele funciona — e toca ali. Se a carta não tiver
+ * nenhuma parte visível, cai no clique padrão, que falha e fica registrado: carta jogável que
+ * ninguém consegue tocar seria defeito do jogo, e não pode ficar escondido.
+ */
+async function tocarCarta(page: Page, carta: Locator, anotar: (e: unknown) => void): Promise<void> {
+  const ponto = await carta.evaluate((c) => {
+    const r = c.getBoundingClientRect();
+    for (const fy of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+      for (const fx of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+        const x = r.x + r.width * fx, y = r.y + r.height * fy;
+        const t = document.elementFromPoint(x, y);
+        if (t && (t === c || c.contains(t))) return { x, y };
+      }
+    }
+    return null;
+  }, undefined, { timeout: 3000 }).catch(() => null);
+  if (!ponto) { await carta.click({ timeout: 3000 }).catch(anotar); return; }
+  await page.mouse.click(ponto.x, ponto.y);
+}
+
 async function jogarAteOFim(page: Page): Promise<void> {
+  const prog = observadorDaPartida(page);
   for (let i = 0; i < 4000 && !(await page.locator(".fimacoes").count()); i++) {
+    await prog.talvez(i);
     // o anúncio da ÚLTIMA MÃO fica por cima da Mesa e segura os cliques: fecha primeiro
     const aviso = page.locator(".um");
-    if (await aviso.count()) { await aviso.click({ timeout: 1000 }).catch(() => {}); await page.waitForTimeout(200); continue; }
+    if (await aviso.count()) { await aviso.click({ timeout: 1000 }).catch(prog.erro); await page.waitForTimeout(200); continue; }
     const trunfo = page.locator(".trumpbtn").first();
-    if (await trunfo.count()) { await trunfo.click({ timeout: 3000 }).catch(() => {}); continue; }
+    if (await trunfo.count()) { await trunfo.click({ timeout: 3000 }).catch(prog.erro); continue; }
     const legal = page.locator('.hand .card[role="button"]').first();
     if (await legal.count()) {
-      await legal.click({ timeout: 3000 }).catch(() => {});
-      if (await page.locator(".hand .card.sel").count()) await page.locator(".hand .card.sel").first().click({ timeout: 3000 }).catch(() => {});
+      await tocarCarta(page, legal, prog.erro);
+      if (await page.locator(".hand .card.sel").count()) await tocarCarta(page, page.locator(".hand .card.sel").first(), prog.erro);
       continue;
     }
     for (const rotulo of [/próxima mão/i, /continuar/i]) {
       const b = page.getByRole("button", { name: rotulo }).first();
-      if (await b.count()) await b.click({ timeout: 3000 }).catch(() => {});
+      if (await b.count()) await b.click({ timeout: 3000 }).catch(prog.erro);
     }
-    if (await page.locator(".fim").count()) await page.locator(".fim").click({ position: { x: 5, y: 5 }, timeout: 1000 }).catch(() => {});
+    if (await page.locator(".fim").count()) await page.locator(".fim").click({ position: { x: 5, y: 5 }, timeout: 1000 }).catch(prog.erro);
     await page.waitForTimeout(120);
   }
+}
+
+/**
+ * TELEMETRIA DA PARTIDA LONGA — só registra, não decide nada.
+ *
+ * Na CI (Linux), a 1ª tentativa desta partida chegou a levar mais de 15 min (mão 7 aos 15 min; a
+ * de depuração passou de 4 min só na mão 10), enquanto a repetição e qualquer execução local
+ * levam ~6 min. A repetição é a única com trace, então a tentativa lenta não deixava evidência.
+ * Isto imprime, no log da CI, a mão/vaza a cada mudança (no máximo a cada 10 s) e, se a mesa
+ * ficar 45 s sem mudar, o estado da tela, o último erro de clique e o atraso real de um timer de
+ * 50 ms dentro da página (mede se a página está com a thread ocupada ou com timers estrangulados).
+ */
+function observadorDaPartida(page: Page) {
+  const t0 = Date.now();
+  let marca = "", desde = t0, ultimaOlhada = 0, ultimoAlarme = 0, ultimoErro = "";
+  const seg = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
+  return {
+    // O motivo de o Playwright não clicar fica nas linhas do "Call log" (sobreposto, instável,
+    // fora da tela...): guarda a 1ª linha e as distintas que dizem POR QUÊ.
+    erro: (e: unknown) => {
+      const linhas = String((e as Error)?.message ?? e).split("\n").map((l) => l.replace(/\u001b\[\d+m/g, "").trim());
+      const porque = [...new Set(linhas.filter((l) => /intercept|stable|visible|enabled|viewport|scroll|detached|resolved to/.test(l)))];
+      ultimoErro = [linhas[0], ...porque].join(" ⏎ ").slice(0, 900);
+    },
+    async talvez(i: number) {
+      if (Date.now() - ultimaOlhada < 10_000) return;
+      ultimaOlhada = Date.now();
+      const agora = await page.evaluate(() =>
+        `${document.querySelector('button[aria-label^="Mão"]')?.getAttribute("aria-label")?.slice(0, 7) ?? "-"} ${(document.body.innerText.match(/Vaza \d+\/13/) ?? ["-"])[0]}`,
+      ).catch(() => "?");
+      if (agora !== marca) { console.log(`[partida ${seg()}] it${i} ${agora}`); marca = agora; desde = Date.now(); return; }
+      if (Date.now() - desde < 45_000 || Date.now() - ultimoAlarme < 45_000) return;
+      ultimoAlarme = Date.now();
+      const estado = await page.evaluate(async () => {
+        const ini = performance.now();
+        const atraso = await new Promise<number>((r) => setTimeout(() => r(performance.now() - ini), 50));
+        const raf = await new Promise<number>((r) => { const a = performance.now(); requestAnimationFrame(() => r(performance.now() - a)); });
+        const prox = [...document.querySelectorAll("button")].find((b) => /pr[oó]xima/i.test(b.textContent ?? ""));
+        return JSON.stringify({
+          timer50: Math.round(atraso), raf: Math.round(raf), vis: document.visibilityState, foco: document.hasFocus(),
+          mao: document.querySelectorAll(".hand .card").length, jogaveis: document.querySelectorAll('.hand .card[role="button"]').length,
+          sel: document.querySelectorAll(".hand .card.sel").length,
+          telas: [".um", ".rc", ".placar", ".fim", ".trumpbtn", ".novorecorde"].filter((s) => document.querySelector(s)),
+          proxima: prox ? (prox.disabled ? "desabilitado" : "habilitado") : "-",
+          animacoes: document.getAnimations().map((a) => {
+            const alvo = (a.effect as KeyframeEffect | null)?.target as Element | null;
+            return `${(a as CSSAnimation).animationName ?? "?"}@${alvo?.tagName.toLowerCase()}.${String(alvo?.className ?? "").trim().replace(/\s+/g, ".")}:${a.playState}`;
+          }),
+          // quem recebe o toque no centro da 1ª carta jogável, e onde ela está
+          alvo: (() => {
+            const c = document.querySelector('.hand .card[role="button"]') as HTMLElement | null;
+            if (!c) return "-";
+            const r = c.getBoundingClientRect();
+            const topo = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) as HTMLElement | null;
+            const dono = topo && (c === topo || c.contains(topo)) ? "a própria carta" : `${topo?.tagName.toLowerCase()}.${String(topo?.className ?? "").trim().replace(/\s+/g, ".")}`;
+            return `${c.getAttribute("aria-label")} [${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}] em ${innerWidth}x${innerHeight} → ${dono}`;
+          })(),
+        });
+      }).catch((e) => `avaliação falhou: ${String(e).slice(0, 120)}`);
+      console.log(`[partida ${seg()}] PARADA há ${((Date.now() - desde) / 1000).toFixed(0)}s em "${marca}" it${i} ${estado} último erro: ${ultimoErro || "-"}`);
+    },
+  };
 }
 const preparoDoSolo = (page: Page) => page.addInitScript(() => {
   try {

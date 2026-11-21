@@ -1,4 +1,6 @@
+import { useEffect, useRef, useState } from "react";
 import type { LeituraDaPartida } from "../game/leituraDaPartida.js";
+import { ehPlacarDoRei, leituraDoPlacarDoRei } from "../game/placarDoRei.js";
 import {
   contractTitle, penaltyTextLong, trumpLabel, earlyEndText, unitsText, fmtSigned, ordinal,
 } from "./contractText.js";
@@ -23,6 +25,18 @@ export function Placar({
   /** Presente só no multiplayer: "Continuar" vira voto e o Placar mostra quem já confirmou. */
   mp?: MesaMultiplayer;
 }) {
+  // SOLO, MÃO DO REI: "Próxima mão" nasce desabilitado e só responde depois da leitura mínima.
+  // Online quem segura é o servidor — o voto "Estou pronto" continua livre (ver placarDoRei.ts).
+  const segurando = useLeituraMinima(!mp && ehPlacarDoRei(game), leituraDoPlacarDoRei());
+  const proxima = useRef<HTMLButtonElement>(null);
+  // O `autoFocus` não pega num botão desabilitado: quando ele libera, o foco vem para ele, e o
+  // Enter volta a funcionar como em qualquer outra mão.
+  const segurou = useRef(segurando);
+  useEffect(() => {
+    if (segurando) { segurou.current = true; return; }
+    if (segurou.current) proxima.current?.focus();
+  }, [segurando]);
+
   const s = game.summary();
   if (!s) return null;
 
@@ -151,13 +165,43 @@ export function Placar({
                 onCancelar={mp.onCancelarProximaMao}
               />
             ) : (
-              <button className="btn gold" autoFocus onClick={onAdvance}>Próxima mão ▸</button>
+              <button
+                ref={proxima}
+                className="btn gold"
+                autoFocus
+                onClick={onAdvance}
+                disabled={segurando}
+                // Estilo em linha, e não no theme.css: só a opacidade muda, nada de geometria —
+                // o rodapé não pode mudar de tamanho quando o botão libera.
+                style={segurando ? ESPERANDO_A_LEITURA : undefined}
+              >
+                Próxima mão ▸
+              </button>
             )}
           </div>
         </footer>
       </div>
     </div>
   );
+}
+
+/** Botão segurado pela leitura mínima: visivelmente em espera, mesma caixa. */
+const ESPERANDO_A_LEITURA = { opacity: 0.55, cursor: "default" } as const;
+
+/**
+ * `true` durante os primeiros `ms` em que `ativa` vale — contados da montagem do Placar, que é
+ * quando ele entra na tela (depois da pausa do King). Remontar (girar o aparelho) só pode esticar a
+ * espera, nunca encurtá-la; e a guarda do hook do solo (`podeAvancarDoPlacar`) é a autoridade.
+ */
+function useLeituraMinima(ativa: boolean, ms: number): boolean {
+  const [segurando, setSegurando] = useState(ativa);
+  useEffect(() => {
+    if (!ativa) { setSegurando(false); return; }
+    setSegurando(true);
+    const id = window.setTimeout(() => setSegurando(false), ms);
+    return () => window.clearTimeout(id);
+  }, [ativa, ms]);
+  return segurando;
 }
 
 /**

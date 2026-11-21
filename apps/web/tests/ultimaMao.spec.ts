@@ -59,11 +59,15 @@ test("aparece na mão 10, some sozinho e não deixa nada interceptando", async (
   ).toBe(true);
 
   // FICA TEMPO DE LER. Foram de 1,9s para 2,6s e, depois do segundo teste em aparelho, para
-  // 3,3s de permanência + 0,42s de saída — cerca de 3,7s de presença. O teste cobra o piso novo:
-  // ainda na tela depois de 3s. É proposital que ele meça o PISO e não o valor exato: o número
-  // pode ser afinado de novo, o que não pode é encolher para menos do que se lê.
-  await page.waitForTimeout(Math.max(0, 3000 - (Date.now() - desdeQueApareceu)));
+  // 3,3s de permanência + 0,42s de saída (~3,7s); com a cinemática longa, 5,58s + 0,42s = 6s.
+  // O teste cobra o piso novo: ainda na tela depois de 5s. É proposital que ele meça o PISO e não
+  // o valor exato: o número pode ser afinado de novo, o que não pode é encolher para menos do que
+  // se lê. (Se a sondagem de cima atrasar e passar dos 5s, a espera vira zero e a asserção ainda
+  // vale: a permanência é 5,58s.)
+  await page.waitForTimeout(Math.max(0, 5000 - (Date.now() - desdeQueApareceu)));
   await expect(page.locator(".um-selo"), "sumiu antes de dar para ler").toBeVisible();
+  // e o texto continua o pedido
+  await expect(page.locator(".um-selo")).toContainText("Tudo pode mudar agora");
 
   // E SAI SOZINHO. Nada de exigir toque.
   await expect(page.locator(".um")).toHaveCount(0, { timeout: 8000 });
@@ -124,7 +128,7 @@ test("com MOVIMENTO REDUZIDO a informação continua inteira", async ({ page }, 
  * painel da mão, cards dos jogadores e card de trunfo?". A resposta honesta tem duas partes, e
  * este teste mede as duas em vez de responder "parece bom".
  *
- *   1. SIM, POR PROJETO. `.um` é `position:fixed; inset:0`: durante ~3,7s ele está por cima da
+ *   1. SIM, POR PROJETO. `.um` é `position:fixed; inset:0`: durante ~6s ele está por cima da
  *      Mesa inteira. É um anúncio, não um card — cobrir é o que ele faz.
  *   2. E ISSO NÃO CUSTA NADA, que é a parte que precisa ser provada: ele entra no INÍCIO da mão
  *      10, quando nenhuma decisão está pendente; não desloca nem redimensiona um único elemento

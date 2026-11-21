@@ -33,6 +33,7 @@ import { TEMPOS } from "../match/tempos.js";
 import {
   espelhoVazio, pausaDaLeitura, publicarNoEspelho, respiroDaLeitura, saltarEspelho, type EspelhoDaFila,
 } from "../match/pausaDaVaza.js";
+import { placarLiberadoEm } from "../match/pisoDoPlacar.js";
 import { IdentidadeRecusada, verificadorEmUso, type IdentidadeVerificada } from "../auth/identidade.js";
 import { progressoEmUso } from "../progresso/servico.js";
 import { esquecerSala, registrarSala } from "../progresso/salasVivas.js";
@@ -245,13 +246,20 @@ export class KingRoom extends Room<{
   #decisaoSeq = 0;
   /** Quando a mão corrente terminou — origem dos prazos de auto-ready. */
   #maoTerminouEm = 0;
+  /**
+   * Quando a vaza que ENCERROU a mão entra na mesa dos clientes (espelho da fila). Origem do piso
+   * do Placar da mão do Rei (`placarLiberadoEm`). Gravado UMA vez, na publicação que fecha a mão;
+   * reconexão e ressincronização não o mexem — a cena do Rei não recomeça e o piso não reinicia.
+   */
+  #vazaFinalEntraEm = 0;
 
   /**
    * ══ A APRESENTAÇÃO DA VAZA QUE FECHOU ══
    *
    * Quando uma vaza fecha, a mesa PARA para todo mundo ler o que aconteceu — 1150ms numa vaza
-   * comum, 3400ms no Rei de Copas. O servidor não para junto, e é isso que estava certo: parar
-   * somaria espera sobre uma espera que o jogador já vê.
+   * comum, 6500ms no Rei de Copas (que encerra a mão 5: depois dela vem o Placar, não uma vez).
+   * O servidor não para junto, e é isso que estava certo: parar somaria espera sobre uma espera
+   * que o jogador já vê.
    *
    * O que estava errado era COBRAR esse tempo do próximo jogador. O prazo dele começava com a
    * mesa parada, e ele recebia 23s de um prazo de 25s sem ter feito nada.
@@ -648,7 +656,7 @@ export class KingRoom extends Room<{
    * primeira decisão da última mão cai numa janela em que ninguém está olhando para a mesa.
    *
    * Sem isto, os dois lados perdem: quem escolhe o trunfo perderia do próprio prazo o tempo do
-   * anúncio, e um bot escolheria por trás dele (cortesia de 900ms contra ~3,7s de animação) — a
+   * anúncio, e um bot escolheria por trás dele (cortesia de 900ms contra ~6s de animação) — a
    * mesa reapareceria com a mão já em curso. Nenhum dos dois se conserta no cliente, porque o
    * prazo é autoritativo e o bot é o servidor.
    *
@@ -677,11 +685,12 @@ export class KingRoom extends Room<{
     if (h.handScores !== null) {
       // READY é de todos: o prazo é o do assento que estoura primeiro.
       const base = this.#maoTerminouEm || Date.now();
+      const piso = this.#placarLiberadoEm();
       let menor = Infinity;
       for (const a of this.state.seats) {
         if (a.playerId === ASSENTO_VAZIO || a.ready) continue;
         const limite = a.connected ? TEMPOS.autoReadyConectado : TEMPOS.autoReadyDesconectado;
-        menor = Math.min(menor, base + Math.max(TEMPOS.pisoDoPlacar, limite) - Date.now());
+        menor = Math.min(menor, Math.max(piso, base + limite) - Date.now());
       }
       if (menor === Infinity) return null; // todos prontos: quem cuida é #tentarAvancar
       return { tipo: "READY", seat: null, prazo: Math.max(0, menor) };
@@ -715,7 +724,15 @@ export class KingRoom extends Room<{
     this.#pendencia = null;
 
     const d = this.#decisaoPendente();
-    if (!d) return;
+    if (!d) {
+      // OS QUATRO JÁ ESTÃO PRONTOS e o piso do Placar ainda corre: o timer do avanço era um dos
+      // que acabaram de ser limpos acima (queda ou volta no Placar chama `#reagendar`). Sem
+      // rearmá-lo a mesa ficava parada para sempre — ninguém mais manda mensagem. Medido em
+      // `placarDoRei.test.ts` (queda/volta aos 4s do Placar do Rei: a mão 6 nunca abria).
+      // `#tentarAvancar` não faz nada sem os quatro, e rearma pelo MESMO instante: não reinicia.
+      this.#tentarAvancar();
+      return;
+    }
 
     const id = ++this.#decisaoSeq;
     const versao = this.autoridade.stateVersion;
@@ -790,10 +807,11 @@ export class KingRoom extends Room<{
   #autoReady(): void {
     const base = this.#maoTerminouEm || Date.now();
     const agora = Date.now();
+    const piso = this.#placarLiberadoEm();
     for (const a of this.state.seats) {
       if (a.playerId === ASSENTO_VAZIO || a.ready) continue;
       const limite = a.connected ? TEMPOS.autoReadyConectado : TEMPOS.autoReadyDesconectado;
-      if (agora + 1 < base + Math.max(TEMPOS.pisoDoPlacar, limite)) continue;
+      if (agora + 1 < Math.max(piso, base + limite)) continue;
       const seat = a.seat as Seat;
       const r = this.autoridade.marcarPronto(seat, a.playerId, {
         actionId: "auto:ready:" + seat + ":" + base,
@@ -811,10 +829,11 @@ export class KingRoom extends Room<{
   /**
    * Avança a mão se houver consenso E o piso de leitura do Placar já tiver passado.
    * O piso vale mesmo com os quatro prontos de imediato: o Placar entre-mãos precisa ser visto.
+   * Na mão do Rei o piso é outro, maior e contado de outro instante (`placarLiberadoEm`).
    */
   #tentarAvancar(): boolean {
     if (this.autoridade.prontos.length < 4) return false;
-    const falta = this.#maoTerminouEm + TEMPOS.pisoDoPlacar - Date.now();
+    const falta = this.#placarLiberadoEm() - Date.now();
     if (falta > 0) {
       const id = ++this.#decisaoSeq;
       const versao = this.autoridade.stateVersion;
@@ -831,6 +850,19 @@ export class KingRoom extends Room<{
     for (const a of this.state.seats) a.ready = false; // mão nova, consenso zerado
     this.#publicar("HAND_ADVANCED");
     return true;
+  }
+
+  /**
+   * Quando a mão seguinte pode começar, no mais cedo: o piso geral do Placar (8s do fim da mão)
+   * ou, na mão do Rei, o piso dela (11,5s da entrada da vaza do K♥ na mesa). Vale para o consenso
+   * dos quatro, para o auto-ready e para o prazo anunciado no `TURN_CLOCK` do READY.
+   */
+  #placarLiberadoEm(): number {
+    return placarLiberadoEm({
+      m: this.autoridade.estadoAutoritativo(),
+      maoTerminouEm: this.#maoTerminouEm || Date.now(),
+      vazaFinalEntraEm: this.#vazaFinalEntraEm,
+    });
   }
 
   /** Espelha no estado público quem já pediu a próxima mão. */
@@ -930,6 +962,7 @@ export class KingRoom extends Room<{
       if (this.#maoTerminouEm === 0) this.#maoTerminouEm = Date.now();
     } else {
       this.#maoTerminouEm = 0;
+      this.#vazaFinalEntraEm = 0;
     }
     // instante em que a mão COMEÇOU: origem do respiro de abertura da última mão. Marcado pela
     // TROCA do número da mão, e não pela ausência de `handScores` — senão cada publicação da
@@ -956,6 +989,11 @@ export class KingRoom extends Room<{
       }, TEMPOS.passoDaApresentacao);
       this.#espelhoDaFila = r.espelho;
       this.#visivelEm = r.visivelEm;
+      // A vaza que ENCERROU a mão: quando ela entra na mesa é quando a pausa de leitura começa
+      // (a cena do Rei, na mão 5). Uma vez só por mão — é a origem do piso do Placar do Rei.
+      if (fechou && m?.hand?.handScores != null && this.#vazaFinalEntraEm === 0) {
+        this.#vazaFinalEntraEm = r.visivelEm;
+      }
     }
     this.#vazasFechadas = fechadas;
     for (const c of this.clients) this.#publicarPara(c as ClienteDoKing, causa);

@@ -29,7 +29,7 @@ const HORA = 3_600_000;
 /** Padrão: nada estoura sozinho. Cada teste encurta o que quiser exercitar. */
 const PARADO = {
   turno: HORA, primeiraJogadaExtra: 0, trunfo: HORA,
-  aviso: 60_000, critico: 30_000, pisoDoPlacar: 1,
+  aviso: 60_000, critico: 30_000, pisoDoPlacar: 1, pisoDoPlacarDoRei: 1,
   autoReadyDesconectado: HORA, autoReadyConectado: HORA,
   cortesiaDoBot: 5, lobbyReservaAposQueda: HORA, salaOrfa: HORA,
   // Esta suíte não exercita o respiro da abertura: zerado para a mão 10 se comportar como as

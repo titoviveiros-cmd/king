@@ -5,6 +5,7 @@ import { NOMES_DA_MESA_LOCAL } from "./adversarios.js";
 import { useApresentacao } from "./useApresentacao.js";
 import { useSonsDeTransicao } from "./useSonsDeTransicao.js";
 import { TEMPOS } from "./timings.js";
+import { podeAvancarDoPlacar } from "./placarDoRei.js";
 import { audio } from "../audio/engine.js";
 import { anunciarInicioDePartida } from "../analytics/partida.js";
 import { sfxTrump } from "../audio/sounds.js";
@@ -54,7 +55,7 @@ export function useKingGame() {
   const ref = useRef<KingGame | null>(null);
   const [screen, setScreen] = useState<"home" | "mesa">("home");
   const ap = useApresentacao();
-  const { bump, afterPlay, emLeitura, emPausa, suspender, limpar } = ap;
+  const { bump, afterPlay, emLeitura, emPausa, pausaAte, suspender, limpar } = ap;
 
   /**
    * O avatar da partida em curso.
@@ -146,8 +147,13 @@ export function useKingGame() {
   }, [bump]);
   const advanceHand = useCallback(() => {
     const g = ref.current;
-    if (g) { g.advanceHand(); limpar(); bump(); }
-  }, [bump, limpar]);
+    if (!g) return;
+    // MÃO DO REI: o Placar fica na tela ao menos `leituraDoPlacarDoRei()` depois da cena. O botão
+    // já nasce desabilitado (Placar.tsx); esta guarda é a autoridade do solo — um Enter ou um
+    // toque que escape do botão não encurta a leitura. As outras nove mãos passam direto.
+    if (!podeAvancarDoPlacar(g, pausaAte(), Date.now())) return;
+    g.advanceHand(); limpar(); bump();
+  }, [bump, limpar, pausaAte]);
 
   return {
     game: ref.current as KingGame | null,

@@ -140,6 +140,50 @@ Fonte única de verdade UI × multiplayer:
 Política parametrizável: tempo normal → aviso → crítico → ação após timeout. Nunca travar a
 partida indefinidamente; nunca curto a ponto de prejudicar iniciantes.
 
+### Pausas de apresentação que o servidor conhece (cinemática longa)
+Duas cenas param a Mesa e o servidor sabe disso, para não cobrar o tempo delas de ninguém nem
+deixar um bot agir por trás delas. Os números vivem em `apps/web/src/game/timings.ts` /
+`apps/web/src/ui/UltimaMao.tsx` (cliente) e `apps/server/src/match/tempos.ts` (servidor), e testes
+de contrato reprovam se os dois lados se separarem (`cinematica.test.ts`, `prazoIntegral.test.ts`,
+`ultimaMao.test.ts`).
+
+| Momento | Antes | Agora | O que o servidor faz com o número |
+|---|---|---|---|
+| Rei de Copas capturado — cena | 2000 ms | 5000 ms | nada (é do cliente) |
+| Rei de Copas — destaque na mesa | 1350 ms | 1350 ms | nada |
+| Rei de Copas — pausa (`leituraDaVazaKing`) | 3400 ms | 6500 ms | espelho da fila; a vaza do K♥ **encerra a mão 5**, então a decisão seguinte é o READY do Placar — nenhum prazo de jogada é estendido |
+| Última Mão — anúncio (`aberturaDaUltimaMao`) | 3720 ms | 6000 ms | soma ao prazo da 1ª decisão da mão 10 (decai desde o início da mão) e segura o bot pelo mesmo tempo |
+| Placar da mão do Rei (`pisoDoPlacarDoRei`) | 8000 ms do fim da mão (~1,5 s de Placar depois da cena) | 11500 ms da entrada da vaza do K♥ na mesa (≥ 4,6 s de Placar + 0,4 s de folga) | piso do avanço da mão 5→6: vale para o consenso dos quatro, para o auto-ready e para o prazo do READY |
+
+**Piso do Placar da mão do Rei.** O piso geral do Placar (`pisoDoPlacar`, 8000 ms) conta do fim da
+mão no servidor e vale nas outras nove mãos, sem mudança. Na mão 5 (`no-king`) o servidor usa
+`placarLiberadoEm` (`apps/server/src/match/pisoDoPlacar.ts`): `max(fim + 8000, entradaDaVazaDoK♥ +
+11500)`, em que a entrada vem do espelho da fila do cliente (`publicarNoEspelho`) — se a vaza do K♥
+esperou a cadência, a cena e o Placar começam depois, e o piso anda junto. A latência de rede não
+entra: o Placar e o avanço chegam com o mesmo atraso. Confirmações antecipadas (inclusive de
+cliente antigo, que manda a mesma mensagem) e o auto-ready não encurtam o piso; a reconexão não o
+reinicia (o instante é gravado uma vez por mão) e, com os quatro prontos, uma queda/volta no meio
+rearma o avanço em vez de deixá-lo sem relógio. No SOLO quem segura é o cliente
+(`apps/web/src/game/placarDoRei.ts`): "Próxima mão" nasce desabilitado e o hook ignora pedido antes
+de `pausaAte() + (11500 − 6500)`. Testes: `match/pisoDoPlacar.test.ts`, `rooms/placarDoRei.test.ts`,
+`cinematica.test.ts` (contrato web × servidor), `ui/placarDoRei.test.tsx`, `tests/reiCapturado.spec.ts`.
+
+**Compatibilidade.** `PROTOCOL_VERSION` (3) e as mensagens não mudam; mudam só durações.
+- *Servidor novo + cliente antigo* (web de Production atual, AAB 0.1.1): na mão 5 o Placar fica
+  ≥ 4,6 s mesmo que o cliente antigo confirme no primeiro instante — quem segura é o servidor; o
+  cliente antigo só vê "Estou pronto" aguardando um pouco mais. Na
+  mão 10 o cliente antigo termina o anúncio em ~3,7s e a mesa espera ~2,3s a mais pelo primeiro
+  bot, ou o humano da vez vê ~2,3s a mais no relógio. Só espera — o cliente não tem heurística de
+  "conexão lenta" por silêncio (o único prazo do cliente é o de ENTRAR na sala).
+- *Cliente novo + servidor antigo*: online, na mão 5 volta o comportamento antigo (~1,5 s de Placar
+  depois da cena, porque quem segura online é o servidor); o solo já segura no cliente. Na mão 10 o servidor antigo só
+  segura o bot por 3,72s: ele decide durante o anúncio de 6s. A Mesa não mostra nada por trás do
+  véu (a fila represa e apresenta depois), mas quem tiver a vez aberta durante o anúncio perde até
+  ~2,3s do próprio prazo. É o único caso ruim.
+
+**Ordem de deploy:** servidor primeiro, web depois (o AAB pode ficar como está). Para reverter, a
+ordem inversa: web primeiro, servidor depois.
+
 ## Roadmap aprovado (auditoria de 18/08/2026)
 1. ✅ **Milestone 2 — Placar Final** + áudio + ciclo de testes/build. Integrado à `main`.
 2. ✅ **Milestone 3 — Bot Normal V1** (22/08/2026). Heurístico, sem busca em árvore nem modelo de

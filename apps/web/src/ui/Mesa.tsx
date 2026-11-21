@@ -337,9 +337,9 @@ export function Mesa({
   // dela. Vale enquanto o selo está na tela (mesma condição dele), sobre a vaza já revelada e
   // pública. Som, tremor e −160 são os do selo: nada aqui toca, vibra ou recalcula.
   const kCapturado = !!castigo?.king && reviewing && winnerSeat !== null && winnerSeat === castigo.seat;
-  // EM SEQUÊNCIA, NUNCA AO MESMO TEMPO: primeiro a cena central "O REI FOI CAPTURADO!" (2s, ver
+  // EM SEQUÊNCIA, NUNCA AO MESMO TEMPO: primeiro a cena central "O REI FOI CAPTURADO!" (5s, ver
   // ReiCapturado.tsx); quando ela sai — pelo tempo ou pelo toque —, a mesa assume com o selo, a
-  // aura vinho do K♥ e o card do penalizado (1,35s). As duas cabem na pausa do King, que não muda.
+  // aura vinho do K♥ e o card do penalizado (1,35s). As duas cabem na pausa do King (6,5s).
   const [, redesenhar] = useReducer((x: number) => x + 1, 0);
   const cenaDoRei = kCapturado && !cenaDoReiJaVista(castigo!.nonce);
   const kNaMesa = kCapturado && !cenaDoRei;
@@ -414,6 +414,7 @@ export function Mesa({
       {cenaDoRei && castigo && (
         <ReiCapturado
           key={castigo.nonce}
+          nonce={castigo.nonce}
           quem={castigo.jogador}
           voce={castigo.voce}
           pontos={castigo.pontos}

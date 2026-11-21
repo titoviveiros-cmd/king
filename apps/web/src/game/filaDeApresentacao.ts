@@ -34,13 +34,17 @@ export function ehSalto(causa: Causa): boolean {
  * O colapso existe para a avalanche de quem volta do segundo plano, e estava disparando no meio
  * de uma partida comum.
  *
- * O piso é quantas jogadas cabem na maior pausa aprovada:
- *
- *     ceil(leituraDaVazaKing / cortesiaDoBot) = ceil(3400 / 900) = 4
+ * O piso é quantas jogadas cabem na maior pausa aprovada SOB A QUAL O SERVIDOR CONTINUA JOGANDO.
+ * Quando este número foi escolhido, era o Rei de Copas: ceil(3400 / 900) = 4.
  *
  * O valor é 5, um acima do piso — porque "cabe exatamente" é sorte, não margem: bastaria a pausa
  * crescer um pouco, ou um tique cair do lado errado da borda, para voltar a descartar carta. O
  * teste de cadência recalcula esse piso a partir dos dois arquivos e reprova se a folga sumir.
+ *
+ * O Rei de Copas cresceu depois para 6500ms (a cena "O REI FOI CAPTURADO") e saiu da conta: a
+ * captura do K♥ ENCERRA a mão 5, então nenhuma jogada é produzida durante a pausa dele — o que
+ * vem depois é o Placar. Isso é provado com o motor em `cinematica.test.ts`. A maior pausa com
+ * jogo por baixo hoje é a da bucha (2700ms → piso 3), e o 5 ficou com mais folga, não menos.
  *
  * O outro lado continua protegido: uma aba que passou minutos em segundo plano volta com dezenas
  * de atualizações, muito acima de 5, e continua colapsando como sempre.
