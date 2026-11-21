@@ -214,7 +214,13 @@ function observadorDaPartida(page: Page) {
   let marca = "", desde = t0, ultimaOlhada = 0, ultimoAlarme = 0, ultimoErro = "";
   const seg = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
   return {
-    erro: (e: unknown) => { ultimoErro = String((e as Error)?.message ?? e).split("\n").slice(0, 4).join(" ⏎ ").slice(0, 300); },
+    // O motivo de o Playwright não clicar fica nas linhas do "Call log" (sobreposto, instável,
+    // fora da tela...): guarda a 1ª linha e as distintas que dizem POR QUÊ.
+    erro: (e: unknown) => {
+      const linhas = String((e as Error)?.message ?? e).split("\n").map((l) => l.replace(/\u001b\[\d+m/g, "").trim());
+      const porque = [...new Set(linhas.filter((l) => /intercept|stable|visible|enabled|viewport|scroll|detached|resolved to/.test(l)))];
+      ultimoErro = [linhas[0], ...porque].join(" ⏎ ").slice(0, 900);
+    },
     async talvez(i: number) {
       if (Date.now() - ultimaOlhada < 10_000) return;
       ultimaOlhada = Date.now();
@@ -235,7 +241,19 @@ function observadorDaPartida(page: Page) {
           sel: document.querySelectorAll(".hand .card.sel").length,
           telas: [".um", ".rc", ".placar", ".fim", ".trumpbtn", ".novorecorde"].filter((s) => document.querySelector(s)),
           proxima: prox ? (prox.disabled ? "desabilitado" : "habilitado") : "-",
-          animacoes: document.getAnimations().length,
+          animacoes: document.getAnimations().map((a) => {
+            const alvo = (a.effect as KeyframeEffect | null)?.target as Element | null;
+            return `${(a as CSSAnimation).animationName ?? "?"}@${alvo?.tagName.toLowerCase()}.${String(alvo?.className ?? "").trim().replace(/\s+/g, ".")}:${a.playState}`;
+          }),
+          // quem recebe o toque no centro da 1ª carta jogável, e onde ela está
+          alvo: (() => {
+            const c = document.querySelector('.hand .card[role="button"]') as HTMLElement | null;
+            if (!c) return "-";
+            const r = c.getBoundingClientRect();
+            const topo = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) as HTMLElement | null;
+            const dono = topo && (c === topo || c.contains(topo)) ? "a própria carta" : `${topo?.tagName.toLowerCase()}.${String(topo?.className ?? "").trim().replace(/\s+/g, ".")}`;
+            return `${c.getAttribute("aria-label")} [${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}] em ${innerWidth}x${innerHeight} → ${dono}`;
+          })(),
         });
       }).catch((e) => `avaliação falhou: ${String(e).slice(0, 120)}`);
       console.log(`[partida ${seg()}] PARADA há ${((Date.now() - desde) / 1000).toFixed(0)}s em "${marca}" it${i} ${estado} último erro: ${ultimoErro || "-"}`);
