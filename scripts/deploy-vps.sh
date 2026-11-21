@@ -232,6 +232,20 @@ conferir_artefato "apps/server/dist/index.js" \
   "iniciarExpurgoDeLapides" "boot liga o expurgo das lapides" || ART="$ART expurgo-boot"
 conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
   "registrarSala" "salas vivas protegem a lapide de quem esta nelas" || ART="$ART salas-vivas"
+# PENALIDADE DO REI (Entrega C, PR #16): o servidor le do HISTORICO do motor quem capturou o K♥ na
+# mao 5, entrega o fato ao registrador e credita pela porta v2 (que cai na v1 se o banco nao a tiver).
+# Sem estes, o binario seria o da Fase II e a regra 2 nunca entraria - em silencio.
+conferir_artefato "apps/server/dist/progresso/capturaDoRei.js" \
+  "^export function capturadorDoRei\(" "captura do Rei lida do historico do motor" || ART="$ART rei-captura"
+conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
+  "capturouRei: capturadorDoRei\(m\)," "captura do Rei entregue ao registrador" || ART="$ART rei-integrado"
+conferir_artefato "apps/server/dist/progresso/tipos.js" \
+  "^export const REGRA_ATUAL = 2;$" "regra de XP atual = 2" || ART="$ART rei-regra"
+conferir_artefato "apps/server/dist/progresso/repositorio.js" \
+  "king_private\.creditar_partida_v2\(" "porta v2 do credito (cai na v1 sem o banco novo)" || ART="$ART rei-porta-v2"
+# Quem senta no lugar de quem saiu joga pelo assento, mas nao vira participacao (nem XP) do dono ausente.
+conferir_artefato "apps/server/dist/rooms/KingRoom.js" \
+  "dados\.playerId === this\.#elenco\[dados\.seat\]\?\.playerId" "troca de ocupante nao credita o dono ausente" || ART="$ART troca-ocupante"
 [ -z "$ART" ] || abortar "artefato nao carrega a correcao aprovada:$ART"
 
 echo "=== IDENTIDADE: ARQUIVO PERSISTENTE, ANTES DO RESTART ==="
